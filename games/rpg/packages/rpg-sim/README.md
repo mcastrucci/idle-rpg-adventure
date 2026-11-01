@@ -18,7 +18,7 @@ step(state: CombatState, inputs: readonly CombatInput[], rng?: RngStreams): { st
 isFinished(state: CombatState): 'victory' | 'defeat' | null
 runToEnd(setup, seed, policy = NO_INPUTS, maxTicks = 10_000): { outcome: 'victory' | 'defeat' | 'timeout'; events; ticks; state }
 hashEvents(events): string          // 16-hex fingerprint for golden replays / caching
-ENGINE_VERSION                      // 'rpg-sim@1.0.0'
+ENGINE_VERSION                      // 'rpg-sim@1.1.0'
 ```
 
 - **`CombatSetup`**: `heroes[]` (`id`, `build: DeriveStatsInput`, `skills` loadout, `rules`, optional `consumables`,
@@ -100,6 +100,12 @@ Stacking/refresh (a replacement expires the old instance with reason `replaced`,
 | `stat_mod` | one per (holder, source, origin, stat); others stack additively |
 | `cleanse` | removes dots, stuns and negative `stat_mod`s from the recipient (`Cleansed` + `EffectExpired` `cleansed`) |
 
+**Guard vs secondary control** (combat-engine §5, #71, since 1.1.0): a `shield`/positive `stat_mod` with `guard: true`
+makes its holder *guarding*. When an attack resolves, targets guarding at the start of the resolution do not receive
+the attack's `negatedByGuard` effects (a `stun`); `EffectNegated` (`reason: guarded`) is emitted instead. Everything else
+resolves normally, and the guard effects are consumed by their own duration units (a 1-attack guard by this hit). A guard
+shield depleted by the hit still counts.
+
 Taunt forces the holder's single-target `enemy` skills onto the taunter; taunts expire (`sourceDied`) when the taunter
 dies. Effects on a dead actor are dropped without events.
 
@@ -107,7 +113,8 @@ dies. Effects on a dead actor are dropped without events.
 
 One evaluator for live auto mode, disconnected participants (`setAuto`) and idle. Rules are tried top-down; the first
 whose conditions (ANDed: `selfHpBelowBp`, `allyHpBelowBp`, `enemyTelegraphing`, `skillReady`, `enemiesAtLeast`,
-`hasConsumable`) hold **and** whose action is executable now (skill equipped, off cooldown, a target exists; consumable
+`hasConsumable`, `selfHasHarmfulEffect` — carries a dot, stun or negative `stat_mod`, i.e. something `cleanse` removes)
+hold **and** whose action is executable now (skill equipped, off cooldown, a target exists; consumable
 in stock) fires. Consumables decrement the in-combat counter and emit `ConsumableUsed`.
 
 Targets: `self` / `allAllies` / `allEnemies` by targeting; `enemy` skills default to `lowestHpEnemy`, `ally` skills to
@@ -124,31 +131,39 @@ boss moves to the deepest phase with `hpBp ≤ fromHpBp` (`PhaseChanged`, rotati
 Typed, append-only, each with `seq` (0-based, contiguous for the whole combat) and `tick`: `CombatStarted`,
 `ActionStarted`, `TelegraphStarted`, `ActionInterrupted`, `ActionSkipped`, `DamageDealt` (`amount` HP lost,
 `absorbed`, `crit`, `periodic`, `hpAfter`), `Healed`, `EffectApplied`, `EffectExpired` (`duration` / `depleted` /
-`cleansed` / `replaced` / `sourceDied`), `Cleansed`, `ConsumableUsed`, `ActorDied`, `PhaseChanged`, `AutoToggled`,
-`InputRejected`, `CombatEnded`. Beyond §9: `ActionInterrupted`, `ActionSkipped`, `Cleansed`, `AutoToggled`,
-`InputRejected`.
+`cleansed` / `replaced` / `sourceDied`), `Cleansed`, `EffectNegated`, `ConsumableUsed`, `ActorDied`, `PhaseChanged`,
+`AutoToggled`, `InputRejected`, `CombatEnded`. Beyond §9: `ActionInterrupted`, `ActionSkipped`, `Cleansed`,
+`EffectNegated`, `AutoToggled`, `InputRejected`.
 
 ## Tests and golden replays
 
 - `engine.test.ts` (#20): tick order/initiative, intervals and cooldowns, manual inputs and rejections, telegraphs,
   stun interrupt, determinism, `step` ≡ `runToEnd`, mid-combat JSON round-trip, properties (HP ≥ 0, append-only
   events, finished stays finished), N vs M.
-- `effects.test.ts` (#21): 3-attack taunt at two attack rates, every effect type and duration unit, stacking, shields,
-  cleanse.
-- `rules.test.ts` (#22): rule order, conditions, selectors, consumables, shared evaluator, AI list, boss phases, and a
+- `effects.test.ts` (#21, #71): 3-attack taunt at two attack rates, every effect type and duration unit, stacking,
+  shields, cleanse; guard vs secondary control (guarded telegraph does not stun, unguarded does, unmarked buffs do not
+  negate, a depleted guard shield still counts, per-target judgement).
+- `rules.test.ts` (#22, #71): rule order, conditions (including `selfHasHarmfulEffect` firing a cleanse on a DoT, not
+  on a taunt), selectors, consumables, shared evaluator, AI list, boss phases, and a
   Monte Carlo over 100 seeds where a manual `guard` answer to the telegraphed heavy strike beats naive rules. The test
   `guard` blocks only the next received attack, so a control that uses guard whenever it is ready shows that the
   *timing* is what matters (at 1.0.0, wins out of 100: naive 0, guard on cooldown 78, guard on telegraph 99 as a
   manual input or as an automation rule). The heavy strike's windup (6) is not shorter than the hero's interval (6),
   so a ready action always falls inside the window. With a shorter windup, an automation rule can only react if the
   hero happens to be ready during it. That is a content tuning lever, not an engine rule.
-- `golden.test.ts`: frozen `hashEvents` per case for `ENGINE_VERSION`. **Update procedure** (deliberate behaviour
-  changes only): bump `ENGINE_VERSION` in `src/version.ts`; run `pnpm vitest run --project @rpg/rpg-sim golden`; copy
-  the printed hashes into `GOLDEN` (with the new version) in the same commit, explaining the change. A hash change
-  without a version bump, or a bump without new fixtures, fails the suite. Editing the test content in
-  `testing/fixtures.ts` changes the inputs, not the engine: update the hashes without a bump and say so in the commit.
-  CI runs it on Node 22 and 24.
-- `region-1.smoke.test.ts`: builds combats from the compiled Region 1 content (provisional, not a balance check).
+- `golden.test.ts` + `golden.json`: frozen `hashEvents` per case, as an **append-only history keyed by
+  `ENGINE_VERSION`**. **Update procedure** (deliberate behaviour changes only): bump `ENGINE_VERSION` in
+  `src/version.ts`; run `pnpm vitest run --project @rpg/rpg-sim golden`; append the printed hashes to `golden.json` as a
+  new entry under the new version (never edit an existing entry) in the same commit, explaining the change. What fails
+  CI: a hash change without new fixtures (test); a bump without a fixture entry, or a current version that is not the
+  last entry (test); hashes edited under an existing version, i.e. new hashes without a bump (CI step
+  `tools/golden/check-append-only.ts` against the PR base, the previous push on the default branch, or the merge base
+  with the default branch elsewhere). New cases may be added to the current entry. Editing test content in `testing/fixtures.ts` that changes an existing case also needs a new entry (bump, and say that
+  only the inputs changed). CI runs it on Node 22 and 24. 1.1.0 (#71) changed no existing replay except the version
+  stamp in `CombatStarted` (verified by re-running 1.0.0's fixtures with the old version string) and added the
+  `brute-*` guard cases.
+- `region-1.smoke.test.ts`: builds combats from the compiled Region 1 content (provisional, not a balance check), and
+  checks that `guard` negates the Hollow Matriarch's `crushing_blow` stun while unguarded blows stun.
 
 Content in tests is small and in-test (`src/combat/testing/fixtures.ts`), parsed through the `@rpg/rpg-schema` schemas.
 

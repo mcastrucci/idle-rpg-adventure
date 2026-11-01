@@ -164,6 +164,8 @@ interface EffectBase {
   readonly appliedTick: number;
   readonly unit: DurationUnit;
   remaining: number;
+  /** Guard marker (shield / positive stat_mod with `guard: true`): negates `negatedByGuard` effects of hits received. */
+  readonly guard: boolean;
 }
 
 export type ActiveEffect = EffectBase &
@@ -306,6 +308,15 @@ export type CombatEvent = EventBase &
         readonly reason: EffectExpireReason;
       }
     | { readonly type: 'Cleansed'; readonly sourceId: ActorId; readonly targetId: ActorId; readonly removed: number }
+    | {
+        /** A `negatedByGuard` effect of an attack was not applied because the target was guarding (§5). */
+        readonly type: 'EffectNegated';
+        readonly sourceId: ActorId;
+        readonly targetId: ActorId;
+        readonly origin: string;
+        readonly effect: DurableEffectType;
+        readonly reason: 'guarded';
+      }
     | { readonly type: 'ConsumableUsed'; readonly actorId: ActorId; readonly item: string; readonly remaining: number }
     | { readonly type: 'ActorDied'; readonly actorId: ActorId; readonly killerId: ActorId }
     | { readonly type: 'PhaseChanged'; readonly actorId: ActorId; readonly phase: number; readonly fromHpBp: number }

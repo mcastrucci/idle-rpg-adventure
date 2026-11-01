@@ -7,7 +7,7 @@
 import { TagSchema } from '@engine/world';
 import { z } from 'zod';
 
-import { EffectSchema } from './effects.ts';
+import { EffectSchema, isNegatedByGuard } from './effects.ts';
 import { ItemIdSchema, TextKeySchema } from './ids.ts';
 import { StatMapSchema } from './stats.ts';
 
@@ -52,7 +52,11 @@ export const ConsumableItemSchema = z
     /** Effects applied to the user when consumed. */
     use: z.array(EffectSchema).min(1),
   })
-  .refine(stackingIsConsistent, { message: STACKING_MESSAGE, path: ['maxStack'] });
+  .refine(stackingIsConsistent, { message: STACKING_MESSAGE, path: ['maxStack'] })
+  .refine((item) => !item.use.some(isNegatedByGuard), {
+    message: 'negatedByGuard only applies to attack skills, not consumables',
+    path: ['use'],
+  });
 
 export const MaterialItemSchema = z
   .strictObject({ ...common, ...stacking, kind: z.literal('material') })

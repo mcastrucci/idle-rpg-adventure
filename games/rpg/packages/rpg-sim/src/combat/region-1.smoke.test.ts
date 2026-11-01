@@ -60,4 +60,30 @@ describe('Region 1 compiled content (smoke)', () => {
       if (enemy.rank === 'boss') expect(ofType(a.events, 'TelegraphStarted').length).toBeGreaterThan(0);
     }
   });
+
+  it('guard negates the Hollow Matriarch crushing-blow stun; unguarded blows stun (#71, Q-B6)', () => {
+    const fight = (heroRules: Parameters<typeof rules>[0]) =>
+      runToEnd(
+        {
+          heroes: [{ id: 'hero:a', build: BRUISER_L5, skills: ['skill:basic_attack', 'skill:guard'], rules: rules(heroRules) }],
+          enemies: [{ id: 'enemy:boss', enemy: 'enemy:hollow_matriarch' }],
+          content,
+        },
+        11,
+        undefined,
+        3000,
+      ).events;
+    const blowStuns = (events: ReturnType<typeof fight>) =>
+      ofType(events, 'EffectApplied').filter((e) => e.origin === 'skill:crushing_blow' && e.effect === 'stun');
+    const naive = fight([{ when: {}, do: { useSkill: 'skill:basic_attack' } }]);
+    const guarded = fight([
+      { when: { enemyTelegraphing: true, skillReady: 'skill:guard' }, do: { useSkill: 'skill:guard' } },
+      { when: {}, do: { useSkill: 'skill:basic_attack' } },
+    ]);
+    expect(blowStuns(naive).length).toBeGreaterThan(0);
+    expect(ofType(naive, 'EffectNegated')).toEqual([]);
+    const negated = ofType(guarded, 'EffectNegated');
+    expect(negated.length).toBeGreaterThan(0);
+    expect(negated.every((e) => e.origin === 'skill:crushing_blow' && e.effect === 'stun')).toBe(true);
+  });
 });

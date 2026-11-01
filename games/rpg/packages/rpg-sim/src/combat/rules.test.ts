@@ -1,3 +1,4 @@
+import { EnemySchema } from '@rpg/rpg-schema';
 import { describe, expect, it } from 'vitest';
 
 import { createCombat, runToEnd } from '../index.ts';
@@ -13,6 +14,7 @@ import {
   manualGuardPolicy,
   ofType,
   rules,
+  striker,
 } from './testing/fixtures.ts';
 
 function solo(hero: Partial<HeroSetup>, enemies: EnemySetup[]): CombatSetup {
@@ -201,5 +203,69 @@ describe('telegraph balance (Monte Carlo over seeds)', () => {
     expect(auto.wins).toBeGreaterThanOrEqual(naive.wins + N / 2);
     expect(manual.wins).toBeGreaterThanOrEqual(spam.wins + N / 10);
     expect(manual.hpLeft).toBeGreaterThan(naive.hpLeft);
+  });
+});
+
+describe('selfHasHarmfulEffect (cleanse automation)', () => {
+  const CLEANSE_RULES = rules([
+    { when: { selfHasHarmfulEffect: true, skillReady: 'skill:purify' }, do: { useSkill: 'skill:purify', target: 'self' } },
+    { when: {}, do: { useSkill: 'skill:strike' } },
+  ]);
+  const hero = { skills: ['skill:strike', 'skill:purify'], rules: CLEANSE_RULES };
+
+  it('fires on a DoT: the faster hexer opens with firebolt, the hero cleanses the DoT in the same tick', () => {
+    const { events } = advance(createCombat(solo(hero, [{ id: 'enemy:h', enemy: 'enemy:hexer' }]), 1), 1);
+    const dot = ofType(events, 'EffectApplied').find((e) => e.effect === 'dot' && e.targetId === 'hero:a');
+    expect(dot).toMatchObject({ tick: 1, origin: 'skill:firebolt' });
+    expect(heroActions(events).map(actionName)).toEqual(['skill:purify']);
+    expect(ofType(events, 'Cleansed')).toMatchObject([{ tick: 1, sourceId: 'hero:a', targetId: 'hero:a', removed: 1 }]);
+    expect(ofType(events, 'EffectExpired')).toMatchObject([{ effectUid: dot?.effectUid, reason: 'cleansed' }]);
+  });
+
+  it('does not fire without a harmful effect, nor on a taunt (cleanse does not remove taunts)', () => {
+    const clean = advance(createCombat(solo(hero, dummies(5000)), 1), 1).events;
+    expect(heroActions(clean).map(actionName)).toEqual(['skill:strike']);
+
+    const taunted = advance(createCombat(solo(hero, [{ id: 'enemy:t', enemy: 'enemy:bully' }]), 1), 1).events;
+    expect(ofType(taunted, 'EffectApplied').some((e) => e.effect === 'taunt' && e.targetId === 'hero:a')).toBe(true);
+    expect(heroActions(taunted).map(actionName)).toEqual(['skill:strike']);
+  });
+
+  it('negative stat_mods count; buffs do not', () => {
+    const buffed = advance(
+      createCombat(solo({ ...hero, skills: [...hero.skills, 'skill:rally'], auto: false }, dummies(5000)), 1),
+      2,
+      (t) => (t === 1 ? [{ actorId: 'hero:a', kind: 'setAuto', auto: true }, { actorId: 'hero:a', kind: 'useSkill', skill: 'skill:rally' }] : []),
+    ).events;
+    expect(heroActions(buffed).map(actionName)).not.toContain('skill:purify');
+
+    // The spider below 90% HP opens with venom (dot + armor debuff); its dot is cleansed along with the debuff.
+    const { events } = advance(createCombat(solo(hero, [{ id: 'enemy:s', enemy: 'enemy:spider', hp: 60 }]), 1), 1);
+    expect(heroActions(events).map(actionName)).toEqual(['skill:purify']);
+    expect(ofType(events, 'Cleansed')[0]?.removed).toBe(2);
+  });
+
+  it('enemy AI can use it too (shared evaluator)', () => {
+    const cleanser = EnemySchema.parse({
+      id: 'enemy:cleanser',
+      rank: 'normal',
+      level: 1,
+      stats: { maxHp: 5000, power: 6 },
+      skills: ['skill:bite', 'skill:purify'],
+      ai: [
+        { when: { selfHasHarmfulEffect: true }, do: { useSkill: 'skill:purify', target: 'self' } },
+        { when: {}, do: { useSkill: 'skill:bite' } },
+      ],
+      xp: 0,
+    });
+    const s: CombatSetup = {
+      heroes: [striker({ rules: rules([{ when: {}, do: { useSkill: 'skill:firebolt' } }]) })],
+      enemies: [{ id: 'enemy:c', enemy: cleanser.id }],
+      content: { ...CONTENT, enemies: { ...CONTENT.enemies, [cleanser.id]: cleanser } },
+    };
+    const { events } = advance(createCombat(s, 1), 1);
+    const enemyActs = ofType(events, 'ActionStarted').filter((e) => e.actorId === 'enemy:c').map(actionName);
+    expect(enemyActs).toEqual(['skill:purify']);
+    expect(ofType(events, 'Cleansed')).toMatchObject([{ sourceId: 'enemy:c', targetId: 'enemy:c', removed: 1 }]);
   });
 });

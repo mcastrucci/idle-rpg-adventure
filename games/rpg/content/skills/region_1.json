@@ -128,7 +128,8 @@
         "duration": {
           "value": 3,
           "unit": "ticks"
-        }
+        },
+        "negatedByGuard": true
       }
     ],
     "tags": [
@@ -231,7 +232,8 @@
         "duration": {
           "value": 1,
           "unit": "attacks"
-        }
+        },
+        "guard": true
       },
       {
         "type": "stat_mod",
@@ -240,7 +242,8 @@
         "duration": {
           "value": 1,
           "unit": "attacks"
-        }
+        },
+        "guard": true
       }
     ],
     "tags": [

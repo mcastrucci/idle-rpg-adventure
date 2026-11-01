@@ -30,7 +30,7 @@ export type Scaling = 'skill' | 'item';
 
 type NewEffect = ActiveEffect extends infer E
   ? E extends ActiveEffect
-    ? Omit<E, 'uid' | 'appliedTick' | 'remaining'>
+    ? Omit<E, 'uid' | 'appliedTick' | 'remaining' | 'guard'>
     : never
   : never;
 
@@ -45,6 +45,16 @@ export function isHarmful(e: ActiveEffect): boolean {
     default:
       return false;
   }
+}
+
+/** Harmful effects that `cleanse` removes (and that `selfHasHarmfulEffect` looks for): everything harmful but taunt. */
+export function isCleansable(e: ActiveEffect): boolean {
+  return e.type !== 'taunt' && isHarmful(e);
+}
+
+/** The holder carries a guard effect (combat-engine §5 "Guard vs secondary control"). */
+export function isGuarding(ctx: Ctx, holderId: string): boolean {
+  return ctx.state.effects.some((e) => e.holderId === holderId && e.guard);
 }
 
 export function applyEffect(
@@ -65,7 +75,12 @@ export function applyEffect(
       heal(ctx, source.id, recipient, mulBp(healBase, effect.coeffBp), origin, false);
       return;
     case 'shield':
-      addDurable(ctx, { type: 'shield', holderId: recipient.id, sourceId: source.id, origin, unit: effect.duration.unit, amount: mulBp(healBase, effect.coeffBp) }, effect.duration.value);
+      addDurable(
+        ctx,
+        { type: 'shield', holderId: recipient.id, sourceId: source.id, origin, unit: effect.duration.unit, amount: mulBp(healBase, effect.coeffBp) },
+        effect.duration.value,
+        effect.guard === true,
+      );
       return;
     case 'dot':
       addDurable(
@@ -114,6 +129,7 @@ export function applyEffect(
           flat: effect.flat ?? 0,
         },
         effect.duration.value,
+        effect.guard === true,
       );
       recomputeStats(ctx.state, recipient);
       return;
@@ -130,7 +146,7 @@ export function applyEffect(
       }
       return;
     case 'cleanse': {
-      const removed = ctx.state.effects.filter((e) => e.holderId === recipient.id && e.type !== 'taunt' && isHarmful(e));
+      const removed = ctx.state.effects.filter((e) => e.holderId === recipient.id && isCleansable(e));
       for (const e of removed) expireEffect(ctx, e, 'cleansed');
       emit(ctx, { type: 'Cleansed', sourceId: source.id, targetId: recipient.id, removed: removed.length });
       return;
@@ -145,11 +161,11 @@ function sameSlot(a: ActiveEffect, b: NewEffect): boolean {
   return b.type !== 'stat_mod' || (a.type === 'stat_mod' && a.stat === b.stat);
 }
 
-function addDurable(ctx: Ctx, effect: NewEffect, value: number): void {
+function addDurable(ctx: Ctx, effect: NewEffect, value: number, guard = false): void {
   for (const old of ctx.state.effects.filter((e) => sameSlot(e, effect))) expireEffect(ctx, old, 'replaced');
   const uid = ctx.state.nextUid;
   ctx.state.nextUid += 1;
-  ctx.state.effects.push({ ...effect, uid, appliedTick: ctx.tick, remaining: value } as ActiveEffect);
+  ctx.state.effects.push({ ...effect, uid, appliedTick: ctx.tick, remaining: value, guard } as ActiveEffect);
   emit(ctx, {
     type: 'EffectApplied',
     effectUid: uid,

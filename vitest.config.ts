@@ -17,6 +17,8 @@ export default defineConfig({
           testTimeout: 30_000,
         },
       },
+      // Repository tooling (CI guards).
+      { test: { name: 'repo-tools', include: ['tools/golden/**/*.test.ts'] } },
     ],
   },
 });

@@ -1,0 +1,16 @@
+{
+  "rpg-sim@1.0.0": {
+    "party-auto-seed-42": "4a5745712a617e5d",
+    "boss-manual-guard-seed-7": "fe03c4e323165310",
+    "boss-scripted-inputs-seed-7": "0d872321acfc781a",
+    "stalemate-timeout-seed-3": "4c5e8789e891acc3"
+  },
+  "rpg-sim@1.1.0": {
+    "party-auto-seed-42": "485bf088152e882d",
+    "boss-manual-guard-seed-7": "7683a981787ba36b",
+    "boss-scripted-inputs-seed-7": "713c2ebb864fd1d8",
+    "stalemate-timeout-seed-3": "1c400bd1a2f4928c",
+    "brute-naive-seed-5": "2dc3aff8dca02e2e",
+    "brute-guard-rules-seed-5": "b9f39e0c76f9f683"
+  }
+}

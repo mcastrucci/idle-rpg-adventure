@@ -11,9 +11,9 @@ integer; percentages and coefficients are basis points (`10000` = 100%).
 |---|---|
 | `ids.ts` | `enemy:` `skill:` `item:` `loot:` `enc:` `res:` `idle:` ID schemas/types (+ re-exported `area:`/`loc:` from `@engine/world`), `TextKeySchema`, `LocalIdSchema`. |
 | `stats.ts` | Closed stat set (`STR AGI INT VIT SPI maxHp power armor resist critBp haste healPower`), `StatMapSchema`, `EnemyStatsSchema`, `BP`, `BpSchema`. |
-| `effects.ts` | `EffectSchema`: closed union on `type` — `damage`, `heal`, `shield`, `dot`, `hot`, `stat_mod`, `taunt`, `stun`, `cleanse`; `DurationSchema` `{ value, unit: ticks \| actions \| attacks }`; optional `to: target \| self`. |
-| `rules.ts` | `AutomationRulesSchema` (≤ `MAX_AUTOMATION_RULES` = 6, provisional), closed conditions/actions, `SkillTargetingSchema`, `TargetSelectorSchema`, enemy `AiRulesSchema`. |
-| `skills.ts` | `SkillSchema` (cooldown/windup ticks, targeting, optional cost, effects). |
+| `effects.ts` | `EffectSchema`: closed union on `type` — `damage`, `heal`, `shield`, `dot`, `hot`, `stat_mod`, `taunt`, `stun`, `cleanse`; `DurationSchema` `{ value, unit: ticks \| actions \| attacks }`; optional `to: target \| self`; guard vs secondary control (combat-engine §5): `guard: true` on `shield`/positive `stat_mod`, `negatedByGuard: true` on a target `stun` (`isNegatedByGuard`). |
+| `rules.ts` | `AutomationRulesSchema` (≤ `MAX_AUTOMATION_RULES` = 6, provisional), closed conditions/actions (incl. `selfHasHarmfulEffect`, also allowed in enemy AI), `SkillTargetingSchema`, `TargetSelectorSchema`, enemy `AiRulesSchema`. |
+| `skills.ts` | `SkillSchema` (cooldown/windup ticks, targeting, optional cost, effects); `negatedByGuard` only in attack skills. |
 | `items.ts` | `ItemSchema`: `equipment` (slot, stats) / `consumable` (`use` effects) / `material` / `quest`, with stacking rules. |
 | `enemies.ts` | `EnemySchema`: `rank: normal \| boss`; bosses add `phases[]` (`fromHpBp`, `rotation`, `telegraphs`). |
 | `tables.ts` | `LootTableSchema` (weighted entries, `nothingWeight`, guaranteed drops, gold range), `EncounterTableSchema`. |

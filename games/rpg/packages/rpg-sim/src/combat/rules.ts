@@ -15,6 +15,7 @@ import { TARGET_SELECTORS } from '@rpg/rpg-schema';
 import type { AiCondition, RuleCondition, Skill, TargetSelector } from '@rpg/rpg-schema';
 
 import { living, opposing } from './context.ts';
+import { isCleansable } from './effects.ts';
 import type { Ctx } from './context.ts';
 import { hpBp } from './stats.ts';
 import type { ActionSource, ActorState } from './types.ts';
@@ -113,6 +114,9 @@ export function conditionHolds(ctx: Ctx, a: ActorState, when: RuleCondition | Ai
   if (when.allyHpBelowBp !== undefined) {
     const limit = when.allyHpBelowBp;
     if (!living(ctx, a.side).some((x) => hpBp(x) < limit)) return false;
+  }
+  if (when.selfHasHarmfulEffect === true && !ctx.state.effects.some((e) => e.holderId === a.id && isCleansable(e))) {
+    return false;
   }
   if ('enemyTelegraphing' in when && when.enemyTelegraphing === true && telegraphing(ctx, a) === null) return false;
   if (when.skillReady !== undefined && !skillReady(ctx, a, when.skillReady)) return false;

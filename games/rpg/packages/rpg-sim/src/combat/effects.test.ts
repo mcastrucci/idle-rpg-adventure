@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 
 import { createCombat, runToEnd } from '../index.ts';
 import type { CombatEvent, CombatInput, CombatSetup, EnemySetup, HeroSetup } from '../index.ts';
-import { CONTENT, advance, bossSetup, bruiser, manualGuardPolicy, ofType, striker } from './testing/fixtures.ts';
+import { CONTENT, GUARD_RULES, advance, bossSetup, bruiser, bruteSetup, manualGuardPolicy, ofType, striker } from './testing/fixtures.ts';
 
-const ALL_SKILLS = Object.keys(CONTENT.skills).filter((s) => s !== 'skill:heavy_strike' && s !== 'skill:bite' && s !== 'skill:venom');
+const ENEMY_ONLY = ['skill:heavy_strike', 'skill:bite', 'skill:venom', 'skill:crushing_blow'];
+const ALL_SKILLS = Object.keys(CONTENT.skills).filter((s) => !ENEMY_ONLY.includes(s));
 
 /** Manual-mode heroes with every test skill equipped (they idle unless given inputs). */
 function setup(enemies: EnemySetup[], heroes: Partial<HeroSetup>[] = [{}]): CombatSetup {
@@ -174,5 +175,69 @@ describe('heal, shield, cleanse', () => {
     expect(cleansed.sort()).toEqual(venom.sort());
     const guardUids = ofType(events, 'EffectApplied').filter((e) => e.origin === 'skill:guard').map((e) => e.effectUid);
     expect(ofType(events, 'EffectExpired').some((e) => guardUids.includes(e.effectUid) && e.reason === 'cleansed')).toBe(false);
+  });
+});
+
+describe('guard vs secondary control (§5)', () => {
+  // The brute starts a crushing blow at tick 1 (windup 3), resolving at tick 4 on hero:a.
+  const brute = (): EnemySetup[] => [{ id: 'enemy:b', enemy: 'enemy:brute' }];
+  const blowStun = (events: CombatEvent[]) =>
+    ofType(events, 'EffectApplied').filter((e) => e.origin === 'skill:crushing_blow' && e.effect === 'stun');
+
+  it('unguarded: the telegraphed hit lands and stuns', () => {
+    const events = run(setup(brute()), 8, {});
+    expect(ofType(events, 'TelegraphStarted')).toMatchObject([{ tick: 1, actorId: 'enemy:b', resolveAtTick: 4 }]);
+    expect(damageOf(events, 'hero:a', 'skill:crushing_blow')).toMatchObject([{ tick: 4 }]);
+    expect(blowStun(events)).toMatchObject([{ tick: 4, targetId: 'hero:a', duration: { value: 3, unit: 'ticks' } }]);
+    expect(ofType(events, 'EffectNegated')).toEqual([]);
+    expect(ofType(events, 'ActionSkipped').filter((e) => e.actorId === 'hero:a').length).toBeGreaterThan(0);
+  });
+
+  it('guarded: the guard absorbs the hit and the stun is negated (EffectNegated), then the guard is consumed', () => {
+    const events = run(setup(brute()), 8, { 1: [use('hero:a', 'skill:guard')] });
+    const hit = damageOf(events, 'hero:a', 'skill:crushing_blow')[0];
+    expect(hit).toMatchObject({ tick: 4 });
+    expect(hit?.absorbed).toBeGreaterThan(0);
+    expect(blowStun(events)).toEqual([]);
+    expect(ofType(events, 'EffectNegated')).toMatchObject([
+      { tick: 4, sourceId: 'enemy:b', targetId: 'hero:a', origin: 'skill:crushing_blow', effect: 'stun', reason: 'guarded' },
+    ]);
+    const guardUids = ofType(events, 'EffectApplied').filter((e) => e.origin === 'skill:guard').map((e) => e.effectUid);
+    const expired = ofType(events, 'EffectExpired').filter((e) => guardUids.includes(e.effectUid));
+    expect(expired).toHaveLength(2);
+    expect(expired.every((e) => e.tick === 4)).toBe(true);
+    expect(ofType(events, 'ActionSkipped')).toEqual([]);
+  });
+
+  it('a mitigating buff without the guard marker reduces damage but does not negate the stun', () => {
+    const events = run(setup(brute()), 8, { 1: [use('hero:a', 'skill:brace')] });
+    const unguarded = damageOf(run(setup(brute()), 8, {}), 'hero:a', 'skill:crushing_blow')[0]?.amount ?? 0;
+    expect(damageOf(events, 'hero:a', 'skill:crushing_blow')[0]?.amount).toBeLessThan(unguarded);
+    expect(blowStun(events)).toHaveLength(1);
+    expect(ofType(events, 'EffectNegated')).toEqual([]);
+  });
+
+  it('a guard shield depleted by the hit itself still negates the stun (guard state is read before the hit)', () => {
+    const events = run(setup(brute()), 8, { 1: [use('hero:a', 'skill:ward')] });
+    expect(ofType(events, 'EffectExpired').find((e) => e.effect === 'shield')).toMatchObject({ tick: 4, reason: 'depleted' });
+    expect(blowStun(events)).toEqual([]);
+    expect(ofType(events, 'EffectNegated')).toHaveLength(1);
+  });
+
+  it('only the guarded target is spared: another hero hit by the same blow is still stunned', () => {
+    // The blow targets the lowest HP share, so hero:b (lower share) takes it unguarded.
+    const s = setup(brute(), [{}, { hp: 50 }]);
+    const events = run(s, 8, { 1: [use('hero:a', 'skill:guard')] });
+    expect(blowStun(events)).toMatchObject([{ targetId: 'hero:b' }]);
+    expect(ofType(events, 'EffectNegated')).toEqual([]);
+  });
+
+  it('over a full fight, the guard automation rule negates crushing-blow stuns that naive rules eat', () => {
+    const naive = runToEnd(bruteSetup(), 5).events;
+    const guarded = runToEnd(bruteSetup(GUARD_RULES), 5).events;
+    expect(blowStun(naive).length).toBeGreaterThan(0);
+    expect(ofType(naive, 'EffectNegated')).toEqual([]);
+    expect(ofType(guarded, 'EffectNegated').length).toBeGreaterThan(0);
+    expect(blowStun(guarded).length).toBeLessThan(blowStun(naive).length);
   });
 });
