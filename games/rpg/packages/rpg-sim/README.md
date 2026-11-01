@@ -2,13 +2,15 @@
 
 Server-only, deterministic RPG simulators ([ADR-0003](../../../../docs/adr/0003-simulation-server-only.md),
 [ADR-0004](../../../../docs/adr/0004-deterministic-step-engine.md)). It currently holds the step-based **combat engine**
-of [combat-engine.md](../../../../docs/spec/combat-engine.md) (issues #20, #21, #22). The idle `ExpeditionSimulator`
-(M6) will build on `runToEnd`.
+of [combat-engine.md](../../../../docs/spec/combat-engine.md) (issues #20, #21, #22) and the idle
+**`ExpeditionSimulator`s** `rpg.hunt` / `rpg.gather` (#76, [below](#idle-expedition-simulators-rpghunt-rpggather-76)),
+built on `runToEnd` and the expedition kernel v0.2.
 
-Built on `@engine/sim-core` (PCG32 `RngStreams`, integer/bp math), `@rpg/rpg-schema` (content types) and
-`@rpg/rpg-stats` (`deriveStats`, `actionIntervalTicks`). The determinism lint applies to this package: no
-`Math.random`, `Date`, `performance`, transcendental `Math.*`, floats in game math, or I/O (test-only content loading
-in the Region 1 smoke test excepted).
+Built on `@engine/sim-core` (PCG32 `RngStreams`, integer/bp math), `@engine/expedition-kernel` + `@engine/economy` +
+`@engine/world` (idle contract, ledger deltas, areas), `@rpg/rpg-schema` (content types) and `@rpg/rpg-stats`
+(`deriveStats`, `actionIntervalTicks`). The determinism lint applies to this package: no `Math.random`, `Date`,
+`performance`, transcendental `Math.*`, floats in game math, or I/O (test-only content loading in the Region 1 tests
+excepted).
 
 ## API
 
@@ -170,3 +172,110 @@ Content in tests is small and in-test (`src/combat/testing/fixtures.ts`), parsed
 Performance (dev container, Node 22): a 10,000-tick `runToEnd` takes ≈ 20 ms (median of 10 runs: 18–22 ms across
 invocations; 7,184 events). The public `step` deep-copies the state each tick (≈ 50–85 µs/tick here), which is
 negligible at the 500 ms live tick; batch callers should use `runToEnd`.
+
+## Idle expedition simulators (`rpg.hunt`, `rpg.gather`, #76)
+
+The pure part of idle expeditions ([idle-simulation.md](../../../../docs/spec/idle-simulation.md),
+[expedition kernel](../../../../docs/engine/expedition-kernel.md), ADR-0005/0019). Persistence, jobs and the ledger
+wiring are the server's (#49–#54). Code in `src/expedition/`, exported from the package index.
+
+```ts
+createRpgIdleSimulator(kind: 'hunt' | 'gather', content: RpgIdleContent, { tuning? }): RpgExpeditionSimulator
+createRpgIdleSimulators(content, options) → { hunt, gather }
+createRpgActivityRegistry(bundle | content, options): ActivityRegistry          // kernel registry
+rpgIdleContentFromBundle(bundle)                                               // compiled bundle → RpgIdleContent
+rpgProgress(timeline, cutoff, reason): RpgProgress                             // XP channel for the server hook
+RPG_IDLE_VERSION = 'rpg-idle@1.0.0'; RPG_IDLE_SIMULATOR_VERSION = `${RPG_IDLE_VERSION}+${ENGINE_VERSION}`
+DEFAULT_RPG_IDLE_TUNING = { regenBetweenFightsBp: 1500, maxCombatTicks: 3000, deathBagLossBp: 5000,
+                            gatherSegmentsPerHour: 12, durationsMin: [15, 30, 60, 180] }
+```
+
+**Mapping rule.** Simulator IDs are `rpg.<kind>`. The kind of a content idle activity is the last segment of its ID
+(after the final `.`, or the `:` without a dot): `idle:region_1.hunt` → `rpg.hunt`, `idle:region_1.gather` →
+`rpg.gather`. Other kinds get no simulator (`unregisteredActivities` reports them). `IdleActivity` has no `kind` field;
+if one is added, the rule becomes a lookup of it. Both simulators share the model below — *gather* differs only through
+its content (fewer encounters per hour, more resource yields).
+
+**Inputs.**
+- `RpgIdleConfig` (per expedition, `parseConfig` validates untrusted input against content):
+  `{ activity, consumables: [{ item, qty }], retreat: { belowHpBp, onlyWhenNoHealing } }`. No duration (kernel-owned).
+  `activity` must equal the start request's `activityId` (the server builds it from the request; see findings).
+- `RpgActorSnapshot` (per actor, party-ready; phase 1 runs solo): `{ actorId, build: DeriveStatsInput, skills, rules,
+  hp? }`. The "automation-rules snapshot" of the spec is the snapshot's `rules`, frozen at start.
+- `canStart`: duration in `durationsMin`, activity exists / has this kind / is listed by the requested area, consumables
+  are content consumables, actors unique and valid (build derives, `1 ≤ hp ≤ maxHp`, skills exist, rules schema-valid
+  and only use equipped skills and real consumables). Codes `rpg.*`. Area completion is the kernel's `checkStart` gate.
+- `escrow`: each actor's configured consumables `inventory → escrow`; the kernel returns the unused part.
+
+**Budget.** `max(1, ⌊segmentsPerHour × durationMin × paceBp / (60 × 10000)⌋)` with `mulDivFloor` (exact integers,
+floored: a partial encounter is not played). `segmentsPerHour = encountersPerHour`, or `gatherSegmentsPerHour` (12) for
+activities without encounters. Region 1: hunt 15/30/60/180 min → 7/15/30/90; gather → 2/5/10/30.
+
+**Segment = one encounter slot (weight 1).** For segment `i` (global index; resumption continues it):
+1. RNG `segmentStreams(seed, i)`: `encounters` stream picks the group; `loot` stream rolls kill loot and resources; the
+   combat seed is `deriveSeed(segmentSeed(seed, i), 'combat')`. `stateAfter` = HP and consumables left per hero only.
+2. Combat with `runToEnd` (automation rules, no inputs, `maxCombatTicks`): heroes start with carried HP and remaining
+   consumables. Each enemy killed (also in a lost fight) emits `kill` (XP credited to every hero — provisional party
+   rule) and rolls its loot table (`LootTable` semantics: weighted rolls + nothing weight, guaranteed, gold) into the
+   bag; recipients rotate round-robin over heroes sorted by ID (solo: the hero). Consumables used → `from: 'escrow'`.
+3. No hero died: regen `min(maxHp − hp, ⌊maxHp × 1500 / 10000⌋)` (15 %, provisional, open decision #16 / Q-B9), then
+   resource yields: yield `y` rolls `⌊(i+1)·R/S⌋ − ⌊i·R/S⌋` times (`R` rolls/hour, `S` segments/hour), i.e. exactly `R`
+   per in-game hour, evenly spread and resumable.
+4. Outcome: any hero dead → `failed` (timeline ends with this encounter; a party rule for "one member down" is phase 2).
+   Else, if budget remains: a combat timeout → `retreated` (`combat_timeout`), or the retreat policy (some hero below
+   `belowHpBp` after regen and, with `onlyWhenNoHealing`, no healing consumable — `heal`/`hot` — left) → `retreated`
+   (`low_hp`). Else `completed` once the budget is used. Loot found mid-expedition (e.g. a potion) is not usable during
+   it.
+
+Events (JSON): `encounter` (group, result, ticks, `combatHash` = `hashEvents` of the full combat log), `kill`,
+`consumable`, `hp` (before / after fight / regen / after), `loot`, `gold`, `death` (plain-language causes), `retreat`.
+Full combat logs are not stored; `combatHash` plus the seed replays a fight.
+
+**Ledger deltas** (data only, ADR-0007): items `{ stack(item), to: 'inventory' }`, gold `{ currency 'gold' }` (default
+container), consumables `{ from: 'escrow' }`; merged per (actor, asset, from, to) within a segment.
+
+**Settlement** (`settle`, provisional rewards §4 / open decisions #6, #8):
+- `cancelled` / `member_left`: exactly `defaultSettle` (revealed encounters granted in full; consumables used consumed;
+  the kernel returns the rest).
+- `completed` (natural end): merged default deltas; if the cutoff covers the fatal encounter of a `failed` timeline, each
+  bag grant per (actor, asset) keeps `total − ⌊total × 5000 / 10000⌋` (50 % lost, the odd unit stays with the player).
+  Consumable use is always settled in full. The contract checker's default bound holds (`completed: 'custom'`).
+
+**XP channel** (not ledger deltas): `rpgProgress(timeline, cutoff, reason)` → per hero `xpEarned`, `kills`, `died`, plus
+`applyDeathPenalty` (fatal encounter covered **and** `reason === 'completed'`, same rule as the bag loss) and
+`deathXpLossBp` (`DEFAULT_DEATH_XP_LOSS_BP`). The server hook adds the XP, then applies
+`applyXpLoss(totalXp + xpEarned, deathXpLossBp, curve)` from `@rpg/rpg-stats` to heroes that died ("XP earned kept
+before penalty").
+
+**Report** (`summarize`): segments, encounters, victories, outcome (whole timeline only), kills, XP per hero, gross gold
+and loot, consumables used, HP summary per hero (start, lowest after a fight, end), retreat reason, and the death log:
+fatal encounter, group and causes — `idle.death.damage_taken` (top 3 sources by damage), `biggest_hit`, `stunned`,
+`out_of_consumables` / `no_consumables`, `outnumbered`, `started_wounded` (text keys with parameters).
+
+**Golden timelines** (`src/expedition/golden.test.ts` + `golden.json`): `timelineHash` of four fixed Region 1 expeditions
+(completed, failed, retreated, gather), an append-only history keyed by `RPG_IDLE_SIMULATOR_VERSION` (CI checks it with
+`tools/golden/check-append-only.ts`). Update procedure: bump `RPG_IDLE_VERSION` (a combat `ENGINE_VERSION` bump changes
+the key by itself), run `pnpm vitest run --project @rpg/rpg-sim expedition/golden`, append the printed hashes as a new
+entry, explain the change. A content change in `games/rpg/content` that alters these timelines also needs a new entry.
+
+**Tests.** `contract.test.ts` (kernel contract, 4 fixtures × 20 seeds with completed/failed/retreated outcomes,
+per-reason modes; escrow conservation at every cutoff; settlement rules; `rpgProgress`; determinism; resumption from
+every `stateAfter`), `simulator.test.ts` (config, `canStart`, budget, escrow, mapping, kernel `checkStart` with the
+Region 1 world), `region-1.e2e.test.ts` (compiled bundle, 15/30/60/180 min, reveal never leaks a failure/retreat),
+`golden.test.ts`, and the opt-in `bench.test.ts` (`RPG_IDLE_BENCH=1`).
+
+**Measurements** (#76, evidence for spike 1 / ADR-0013; dev container, 4 vCPU Intel Xeon @ 2.10 GHz, Node 22.23.4,
+`RPG_IDLE_BENCH=1`): a 180-minute Region 1 hunt (90 encounters, level-4 reference builds, all completed) precomputes in
+p50 ≈ 17–23 ms, p95 ≈ 25–37 ms (60 runs per build); `estimate` with 200 runs takes ≈ 3.7–4.8 s.
+
+**Findings for the kernel / server (not patched here):**
+- `canStart` does not receive the request's `activityId`; the RPG config therefore carries `activity`, and the server
+  must build it from the request (the simulator only checks that the area lists it).
+- `checkStart` calls `budget` before `canStart`, so a config that `budget` cannot handle throws instead of being refused;
+  `parseConfig` validates the activity first to keep that path unreachable.
+- Cancellation settles with `defaultSettle` (contract mode `default`), so a cancel whose cutoff covers the fatal
+  encounter would skip the death loss. The server must settle an expedition with `now ≥ endsAt` as `completed` and
+  never accept a cancel then (a kernel-side guard would make this structural).
+- `estimate` aggregates ledger deltas only; XP (not a ledger asset) needs a game-side aggregate over `rpgProgress`.
+- Equipment drops (non-stackable) are emitted as `stack` deltas: `LedgerDelta` cannot express "mint an instance of
+  item X"; the ledger must materialise instances at settlement.
