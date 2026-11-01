@@ -31,9 +31,20 @@ importers:
 
   engine/content-compiler: {}
 
-  engine/economy: {}
+  engine/economy:
+    dependencies:
+      '@engine/sim-core':
+        specifier: workspace:*
+        version: link:../sim-core
 
-  engine/expedition-kernel: {}
+  engine/expedition-kernel:
+    dependencies:
+      '@engine/economy':
+        specifier: workspace:*
+        version: link:../economy
+      '@engine/sim-core':
+        specifier: workspace:*
+        version: link:../sim-core
 
   engine/live-kernel: {}
 

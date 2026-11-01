@@ -6,6 +6,12 @@
 
 ## 1. Simulator interface (illustrative)
 
+> The implemented contract lives in [`engine/expedition-kernel`](../../engine/expedition-kernel/README.md):
+> `configSchema` became `parseConfig(input: unknown)` (no Zod in the engine), `pace` is in basis points, `budget` is
+> the planned total segment weight, `SimState`/`Report` are type parameters, and `SettleReason` is
+> `'completed' | 'cancelled' | 'member_left'`. Placement: `revealAt = startsAt + ⌊cumWeight × duration / budget⌋`, so
+> an early end ends early. Reveal exposes the *planned* end only; the actual end and outcome appear once reached.
+
 ```ts
 interface ExpeditionSimulator<Config, Snapshot, Event> {
   id: string;               // e.g. "rpg.hunt", "survival.scavenge"
