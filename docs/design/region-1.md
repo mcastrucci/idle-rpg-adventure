@@ -1,6 +1,6 @@
 # Region 1 — Paper Design
 
-> **Status: Draft for product review.** Issue [#14](https://github.com/mcastrucci/idle-rpg-adventure/issues/14).
+> **Status: Reviewed by owner 2026-11-01 — decisions in §9.** Issue [#14](https://github.com/mcastrucci/idle-rpg-adventure/issues/14).
 > All names are **working names**; the owner reviews creative choices. Lore stays within
 > [`concept.md`](../concept.md) §2. Every number is **provisional** and is meant as input to `balance-sim` (#24) and
 > the M1 balance pass ([open decision #2](../open-decisions.md)). No content JSON, code or art comes from this doc
@@ -398,3 +398,28 @@ level of live skill advantage.
       materials stay vendor fodder (open decision #9)?
 - [ ] Q-B14 Activity IDs are per area (`idle:region_1.hunt`), following the schema's convention, rather than global
       `idle:hunt`. OK?
+
+## 9. Review decisions (owner, 2026-11-01)
+
+**Creative**
+
+| Question | Decision |
+|---|---|
+| Q-C1 Fragment theme | **Keep:** Ark agricultural module fused with an alien forest. |
+| Q-C2 Working names | **Keep for now** (Verdant Hollow, Hollow Matriarch, Sentinel Lantern, Rusted Tiller, Bulwark/Thornblade). IDs never depend on display names. |
+| Q-C3 Hollow Matriarch | **Native Fracture entity, mini-boss** — not an Ark caretaker and not a Guardian. Lore text that implies Ark origin must be adjusted when authoring content (#46). |
+| Q-C4 Water hook in Sanctuary | **Narrative only** in the POC (texts), no visual hub variant. |
+| Q-C5 Founder log lore | Keep as a hint (draft default). |
+
+**Systems** (orchestrator recommendations, accepted by default — owner did not object)
+
+| Question | Decision | Follow-up |
+|---|---|---|
+| Q-B5 Manual input timing | Inputs wait for the hero's next ready tick; live advantage = anticipating telegraphs. | #20 |
+| Q-B6 Guard vs stun | Guard (mitigation that absorbs the telegraphed hit) **also prevents the stun** of `crushing_blow`. | engine/schema rule, #71 |
+| Q-B7 Cleanse automation | Add `selfHasHarmfulEffect` automation condition. | rpg-schema + rpg-sim, #71 |
+| Q-B11 Mini-boss re-fights | Yes, re-fightable in later instances for loot; conquest credit once. | #38 |
+| Q-B12 Start location in pool | Stays **out** of the conquest pool. | #46 |
+| Q-B13 Potion brewing | **Not in POC** (crafting out of scope). | — |
+| Q-B14 Activity IDs | Per area (`idle:region_1.hunt`). | #46 |
+| Q-B1–B4, B8–B10 | Remain provisional; validated with `balance-sim` (#24) once #20–#22 land. | #24, open decisions #2/#14/#16 |
