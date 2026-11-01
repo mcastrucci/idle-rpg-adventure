@@ -1,0 +1,8 @@
+{
+  "id": "route:sanctuary_to_region_1",
+  "from": "area:sanctuary",
+  "to": "area:region_1",
+  "travel": {
+    "mode": "instant"
+  }
+}

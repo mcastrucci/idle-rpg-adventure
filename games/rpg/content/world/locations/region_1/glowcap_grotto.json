@@ -1,0 +1,31 @@
+{
+  "id": "loc:region_1.glowcap_grotto",
+  "nameKey": "loc.region_1.glowcap_grotto.name",
+  "tags": [
+    "ordinary"
+  ],
+  "exits": [
+    {
+      "id": "exit:region_1.glowcap_grotto.old_well",
+      "to": "loc:region_1.old_well"
+    }
+  ],
+  "resources": [
+    {
+      "node": "res:glowcap",
+      "lootTable": "loot:region_1.glowcap_gather"
+    },
+    {
+      "node": "res:glowcap",
+      "lootTable": "loot:region_1.glowcap_gather"
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "mushroom_ring",
+      "type": "search",
+      "textKey": "hotspot.region_1.mushroom_ring"
+    }
+  ],
+  "encounters": "enc:region_1.grotto"
+}

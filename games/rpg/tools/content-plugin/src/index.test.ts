@@ -6,7 +6,17 @@ import { describe, expect, it } from 'vitest';
 import plugin, { rpgContentPlugin, RPG_ISSUE_CODES } from './index.ts';
 
 const SEED_ROOT = fileURLToPath(new URL('../../../content/', import.meta.url));
-const SEED = loadContentFiles(SEED_ROOT);
+// Isolate the original technical fixture; region-1.test.ts compiles the complete real content root.
+const SEED_PATHS = new Set([
+  'encounter-tables/test_grove.json', 'enemies/test_grove_slime.json', 'enemies/test_grove_warden.json',
+  'idle-activities/test_grove_hunt.json', 'items/test_items.json', 'loot-tables/test_grove.json',
+  'progression/xp-curve.json', 'resource-nodes/test_grove_herb_patch.json', 'skills/test_skills.json',
+  'world/areas/sanctuary.json', 'world/areas/test_grove.json', 'world/locations/sanctuary/plaza.json',
+  'world/locations/test_grove/entrance.json', 'world/locations/test_grove/glade.json',
+  'world/locations/test_grove/hidden_hollow.json', 'world/locations/test_grove/warden_den.json',
+  'world/routes/sanctuary_to_test_grove.json',
+]);
+const SEED = loadContentFiles(SEED_ROOT).filter(file => SEED_PATHS.has(file.file));
 
 /** In-memory edits of the seed content: text replacements in a file, new files, removed files. */
 interface Edits {

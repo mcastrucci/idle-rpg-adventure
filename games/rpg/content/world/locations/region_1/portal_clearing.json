@@ -1,0 +1,21 @@
+{
+  "id": "loc:region_1.portal_clearing",
+  "nameKey": "loc.region_1.portal_clearing.name",
+  "tags": [
+    "safe"
+  ],
+  "exits": [
+    {
+      "id": "exit:region_1.portal_clearing.overgrown_causeway",
+      "to": "loc:region_1.overgrown_causeway"
+    }
+  ],
+  "resources": [],
+  "hotspots": [
+    {
+      "id": "portal_glyphs",
+      "type": "lore",
+      "textKey": "hotspot.region_1.portal_glyphs"
+    }
+  ]
+}

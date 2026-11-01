@@ -1,0 +1,35 @@
+{
+  "id": "loc:region_1.pump_station",
+  "nameKey": "loc.region_1.pump_station.name",
+  "tags": [
+    "ordinary"
+  ],
+  "exits": [
+    {
+      "id": "exit:region_1.pump_station.lantern_ruins",
+      "to": "loc:region_1.lantern_ruins"
+    },
+    {
+      "id": "exit:region_1.pump_station.irrigation_terraces",
+      "to": "loc:region_1.irrigation_terraces"
+    },
+    {
+      "id": "exit:region_1.pump_station.vault_antechamber",
+      "to": "loc:region_1.vault_antechamber"
+    }
+  ],
+  "resources": [
+    {
+      "node": "res:alloy_scrap",
+      "lootTable": "loot:region_1.scrap_gather"
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "bulkhead_lever",
+      "type": "interact",
+      "textKey": "hotspot.region_1.bulkhead_lever"
+    }
+  ],
+  "encounters": "enc:region_1.pump_station"
+}

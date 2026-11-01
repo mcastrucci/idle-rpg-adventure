@@ -1,0 +1,259 @@
+[
+  {
+    "id": "enemy:glowcap_mite",
+    "nameKey": "enemy.glowcap_mite.name",
+    "rank": "normal",
+    "level": 1,
+    "stats": {
+      "maxHp": 22,
+      "power": 5,
+      "armor": 0,
+      "resist": 0
+    },
+    "skills": [
+      "skill:basic_attack"
+    ],
+    "ai": [
+      {
+        "when": {},
+        "do": {
+          "useSkill": "skill:basic_attack",
+          "target": "lowestHpEnemy"
+        }
+      }
+    ],
+    "xp": 6,
+    "lootTable": "loot:region_1.mite",
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "enemy:thornback_boar",
+    "nameKey": "enemy.thornback_boar.name",
+    "rank": "normal",
+    "level": 2,
+    "stats": {
+      "maxHp": 56,
+      "power": 9,
+      "armor": 3,
+      "resist": 0
+    },
+    "skills": [
+      "skill:basic_attack",
+      "skill:gore"
+    ],
+    "ai": [
+      {
+        "when": {
+          "selfHpBelowBp": 5000,
+          "skillReady": "skill:gore"
+        },
+        "do": {
+          "useSkill": "skill:gore",
+          "target": "lowestHpEnemy"
+        }
+      },
+      {
+        "when": {},
+        "do": {
+          "useSkill": "skill:basic_attack",
+          "target": "lowestHpEnemy"
+        }
+      }
+    ],
+    "xp": 15,
+    "lootTable": "loot:region_1.boar",
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "enemy:hollow_creeper",
+    "nameKey": "enemy.hollow_creeper.name",
+    "rank": "normal",
+    "level": 3,
+    "stats": {
+      "maxHp": 64,
+      "power": 9,
+      "armor": 4,
+      "resist": 4
+    },
+    "skills": [
+      "skill:basic_attack",
+      "skill:bramble_lash"
+    ],
+    "ai": [
+      {
+        "when": {
+          "skillReady": "skill:bramble_lash"
+        },
+        "do": {
+          "useSkill": "skill:bramble_lash",
+          "target": "lowestHpEnemy"
+        }
+      },
+      {
+        "when": {},
+        "do": {
+          "useSkill": "skill:basic_attack",
+          "target": "lowestHpEnemy"
+        }
+      }
+    ],
+    "xp": 22,
+    "lootTable": "loot:region_1.creeper",
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "enemy:sentinel_lantern",
+    "nameKey": "enemy.sentinel_lantern.name",
+    "rank": "normal",
+    "level": 3,
+    "stats": {
+      "maxHp": 40,
+      "power": 12,
+      "armor": 1,
+      "resist": 10
+    },
+    "skills": [
+      "skill:arc_spark",
+      "skill:overcharge"
+    ],
+    "ai": [
+      {
+        "when": {
+          "skillReady": "skill:overcharge"
+        },
+        "do": {
+          "useSkill": "skill:overcharge",
+          "target": "lowestHpEnemy"
+        }
+      },
+      {
+        "when": {},
+        "do": {
+          "useSkill": "skill:arc_spark",
+          "target": "lowestHpEnemy"
+        }
+      }
+    ],
+    "xp": 24,
+    "lootTable": "loot:region_1.lantern",
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "enemy:rusted_tiller",
+    "nameKey": "enemy.rusted_tiller.name",
+    "rank": "normal",
+    "level": 4,
+    "stats": {
+      "maxHp": 100,
+      "power": 13,
+      "armor": 10,
+      "resist": 2
+    },
+    "skills": [
+      "skill:basic_attack",
+      "skill:heavy_rake"
+    ],
+    "ai": [
+      {
+        "when": {
+          "skillReady": "skill:heavy_rake"
+        },
+        "do": {
+          "useSkill": "skill:heavy_rake",
+          "target": "lowestHpEnemy"
+        }
+      },
+      {
+        "when": {},
+        "do": {
+          "useSkill": "skill:basic_attack",
+          "target": "lowestHpEnemy"
+        }
+      }
+    ],
+    "xp": 34,
+    "lootTable": "loot:region_1.tiller",
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "enemy:hollow_matriarch",
+    "nameKey": "enemy.hollow_matriarch.name",
+    "rank": "boss",
+    "level": 6,
+    "stats": {
+      "maxHp": 440,
+      "power": 14,
+      "armor": 8,
+      "resist": 6
+    },
+    "skills": [
+      "skill:basic_attack",
+      "skill:crushing_blow",
+      "skill:strangling_roots",
+      "skill:verdant_frenzy"
+    ],
+    "ai": [
+      {
+        "when": {},
+        "do": {
+          "useSkill": "skill:basic_attack",
+          "target": "lowestHpEnemy"
+        }
+      }
+    ],
+    "xp": 400,
+    "lootTable": "loot:region_1.matriarch",
+    "tags": [
+      "region_1",
+      "mini_boss",
+      "native_fracture"
+    ],
+    "phases": [
+      {
+        "fromHpBp": 10000,
+        "rotation": [
+          "skill:basic_attack",
+          "skill:basic_attack",
+          "skill:crushing_blow"
+        ],
+        "telegraphs": [
+          "skill:crushing_blow"
+        ]
+      },
+      {
+        "fromHpBp": 6000,
+        "rotation": [
+          "skill:strangling_roots",
+          "skill:basic_attack",
+          "skill:crushing_blow"
+        ],
+        "telegraphs": [
+          "skill:crushing_blow"
+        ]
+      },
+      {
+        "fromHpBp": 2500,
+        "rotation": [
+          "skill:verdant_frenzy",
+          "skill:basic_attack",
+          "skill:crushing_blow",
+          "skill:basic_attack",
+          "skill:crushing_blow"
+        ],
+        "telegraphs": [
+          "skill:crushing_blow"
+        ]
+      }
+    ]
+  }
+]

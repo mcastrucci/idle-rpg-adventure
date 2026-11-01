@@ -1,0 +1,300 @@
+[
+  {
+    "id": "item:glowcap",
+    "nameKey": "item.glowcap.name",
+    "kind": "material",
+    "value": 2,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 99
+  },
+  {
+    "id": "item:amber_resin",
+    "nameKey": "item.amber_resin.name",
+    "kind": "material",
+    "value": 3,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 99
+  },
+  {
+    "id": "item:creeper_fiber",
+    "nameKey": "item.creeper_fiber.name",
+    "kind": "material",
+    "value": 2,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 99
+  },
+  {
+    "id": "item:boar_hide",
+    "nameKey": "item.boar_hide.name",
+    "kind": "material",
+    "value": 3,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 99
+  },
+  {
+    "id": "item:raw_meat",
+    "nameKey": "item.raw_meat.name",
+    "kind": "material",
+    "value": 2,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 99
+  },
+  {
+    "id": "item:alloy_scrap",
+    "nameKey": "item.alloy_scrap.name",
+    "kind": "material",
+    "value": 4,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 99
+  },
+  {
+    "id": "item:lens_shard",
+    "nameKey": "item.lens_shard.name",
+    "kind": "material",
+    "value": 6,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 99
+  },
+  {
+    "id": "item:tiller_cog",
+    "nameKey": "item.tiller_cog.name",
+    "kind": "material",
+    "value": 8,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 99
+  },
+  {
+    "id": "item:heartwood_core",
+    "nameKey": "item.heartwood_core.name",
+    "kind": "material",
+    "value": 25,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 99
+  },
+  {
+    "id": "item:seed_capsule",
+    "nameKey": "item.seed_capsule.name",
+    "kind": "quest",
+    "value": 0,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": false
+  },
+  {
+    "id": "item:minor_healing_potion",
+    "nameKey": "item.minor_healing_potion.name",
+    "kind": "consumable",
+    "value": 3,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 20,
+    "use": [
+      {
+        "type": "heal",
+        "coeffBp": 3000,
+        "to": "self"
+      }
+    ]
+  },
+  {
+    "id": "item:healing_potion",
+    "nameKey": "item.healing_potion.name",
+    "kind": "consumable",
+    "value": 10,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 20,
+    "use": [
+      {
+        "type": "heal",
+        "coeffBp": 5000,
+        "to": "self"
+      }
+    ]
+  },
+  {
+    "id": "item:sap_tonic",
+    "nameKey": "item.sap_tonic.name",
+    "kind": "consumable",
+    "value": 4,
+    "tags": [
+      "region_1"
+    ],
+    "stackable": true,
+    "maxStack": 20,
+    "use": [
+      {
+        "type": "cleanse",
+        "to": "self"
+      },
+      {
+        "type": "hot",
+        "coeffBp": 300,
+        "periodTicks": 2,
+        "duration": {
+          "value": 10,
+          "unit": "ticks"
+        },
+        "to": "self"
+      }
+    ]
+  },
+  {
+    "id": "item:rusty_sword",
+    "nameKey": "item.rusty_sword.name",
+    "kind": "equipment",
+    "value": 0,
+    "tags": [
+      "region_1",
+      "provisional_price"
+    ],
+    "stackable": false,
+    "slot": "weapon",
+    "stats": {
+      "power": 5,
+      "critBp": 150
+    }
+  },
+  {
+    "id": "item:padded_vest",
+    "nameKey": "item.padded_vest.name",
+    "kind": "equipment",
+    "value": 0,
+    "tags": [
+      "region_1",
+      "provisional_price"
+    ],
+    "stackable": false,
+    "slot": "chest",
+    "stats": {
+      "armor": 3,
+      "maxHp": 10
+    }
+  },
+  {
+    "id": "item:wooden_buckler",
+    "nameKey": "item.wooden_buckler.name",
+    "kind": "equipment",
+    "value": 0,
+    "tags": [
+      "region_1",
+      "provisional_price"
+    ],
+    "stackable": false,
+    "slot": "offhand",
+    "stats": {
+      "armor": 3
+    }
+  },
+  {
+    "id": "item:boar_hide_jerkin",
+    "nameKey": "item.boar_hide_jerkin.name",
+    "kind": "equipment",
+    "value": 0,
+    "tags": [
+      "region_1",
+      "provisional_price"
+    ],
+    "stackable": false,
+    "slot": "chest",
+    "stats": {
+      "armor": 5,
+      "maxHp": 20
+    }
+  },
+  {
+    "id": "item:tiller_plate_buckler",
+    "nameKey": "item.tiller_plate_buckler.name",
+    "kind": "equipment",
+    "value": 0,
+    "tags": [
+      "region_1",
+      "provisional_price"
+    ],
+    "stackable": false,
+    "slot": "offhand",
+    "stats": {
+      "armor": 6,
+      "maxHp": 10
+    }
+  },
+  {
+    "id": "item:lantern_lens",
+    "nameKey": "item.lantern_lens.name",
+    "kind": "equipment",
+    "value": 0,
+    "tags": [
+      "region_1",
+      "provisional_price"
+    ],
+    "stackable": false,
+    "slot": "accessory",
+    "stats": {
+      "critBp": 300
+    }
+  },
+  {
+    "id": "item:sapforged_blade",
+    "nameKey": "item.sapforged_blade.name",
+    "kind": "equipment",
+    "value": 0,
+    "tags": [
+      "region_1",
+      "provisional_price"
+    ],
+    "stackable": false,
+    "slot": "weapon",
+    "stats": {
+      "power": 10,
+      "critBp": 200
+    }
+  },
+  {
+    "id": "item:heartwood_buckler",
+    "nameKey": "item.heartwood_buckler.name",
+    "kind": "equipment",
+    "value": 0,
+    "tags": [
+      "region_1",
+      "provisional_price"
+    ],
+    "stackable": false,
+    "slot": "offhand",
+    "stats": {
+      "armor": 7,
+      "maxHp": 15
+    }
+  }
+]

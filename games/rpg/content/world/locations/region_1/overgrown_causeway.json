@@ -1,0 +1,35 @@
+{
+  "id": "loc:region_1.overgrown_causeway",
+  "nameKey": "loc.region_1.overgrown_causeway.name",
+  "tags": [
+    "ordinary"
+  ],
+  "exits": [
+    {
+      "id": "exit:region_1.overgrown_causeway.portal_clearing",
+      "to": "loc:region_1.portal_clearing"
+    },
+    {
+      "id": "exit:region_1.overgrown_causeway.old_well",
+      "to": "loc:region_1.old_well"
+    },
+    {
+      "id": "exit:region_1.overgrown_causeway.tangle_orchard",
+      "to": "loc:region_1.tangle_orchard"
+    }
+  ],
+  "resources": [
+    {
+      "node": "res:glowcap",
+      "lootTable": "loot:region_1.glowcap_gather"
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "fallen_sign",
+      "type": "lore",
+      "textKey": "hotspot.region_1.fallen_sign"
+    }
+  ],
+  "encounters": "enc:region_1.causeway"
+}

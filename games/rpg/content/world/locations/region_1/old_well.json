@@ -1,0 +1,35 @@
+{
+  "id": "loc:region_1.old_well",
+  "nameKey": "loc.region_1.old_well.name",
+  "tags": [
+    "ordinary"
+  ],
+  "exits": [
+    {
+      "id": "exit:region_1.old_well.overgrown_causeway",
+      "to": "loc:region_1.overgrown_causeway"
+    },
+    {
+      "id": "exit:region_1.old_well.glowcap_grotto",
+      "to": "loc:region_1.glowcap_grotto"
+    },
+    {
+      "id": "exit:region_1.old_well.irrigation_terraces",
+      "to": "loc:region_1.irrigation_terraces"
+    }
+  ],
+  "resources": [
+    {
+      "node": "res:glowcap",
+      "lootTable": "loot:region_1.glowcap_gather"
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "inscription",
+      "type": "lore",
+      "textKey": "hotspot.region_1.inscription"
+    }
+  ],
+  "encounters": "enc:region_1.old_well"
+}

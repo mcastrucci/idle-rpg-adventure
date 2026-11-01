@@ -1,0 +1,11 @@
+{
+  "id": "loc:region_1.seed_vault_heart",
+  "nameKey": "loc.region_1.seed_vault_heart.name",
+  "tags": [
+    "boss_room"
+  ],
+  "exits": [],
+  "resources": [],
+  "hotspots": [],
+  "encounters": "enc:region_1.matriarch"
+}

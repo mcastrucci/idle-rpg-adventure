@@ -29,11 +29,10 @@ It runs as part of `pnpm check` (and therefore CI). Run it before committing con
 A file holds one entity or an array of them; file names never matter, only IDs. IDs are never renamed (deprecate with
 `"deprecated": true` instead).
 
-## Current content: technical seed only
+## Technical seed
 
-**Everything here is a technical seed for the pipeline, not game content.** It exists so the plugin, the compiler and CI
-have something real to validate. It is **not Region 1** (Region 1 is designed in `docs/design/region-1.md`); numbers
-are placeholders, not balance.
+The `test_*` / `test_grove` files remain a technical seed for the pipeline. They exist so the plugin, compiler and CI
+have a small independent fixture. They are **not Region 1**; numbers are placeholders, not balance.
 
 - `area:sanctuary` — hub with one safe location (`loc:sanctuary.plaza`).
 - `area:test_grove` — explorable test area (tag `technical_seed`), 4 `ordinary` locations: `entrance` (start),
@@ -46,5 +45,15 @@ are placeholders, not balance.
 - Items `item:test_grove.herb` (material) and `item:test_tonic` (consumable); loot tables, encounter tables, one resource
   node, the XP curve.
 
-Replace or deprecate the seed once real content lands; the plugin tests (`games/rpg/tools/content-plugin`) use it as a
-fixture, so update them together.
+The plugin tests (`games/rpg/tools/content-plugin`) continue to use the original seed as an independent fixture.
+
+## Region 1 structural content fixture
+
+Files named `region_1.json` and `world/locations/region_1/` add the reviewed Verdant Hollow paper design: skills,
+enemies, items, loot/resources, live/idle encounter tables, activities and the 11-location graph. All balance inputs
+are provisional. The five commons and native Fracture mini-boss preserve the owner decisions in the design.
+
+This is not yet a playable or balanced region. In particular, flag-producing hotspot interactions, localized text,
+scenes/art and guarded-stun semantics still need implementation. See the
+[authoring checkpoint](../../../docs/design/region-1-content.md) for exact data choices, unresolved contracts and
+remaining #46/#24 work.
