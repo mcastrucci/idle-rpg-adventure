@@ -3,9 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "RPG simulators (server-only, deterministic).",
+  "description": "RPG simulators (server-only, deterministic): the step-based combat engine.",
   "exports": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@engine/sim-core": "workspace:*",
+    "@rpg/rpg-schema": "workspace:*",
+    "@rpg/rpg-stats": "workspace:*"
+  },
+  "devDependencies": {
+    "@engine/content-compiler": "workspace:*",
+    "@rpg/content-plugin": "workspace:*"
   }
 }
