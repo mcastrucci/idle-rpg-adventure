@@ -1,0 +1,6 @@
+{
+  "id": "area:camp",
+  "kind": "hub",
+  "startLocation": "loc:camp.fire",
+  "locations": ["loc:camp.fire"]
+}

@@ -52,4 +52,5 @@ are listed as **unknown exits** (target withheld); `secret`-tagged exits are omi
 `completion.frozenInconsistent`, `completion.poolShrunk`, `requirement.unknownPredicate`, `requirement.invalidArgs`.
 
 **Future work:** requirement satisfiability (e.g. a route gated by completing an area only reachable through it),
-item/flag reference checks, and comparing frozen baselines against the previously published build.
+and item/flag reference checks. Comparing frozen baselines against the previously published build is done by
+`@engine/content-compiler` (`build --previous`).

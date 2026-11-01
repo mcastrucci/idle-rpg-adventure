@@ -5,7 +5,15 @@
   "type": "module",
   "description": "Pluggable content schemas, references, hashing, Tiled import.",
   "exports": "./src/index.ts",
+  "bin": {
+    "content-cli": "./src/bin.ts"
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "content-cli": "node src/bin.ts"
+  },
+  "dependencies": {
+    "@engine/world": "workspace:*",
+    "zod": "4.6.7"
   }
 }

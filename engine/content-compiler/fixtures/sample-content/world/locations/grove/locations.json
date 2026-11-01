@@ -1,0 +1,31 @@
+[
+  {
+    "id": "loc:grove.entrance",
+    "tags": ["ordinary"],
+    "exits": [{ "id": "exit:grove.entrance_pond", "to": "loc:grove.pond" }]
+  },
+  {
+    "id": "loc:grove.pond",
+    "tags": ["ordinary"],
+    "ambience": "quiet",
+    "exits": [
+      { "id": "exit:grove.pond_entrance", "to": "loc:grove.entrance" },
+      {
+        "id": "exit:grove.pond_ruins",
+        "to": "loc:grove.ruins",
+        "requires": { "game": "counterAtLeast", "counter": "keys", "value": 1 }
+      },
+      { "id": "exit:grove.pond_hollow", "to": "loc:grove.hollow", "tags": ["secret"] }
+    ]
+  },
+  {
+    "id": "loc:grove.ruins",
+    "tags": ["ordinary"],
+    "exits": [{ "id": "exit:grove.ruins_pond", "to": "loc:grove.pond" }]
+  },
+  {
+    "id": "loc:grove.hollow",
+    "tags": ["secret"],
+    "exits": [{ "id": "exit:grove.hollow_pond", "to": "loc:grove.pond" }]
+  }
+]

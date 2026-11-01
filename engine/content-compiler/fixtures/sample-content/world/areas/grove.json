@@ -1,0 +1,12 @@
+{
+  "id": "area:grove",
+  "kind": "explorable",
+  "startLocation": "loc:grove.entrance",
+  "locations": ["loc:grove.entrance", "loc:grove.pond", "loc:grove.ruins", "loc:grove.hollow"],
+  "completion": {
+    "pool": { "tag": "ordinary" },
+    "thresholdBp": 7000,
+    "frozen": { "poolSize": 3, "requiredCount": 3, "at": "2026-11-01" }
+  },
+  "activities": ["activity:forage"]
+}
