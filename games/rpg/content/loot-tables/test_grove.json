@@ -1,0 +1,63 @@
+[
+  {
+    "id": "loot:test_grove.slime",
+    "rolls": 1,
+    "nothingWeight": 50,
+    "entries": [
+      {
+        "item": "item:test_grove.herb",
+        "weight": 40,
+        "qty": {
+          "min": 1,
+          "max": 2
+        }
+      },
+      {
+        "item": "item:test_tonic",
+        "weight": 10
+      }
+    ],
+    "gold": {
+      "min": 1,
+      "max": 3
+    }
+  },
+  {
+    "id": "loot:test_grove.warden",
+    "rolls": 1,
+    "entries": [
+      {
+        "item": "item:test_grove.herb",
+        "weight": 1,
+        "qty": {
+          "min": 2,
+          "max": 4
+        }
+      }
+    ],
+    "guaranteed": [
+      {
+        "item": "item:test_tonic",
+        "qty": {
+          "min": 1,
+          "max": 2
+        }
+      }
+    ],
+    "gold": {
+      "min": 10,
+      "max": 20
+    }
+  },
+  {
+    "id": "loot:test_grove.herb_gather",
+    "rolls": 1,
+    "nothingWeight": 20,
+    "entries": [
+      {
+        "item": "item:test_grove.herb",
+        "weight": 80
+      }
+    ]
+  }
+]

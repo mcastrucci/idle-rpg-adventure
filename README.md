@@ -4,7 +4,16 @@ A mobile-first fantasy RPG that combines **Live Adventure** (exploring illustrat
 bosses) with **Idle Expeditions** (server-side automatic expeditions in regions you have conquered). One character, one
 shared progression and economy.
 
-> **Status:** pre-production. Concept consolidated, architecture decided, POC milestones planned. No game code yet.
+> **Status:** pre-production. The repository has working engine and content-tool foundations, but no playable RPG loop yet. Architecture principles are recorded; several implementation choices still need spike evidence.
+
+The implemented foundations include deterministic simulation utilities, world-graph and completion primitives, economy
+types, the expedition kernel, the content compiler, and RPG schema, stats, and content-plugin packages. The RPG content
+includes technical seed data and provisional Region 1 definitions authored from the reviewed paper design. Region 1
+has no scene assets or measured balance yet; its interaction and combat dependencies are recorded in
+[the authoring checkpoint](docs/design/region-1-content.md). A [Fastify/PostgreSQL server foundation](games/rpg/apps/server/README.md)
+provides content boot, migrations, process roles, health and module lifecycle. Authentication and game-state services,
+the RPG combat simulator, balance tool and web client remain implementation work. See the [roadmap](docs/roadmap.md)
+for current dependencies and validation gaps.
 
 ## Documentation
 
@@ -36,7 +45,8 @@ tools/          repository-level tooling (lint boundary proofs)
 docs/
 ```
 
-Packages are placeholders for now; see [engine overview §6](docs/engine/overview.md) for what each one will hold.
+Some application and simulation packages are still placeholders; see [engine overview §6](docs/engine/overview.md) for
+the intended package boundaries.
 
 ## Development
 

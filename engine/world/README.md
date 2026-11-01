@@ -10,12 +10,27 @@ linked by **exits**. Everything here is pure and synchronous; no DB, no I/O, no 
 |---|---|
 | `schemas.ts` | Zod schemas + types: `WorldSchema`, `AreaSchema`, `LocationSchema`, `ExitSchema`, `RouteSchema`, `TravelSchema`, `CompletionRuleSchema`, `RequirementSchema`; ID schemas (`area:`, `loc:`, `route:`, generic `ns:name`). Entities are loose (games add fields); engine structures are strict. |
 | `actor.ts` | `ActorWorldState` (discovered per area, completed/visited areas, flags, objectives, `itemQty`), `EvalContext<G>` (`{ actor, game }`), `createActorWorldState(init)`. |
-| `registry.ts` | `PredicateRegistry<G>`: `register(name, { args: zodSchema, evaluate(args, ctx), reason?(args) })`. |
+| `registry.ts` | `PredicateRegistry<G>`: `register(name, { args, evaluate(args, ctx), reason?(args) })`; `parseArgs(parser, input)`; `StandardSchemaV1`, `ArgsParser`, `ArgsIssue`. |
 | `requirements.ts` | `evaluateRequirement(req, ctx, registry) → { ok, reasons }`, `describeRequirement`, `walkRequirement`. |
 | `completion.ts` | `evaluateCompletion(area, locations, ctx, registry)`, `requiredCountFor(poolSize, bp)` (integer ceil). |
 | `view.ts` | `computeWorldView(world, ctx, registry)`, `computeAreaView(area, locations, ctx, registry)`. |
 | `validate.ts` | `validateWorld(input, registry)` (schema + graph), `validateWorldGraph(world, registry)` → `ValidationError[]` (`{ code, path, message }`). |
 | `mermaid.ts` | `worldToMermaid(world)`, `areaToMermaid(area, locations)`. |
+
+## Predicate arguments (no Zod lock-in)
+
+`GamePredicateDefinition.args` is an `ArgsParser<A>`:
+
+- any **Standard Schema v1** object (`~standard.validate`): Zod ≥ 3.24 / 4, Valibot, ArkType… The registry only uses
+  the structural interface (copied in `registry.ts`, as the spec intends), so a game's schema library and version are
+  independent of `@engine/world`'s own `zod` dependency. Existing `z.strictObject(...)` args keep working unchanged.
+- or a plain **parse function** `(input: unknown) => A` that throws on invalid input (no schema library at all).
+
+Validation must be synchronous (a `Promise` result is reported as invalid). `validateArgs` returns library-independent
+issues `{ message, path }` (`path` relative to the argument object; Standard Schema `{ key }` segments are flattened).
+
+`zod` stays a dependency of this package for its own content schemas (`WorldSchema`…), which the content compiler uses.
+`BP_SCALE` is owned by `@engine/sim-core` and re-exported here (same binding).
 
 ## Requirements
 

@@ -1,0 +1,15 @@
+{
+  "id": "loc:test_grove.warden_den",
+  "nameKey": "loc.test_grove.warden_den.name",
+  "tags": [
+    "ordinary",
+    "boss_room"
+  ],
+  "exits": [
+    {
+      "id": "exit:test_grove.den.glade",
+      "to": "loc:test_grove.glade"
+    }
+  ],
+  "encounters": "enc:test_grove.warden"
+}

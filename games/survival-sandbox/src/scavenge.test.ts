@@ -1,19 +1,33 @@
 import { netHoldings } from '@engine/economy';
 import {
+  KERNEL_VERSION,
   checkSimulatorContract,
+  checkStart,
   defaultSettle,
   estimate,
   placeSegments,
+  settleWithEscrow,
   spliceTimeline,
   stableStringify,
+  timelineHash,
   visibleView,
 } from '@engine/expedition-kernel';
-import type { ContractFixture, Timeline } from '@engine/expedition-kernel';
-import { BP_SCALE, hashSeed } from '@engine/sim-core';
+import type { ContractFixture, StartRequest, Timeline } from '@engine/expedition-kernel';
+import { BP_SCALE } from '@engine/sim-core';
 import { describe, expect, it } from 'vitest';
 
-import { ESCROW, PACK, SUPPLY_ITEMS, createScavengeSimulator, parseScavengeConfig } from './scavenge.ts';
+import {
+  ESCROW,
+  PACK,
+  SCAVENGE_ACTIVITY_ID,
+  SUPPLY_ITEMS,
+  SUPPLY_SOURCE,
+  createScavengeSimulator,
+  parseScavengeConfig,
+  survivalActivities,
+} from './scavenge.ts';
 import type { ScavengeConfig, ScavengeEvent, ScavengeState, SurvivorGroup } from './scavenge.ts';
+import { loadWorld, survivalContext, survivalRegistry } from './world.ts';
 
 const sim = createScavengeSimulator();
 const SEEDS = Array.from({ length: 24 }, (_, i) => i + 1);
@@ -25,9 +39,9 @@ const group = (actorId: string, over: Partial<SurvivorGroup> = {}): SurvivorGrou
   carryCapacity: 12,
   ...over,
 });
-const config = (district: 'old_market' | 'rail_yard', hours: 1 | 2 | 3, supplies: Partial<ScavengeConfig['supplies']> = {}): ScavengeConfig => ({
+// `hours` documents the intended duration; it is kernel-owned (budget/start request), not part of the config.
+const config = (district: 'old_market' | 'rail_yard', _hours: 1 | 2 | 3, supplies: Partial<ScavengeConfig['supplies']> = {}): ScavengeConfig => ({
   district: `area:${district}`,
-  durationMin: (hours * 60) as ScavengeConfig['durationMin'],
   supplies: { food: 9, water: 9, medkits: 1, ...supplies },
 });
 
@@ -74,7 +88,7 @@ describe('config, start checks and budget', () => {
     const bad: unknown[] = [
       null,
       { ...config('old_market', 1), district: 'area:mall' },
-      { ...config('old_market', 1), durationMin: 90 },
+      { ...config('old_market', 1), durationMin: 60 }, // duration is kernel-owned
       { ...config('old_market', 1), supplies: { food: -1, water: 1, medkits: 0 } },
       { ...config('old_market', 1), supplies: { food: 1.5, water: 1, medkits: 0 } },
       { ...config('old_market', 1), extra: true },
@@ -82,9 +96,10 @@ describe('config, start checks and budget', () => {
     for (const input of bad) expect(() => parseScavengeConfig(input)).toThrow();
   });
 
-  it('canStart checks actors, condition and supplies', () => {
-    const ctx = (c: ScavengeConfig, actors: SurvivorGroup[]) => sim.canStart({ config: c, actors, durationMin: c.durationMin, paceBp: BP_SCALE });
+  it('canStart checks duration, actors, condition and supplies', () => {
+    const ctx = (c: ScavengeConfig, actors: SurvivorGroup[], durationMin = 60) => sim.canStart({ config: c, actors, durationMin, paceBp: BP_SCALE });
     expect(ctx(config('old_market', 1), [group('g:a')])).toEqual({ ok: true });
+    expect(ctx(config('old_market', 1), [group('g:a')], 90)).toMatchObject({ ok: false, code: 'invalid_duration' });
     expect(ctx(config('old_market', 1), [])).toMatchObject({ ok: false, code: 'no_actors' });
     expect(ctx(config('old_market', 1), [group('g:a', { condition: 0 })])).toMatchObject({ ok: false, code: 'group_incapacitated' });
     expect(ctx(config('old_market', 1, { water: 2 }), [group('g:a')])).toMatchObject({ ok: false, code: 'insufficient_supplies' });
@@ -96,6 +111,53 @@ describe('config, start checks and budget', () => {
     expect(sim.budget(c, 180, 2 * BP_SCALE)).toBe(6);
     expect(sim.budget(c, 120, 15_000)).toBe(3);
     expect(sim.budget(c, 60, 5000)).toBe(1); // at least one hour
+  });
+});
+
+describe('engine start gating (checkStart)', () => {
+  const world = loadWorld();
+  const predicates = survivalRegistry();
+  const activities = survivalActivities(sim);
+  const request = (over: Partial<StartRequest> = {}): StartRequest => ({
+    areaId: 'area:old_market',
+    activityId: SCAVENGE_ACTIVITY_ID,
+    durationMin: 120,
+    paceBp: BP_SCALE,
+    ...over,
+  });
+  const completed = survivalContext({ completedAreas: ['area:old_market', 'area:rail_yard'] });
+  const gate = (req: StartRequest, c = config('old_market', 2), ctx = completed) =>
+    checkStart({ world, request: req, activities, simulator: sim, config: c, actors: [group('g:a')], evalContexts: [ctx], predicates });
+
+  it('maps activity:scavenge to survival.scavenge for every district', () => {
+    for (const a of world.areas) for (const id of a.activities ?? []) expect(activities.get(id)?.id).toBe('survival.scavenge');
+  });
+
+  it('starts a completed district and returns budget and per-group escrow', () => {
+    expect(gate(request())).toEqual({
+      ok: true,
+      budget: 2,
+      escrow: [
+        { actorId: 'g:a', asset: { kind: 'stack', item: SUPPLY_ITEMS.food }, qty: 9, from: SUPPLY_SOURCE, to: ESCROW },
+        { actorId: 'g:a', asset: { kind: 'stack', item: SUPPLY_ITEMS.water }, qty: 9, from: SUPPLY_SOURCE, to: ESCROW },
+        { actorId: 'g:a', asset: { kind: 'stack', item: SUPPLY_ITEMS.medkits }, qty: 1, from: SUPPLY_SOURCE, to: ESCROW },
+      ],
+    });
+  });
+
+  it('refuses districts that are not completed (engine gate), with reasons', () => {
+    const fresh = survivalContext({ discovered: { 'area:old_market': ['loc:old_market.gate'] } });
+    expect(gate(request(), config('old_market', 2), fresh)).toMatchObject({
+      ok: false,
+      code: 'start.areaNotCompleted',
+      reasons: ['completion.discoveries:area:old_market', 'requires.flag:old_market.generator_restored'],
+    });
+  });
+
+  it('refuses the hub, unknown durations and a config targeting another district', () => {
+    expect(gate(request({ areaId: 'area:shelter' }))).toMatchObject({ ok: false, code: 'start.activityNotInArea' });
+    expect(gate(request({ durationMin: 90 }))).toMatchObject({ ok: false, code: 'invalid_duration' });
+    expect(gate(request(), config('rail_yard', 2))).toMatchObject({ ok: false, code: 'district_mismatch' });
   });
 });
 
@@ -153,14 +215,34 @@ describe('simulation', () => {
 });
 
 describe('kernel contract', () => {
-  it('passes checkSimulatorContract (custom settlement) on every fixture', () => {
+  it('passes checkSimulatorContract with per-reason modes (custom only for completed) on every fixture', () => {
+    expect(checkSimulatorContract(sim, FIXTURES, { settlement: { completed: 'custom', cancelled: 'default', member_left: 'default' } })).toEqual([]);
+  });
+
+  it('passes with the inferred (all custom) mode too: the failure penalty stays within the default bound', () => {
     expect(checkSimulatorContract(sim, FIXTURES)).toEqual([]);
   });
 
-  it('equals default settlement whenever the run did not fail', () => {
-    const nonFailing = FIXTURES.map((f) => ({ ...f, seeds: f.seeds.filter((s) => run(f, s).outcome !== 'failed') })).filter((f) => f.seeds.length > 0);
-    expect(nonFailing.length).toBeGreaterThanOrEqual(4);
-    expect(checkSimulatorContract(sim, nonFailing, { settlement: 'default' })).toEqual([]);
+  it('returns unused supplies through the kernel at every cutoff (also before the first hour)', () => {
+    for (const f of FIXTURES) {
+      for (const seed of f.seeds.slice(0, 8)) {
+        const t = run(f, seed);
+        for (let cutoff = -1; cutoff < t.segments.length; cutoff++) {
+          for (const reason of ['completed', 'cancelled'] as const) {
+            if (reason === 'completed' && cutoff !== t.segments.length - 1) continue;
+            const s = settleWithEscrow(sim, t, cutoff, reason, f.config, f.actors);
+            const hours = cutoff + 1;
+            for (const a of f.actors) {
+              const returned = (item: string) =>
+                s.returned.find((d) => d.actorId === a.actorId && d.asset.kind === 'stack' && d.asset.item === item)?.qty ?? 0;
+              expect(returned(SUPPLY_ITEMS.food)).toBe(f.config.supplies.food - a.members * hours);
+              expect(returned(SUPPLY_ITEMS.water)).toBe(f.config.supplies.water - a.members * hours);
+            }
+            for (const d of s.returned) expect(d).toMatchObject({ from: ESCROW, to: SUPPLY_SOURCE });
+          }
+        }
+      }
+    }
   });
 
   it('failure keeps supply consumption and loses half of the finds (integer)', () => {
@@ -192,7 +274,7 @@ describe('placement and reveal', () => {
       for (const seed of f.seeds) {
         const t = run(f, seed);
         if (t.outcome === 'completed') continue;
-        const durationMs = f.config.durationMin * 60_000;
+        const durationMs = f.budget * 60 * 60_000; // budget = hours at pace ×1 (the double-pace fixture just compresses them)
         const placed = placeSegments(t, 1_000, durationMs, f.budget);
         expect(placed.endsAtMs).toBeLessThanOrEqual(placed.plannedEndsAtMs);
         for (let now = 0; now < placed.endsAtMs; now += 60_000) {
@@ -253,8 +335,11 @@ describe('estimate', () => {
 });
 
 describe('golden timeline', () => {
+  // Updated deliberately in simulator 2.0.0 / kernel 0.2.0: hours now use the kernel's segmentStreams
+  // (deriveSeed(seed, 'segment', i) instead of the sandbox's own 'hour' label), so every roll changed.
   it('is frozen for rail yard, 3h, seed 42 (bump SCAVENGE_SIMULATOR_VERSION if this changes)', () => {
+    expect(KERNEL_VERSION).toBe('0.2.0');
     const t = sim.simulate({ config: config('rail_yard', 3), actors: [group('g:a')], seed: 42, budget: 3 });
-    expect({ outcome: t.outcome, hours: t.segments.length, hash: hashSeed(stableStringify(t)) }).toEqual({ outcome: 'completed', hours: 3, hash: 420077839 });
+    expect({ outcome: t.outcome, hours: t.segments.length, hash: timelineHash(t) }).toEqual({ outcome: 'completed', hours: 3, hash: 1968916264 });
   });
 });

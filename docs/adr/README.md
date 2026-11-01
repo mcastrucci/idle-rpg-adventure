@@ -19,7 +19,7 @@
 | [0012](0012-live-instance-hosting.md) | Live instance hosting (in-house vs Colyseus) | Proposed — spike 3 |
 | [0013](0013-tick-and-idle-encounter-model.md) | Combat tick duration and idle encounter model | Proposed — spike 1 |
 | [0014](0014-tiled-scene-editor.md) | Tiled as the scene layout editor | Proposed — M5 |
-| [0015](0015-data-access-layer.md) | Data access layer (Drizzle vs Kysely) | Proposed — M2 |
+| [0015](0015-data-access-layer.md) | Data access layer (Drizzle) | Accepted |
 | [0016](0016-hosting.md) | Hosting for the POC | Proposed — M2 |
 
 New ADRs: copy [`0000-template.md`](0000-template.md). Accepted ADRs are never edited in substance — supersede them.

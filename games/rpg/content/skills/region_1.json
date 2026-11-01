@@ -1,0 +1,360 @@
+[
+  {
+    "id": "skill:basic_attack",
+    "nameKey": "skill.basic_attack.name",
+    "cooldownTicks": 0,
+    "windupTicks": 0,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 10000,
+        "school": "physical"
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:gore",
+    "nameKey": "skill.gore.name",
+    "cooldownTicks": 10,
+    "windupTicks": 0,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 18000,
+        "school": "physical"
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:bramble_lash",
+    "nameKey": "skill.bramble_lash.name",
+    "cooldownTicks": 12,
+    "windupTicks": 0,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 5000,
+        "school": "physical"
+      },
+      {
+        "type": "dot",
+        "coeffBp": 3000,
+        "school": "physical",
+        "periodTicks": 2,
+        "duration": {
+          "value": 10,
+          "unit": "ticks"
+        }
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:arc_spark",
+    "nameKey": "skill.arc_spark.name",
+    "cooldownTicks": 0,
+    "windupTicks": 0,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 10000,
+        "school": "magic"
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:overcharge",
+    "nameKey": "skill.overcharge.name",
+    "cooldownTicks": 14,
+    "windupTicks": 2,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 22000,
+        "school": "magic"
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:heavy_rake",
+    "nameKey": "skill.heavy_rake.name",
+    "cooldownTicks": 14,
+    "windupTicks": 3,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 22000,
+        "school": "physical"
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:crushing_blow",
+    "nameKey": "skill.crushing_blow.name",
+    "cooldownTicks": 0,
+    "windupTicks": 3,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 35000,
+        "school": "physical"
+      },
+      {
+        "type": "stun",
+        "duration": {
+          "value": 3,
+          "unit": "ticks"
+        }
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:strangling_roots",
+    "nameKey": "skill.strangling_roots.name",
+    "cooldownTicks": 0,
+    "windupTicks": 0,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 6000,
+        "school": "magic"
+      },
+      {
+        "type": "dot",
+        "coeffBp": 4000,
+        "school": "magic",
+        "periodTicks": 2,
+        "duration": {
+          "value": 10,
+          "unit": "ticks"
+        }
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:verdant_frenzy",
+    "nameKey": "skill.verdant_frenzy.name",
+    "cooldownTicks": 0,
+    "windupTicks": 0,
+    "targeting": "self",
+    "effects": [
+      {
+        "type": "stat_mod",
+        "stat": "haste",
+        "flat": 25,
+        "duration": {
+          "value": 4,
+          "unit": "actions"
+        }
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:shield_bash",
+    "nameKey": "skill.shield_bash.name",
+    "cooldownTicks": 10,
+    "windupTicks": 0,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 9000,
+        "school": "physical"
+      },
+      {
+        "type": "taunt",
+        "duration": {
+          "value": 3,
+          "unit": "attacks"
+        }
+      },
+      {
+        "type": "stat_mod",
+        "stat": "armor",
+        "flat": 20,
+        "duration": {
+          "value": 3,
+          "unit": "attacks"
+        },
+        "to": "self"
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:guard",
+    "nameKey": "skill.guard.name",
+    "cooldownTicks": 12,
+    "windupTicks": 0,
+    "targeting": "self",
+    "effects": [
+      {
+        "type": "stat_mod",
+        "stat": "armor",
+        "flat": 150,
+        "duration": {
+          "value": 1,
+          "unit": "attacks"
+        }
+      },
+      {
+        "type": "stat_mod",
+        "stat": "resist",
+        "flat": 150,
+        "duration": {
+          "value": 1,
+          "unit": "attacks"
+        }
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:cleave",
+    "nameKey": "skill.cleave.name",
+    "cooldownTicks": 8,
+    "windupTicks": 0,
+    "targeting": "allEnemies",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 6000,
+        "school": "physical"
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:precise_strike",
+    "nameKey": "skill.precise_strike.name",
+    "cooldownTicks": 10,
+    "windupTicks": 0,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 18000,
+        "school": "physical"
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:rend",
+    "nameKey": "skill.rend.name",
+    "cooldownTicks": 12,
+    "windupTicks": 0,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 5000,
+        "school": "physical"
+      },
+      {
+        "type": "dot",
+        "coeffBp": 2500,
+        "school": "physical",
+        "periodTicks": 2,
+        "duration": {
+          "value": 10,
+          "unit": "ticks"
+        }
+      },
+      {
+        "type": "stat_mod",
+        "stat": "armor",
+        "deltaBp": -3000,
+        "duration": {
+          "value": 12,
+          "unit": "ticks"
+        }
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:mend",
+    "nameKey": "skill.mend.name",
+    "cooldownTicks": 15,
+    "windupTicks": 0,
+    "targeting": "ally",
+    "effects": [
+      {
+        "type": "heal",
+        "coeffBp": 25000
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "skill:second_wind",
+    "nameKey": "skill.second_wind.name",
+    "cooldownTicks": 20,
+    "windupTicks": 0,
+    "targeting": "self",
+    "effects": [
+      {
+        "type": "cleanse"
+      },
+      {
+        "type": "hot",
+        "coeffBp": 10000,
+        "periodTicks": 2,
+        "duration": {
+          "value": 10,
+          "unit": "ticks"
+        }
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  }
+]

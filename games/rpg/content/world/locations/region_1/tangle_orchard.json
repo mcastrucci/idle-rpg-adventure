@@ -1,0 +1,35 @@
+{
+  "id": "loc:region_1.tangle_orchard",
+  "nameKey": "loc.region_1.tangle_orchard.name",
+  "tags": [
+    "ordinary"
+  ],
+  "exits": [
+    {
+      "id": "exit:region_1.tangle_orchard.overgrown_causeway",
+      "to": "loc:region_1.overgrown_causeway"
+    },
+    {
+      "id": "exit:region_1.tangle_orchard.lantern_ruins",
+      "to": "loc:region_1.lantern_ruins"
+    },
+    {
+      "id": "exit:region_1.tangle_orchard.irrigation_terraces",
+      "to": "loc:region_1.irrigation_terraces"
+    }
+  ],
+  "resources": [
+    {
+      "node": "res:resin_tap",
+      "lootTable": "loot:region_1.resin_gather"
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "grafted_tree",
+      "type": "lore",
+      "textKey": "hotspot.region_1.grafted_tree"
+    }
+  ],
+  "encounters": "enc:region_1.orchard"
+}

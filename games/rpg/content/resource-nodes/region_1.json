@@ -1,0 +1,34 @@
+[
+  {
+    "id": "res:glowcap",
+    "nameKey": "res.glowcap.name",
+    "gatherTicks": 6,
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "res:resin_tap",
+    "nameKey": "res.resin_tap.name",
+    "gatherTicks": 8,
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "res:alloy_scrap",
+    "nameKey": "res.alloy_scrap.name",
+    "gatherTicks": 10,
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "res:seed_cache",
+    "nameKey": "res.seed_cache.name",
+    "gatherTicks": 12,
+    "tags": [
+      "region_1"
+    ]
+  }
+]

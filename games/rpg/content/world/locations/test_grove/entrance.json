@@ -1,0 +1,13 @@
+{
+  "id": "loc:test_grove.entrance",
+  "nameKey": "loc.test_grove.entrance.name",
+  "tags": [
+    "ordinary"
+  ],
+  "exits": [
+    {
+      "id": "exit:test_grove.entrance.glade",
+      "to": "loc:test_grove.glade"
+    }
+  ]
+}

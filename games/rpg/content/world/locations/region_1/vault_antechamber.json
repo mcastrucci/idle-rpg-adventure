@@ -1,0 +1,29 @@
+{
+  "id": "loc:region_1.vault_antechamber",
+  "nameKey": "loc.region_1.vault_antechamber.name",
+  "tags": [
+    "ordinary",
+    "safe"
+  ],
+  "exits": [
+    {
+      "id": "exit:region_1.vault_antechamber.pump_station",
+      "to": "loc:region_1.pump_station"
+    },
+    {
+      "id": "exit:region_1.vault_antechamber.seed_vault_heart",
+      "to": "loc:region_1.seed_vault_heart",
+      "requires": {
+        "flag": "region_1.bulkhead_open"
+      }
+    }
+  ],
+  "resources": [],
+  "hotspots": [
+    {
+      "id": "beacon",
+      "type": "lore",
+      "textKey": "hotspot.region_1.beacon"
+    }
+  ]
+}

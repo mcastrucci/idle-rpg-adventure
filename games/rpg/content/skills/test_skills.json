@@ -1,0 +1,37 @@
+[
+  {
+    "id": "skill:test_strike",
+    "nameKey": "skill.test_strike.name",
+    "cooldownTicks": 0,
+    "windupTicks": 0,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 10000,
+        "school": "physical"
+      }
+    ]
+  },
+  {
+    "id": "skill:test_slam",
+    "nameKey": "skill.test_slam.name",
+    "cooldownTicks": 10,
+    "windupTicks": 3,
+    "targeting": "enemy",
+    "effects": [
+      {
+        "type": "damage",
+        "coeffBp": 25000,
+        "school": "physical"
+      },
+      {
+        "type": "stun",
+        "duration": {
+          "value": 2,
+          "unit": "ticks"
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "id": "idle:test_grove.hunt",
+  "nameKey": "idle.test_grove.hunt.name",
+  "encountersPerHour": 12,
+  "encounterTable": "enc:test_grove.hunt",
+  "resourceYields": [
+    {
+      "node": "res:test_grove.herb_patch",
+      "lootTable": "loot:test_grove.herb_gather",
+      "rollsPerHour": 2
+    }
+  ]
+}

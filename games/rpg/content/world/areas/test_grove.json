@@ -1,0 +1,41 @@
+{
+  "id": "area:test_grove",
+  "kind": "explorable",
+  "nameKey": "area.test_grove.name",
+  "difficulty": 1,
+  "recommendedLevel": [
+    1,
+    3
+  ],
+  "mapPosition": {
+    "x": 100,
+    "y": 0
+  },
+  "startLocation": "loc:test_grove.entrance",
+  "locations": [
+    "loc:test_grove.entrance",
+    "loc:test_grove.glade",
+    "loc:test_grove.warden_den",
+    "loc:test_grove.hidden_hollow"
+  ],
+  "completion": {
+    "pool": {
+      "tag": "ordinary"
+    },
+    "thresholdBp": 7000,
+    "required": {
+      "all": [
+        {
+          "game": "defeated",
+          "enemy": "enemy:test_grove.warden"
+        }
+      ]
+    }
+  },
+  "activities": [
+    "idle:test_grove.hunt"
+  ],
+  "tags": [
+    "technical_seed"
+  ]
+}

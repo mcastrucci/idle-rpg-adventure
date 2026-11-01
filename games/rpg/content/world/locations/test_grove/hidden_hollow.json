@@ -1,0 +1,19 @@
+{
+  "id": "loc:test_grove.hidden_hollow",
+  "nameKey": "loc.test_grove.hidden_hollow.name",
+  "tags": [
+    "ordinary"
+  ],
+  "exits": [
+    {
+      "id": "exit:test_grove.hollow.glade",
+      "to": "loc:test_grove.glade"
+    }
+  ],
+  "resources": [
+    {
+      "node": "res:test_grove.herb_patch",
+      "lootTable": "loot:test_grove.herb_gather"
+    }
+  ]
+}
