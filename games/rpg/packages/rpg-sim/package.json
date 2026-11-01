@@ -12,5 +12,9 @@
     "@engine/sim-core": "workspace:*",
     "@rpg/rpg-schema": "workspace:*",
     "@rpg/rpg-stats": "workspace:*"
+  },
+  "devDependencies": {
+    "@engine/content-compiler": "workspace:*",
+    "@rpg/content-plugin": "workspace:*"
   }
 }
