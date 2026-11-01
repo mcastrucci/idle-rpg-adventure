@@ -1,0 +1,1 @@
+{ "id": "widget:lantern", "name": "Lantern", "location": "loc:grove.ruins", "requires": ["widget:oil"] }

@@ -29,7 +29,14 @@ importers:
 
   engine/client-kit: {}
 
-  engine/content-compiler: {}
+  engine/content-compiler:
+    dependencies:
+      '@engine/world':
+        specifier: workspace:*
+        version: link:../world
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
   engine/economy:
     dependencies:
