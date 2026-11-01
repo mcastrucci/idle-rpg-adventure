@@ -3,7 +3,7 @@
  * `requires.areaCompleted:area:north`.
  */
 import { hasDiscovered, type EvalContext } from './actor.ts';
-import type { PredicateRegistry } from './registry.ts';
+import { parseArgs, type PredicateRegistry } from './registry.ts';
 import { isGameRequirement, type GameRequirement, type Requirement } from './schemas.ts';
 
 export interface RequirementResult {
@@ -45,10 +45,10 @@ export function evaluateRequirement<G>(
     const { name, args } = gameArgs(req);
     const def = registry.get(name);
     if (!def) return fail(`requires.unknownPredicate:${name}`);
-    const parsed = def.args.safeParse(args);
-    if (!parsed.success) return fail(`requires.invalidArgs:${name}`);
-    if (def.evaluate(parsed.data, ctx)) return OK;
-    return fail(def.reason?.(parsed.data) ?? `requires.game.${name}`);
+    const parsed = parseArgs(def.args, args);
+    if (!parsed.ok) return fail(`requires.invalidArgs:${name}`);
+    if (def.evaluate(parsed.args, ctx)) return OK;
+    return fail(def.reason?.(parsed.args) ?? `requires.game.${name}`);
   }
   if ('all' in req) {
     const reasons = req.all.flatMap((child) => evaluateRequirement(child, ctx, registry).reasons);

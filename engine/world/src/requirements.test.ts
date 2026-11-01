@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { PredicateRegistry } from './registry.ts';
+import { createActorWorldState } from './actor.ts';
+import { PredicateRegistry, type StandardSchemaV1 } from './registry.ts';
 import { describeRequirement, evaluateRequirement } from './requirements.ts';
 import { RequirementSchema, type Requirement } from './schemas.ts';
 import { BOSS, R1, r1, rpgCtx, rpgRegistry, survivalCtx, survivalRegistry } from './testing/fixtures.ts';
@@ -102,6 +103,44 @@ describe('game predicates', () => {
     expect(() => reg.register('1bad', { args: z.strictObject({}), evaluate: () => true })).toThrow(/Invalid/);
     expect(reg.names()).toEqual(['x']);
     expect(() => reg.validateArgs('nope', {})).toThrow(/Unknown/);
+    expect(() => reg.register('y', { args: {} as never, evaluate: () => true })).toThrow(/Standard Schema/);
+  });
+
+  it('accepts Standard Schema objects and plain parse functions as argument parsers', () => {
+    type Ctx = { readonly level: number };
+    const standard: StandardSchemaV1<unknown, { min: number }> = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate: (v) =>
+          typeof v === 'object' && v !== null && Number.isSafeInteger((v as { min?: unknown }).min)
+            ? { value: { min: (v as { min: number }).min } }
+            : { issues: [{ message: 'min must be an integer', path: [{ key: 'min' }] }] },
+      },
+    };
+    const parseFn = (v: unknown): { max: number } => {
+      const max = (v as { max?: unknown } | null)?.max;
+      if (typeof max !== 'number') throw new TypeError('max must be a number');
+      return { max };
+    };
+    const reg = new PredicateRegistry<Ctx>()
+      .register('levelAtLeast', { args: standard, evaluate: ({ min }, ctx) => ctx.game.level >= min })
+      .register('levelAtMost', { args: parseFn, evaluate: ({ max }, ctx) => ctx.game.level <= max })
+      .register('zodded', { args: z.strictObject({ n: z.int() }), evaluate: ({ n }) => n > 0 })
+      .register('later', {
+        args: { '~standard': { version: 1, vendor: 'async', validate: () => Promise.resolve({ value: {} }) } },
+        evaluate: () => true,
+      });
+    const ctx = { actor: createActorWorldState(), game: { level: 5 } };
+    expect(evaluateRequirement({ game: 'levelAtLeast', min: 3 }, ctx, reg).ok).toBe(true);
+    expect(evaluateRequirement({ game: 'levelAtLeast', min: 'x' }, ctx, reg).reasons).toEqual(['requires.invalidArgs:levelAtLeast']);
+    expect(evaluateRequirement({ game: 'levelAtMost', max: 4 }, ctx, reg).reasons).toEqual(['requires.game.levelAtMost']);
+    expect(evaluateRequirement({ game: 'levelAtMost' }, ctx, reg).reasons).toEqual(['requires.invalidArgs:levelAtMost']);
+    expect(evaluateRequirement({ game: 'later' }, ctx, reg).reasons).toEqual(['requires.invalidArgs:later']);
+    expect(reg.validateArgs('levelAtLeast', { min: 'x' })).toEqual({ ok: false, issues: [{ message: 'min must be an integer', path: ['min'] }] });
+    expect(reg.validateArgs('levelAtMost', {})).toEqual({ ok: false, issues: [{ message: 'max must be a number', path: [] }] });
+    expect(reg.validateArgs('zodded', { n: 1.5 })).toMatchObject({ ok: false, issues: [{ path: ['n'] }] });
+    expect(reg.validateArgs('zodded', { n: 2 })).toEqual({ ok: true, args: { n: 2 } });
   });
 });
 

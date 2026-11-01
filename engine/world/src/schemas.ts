@@ -5,6 +5,7 @@
  * through the content compiler's schema registry and the engine ignores what it does not know. Engine-owned structures
  * (requirements, completion rules, travel) are *strict* so typos fail loudly.
  */
+import { BP_SCALE } from '@engine/sim-core';
 import { z } from 'zod';
 
 /** Generic namespaced ID: `<namespace>:<name>`, e.g. `area:north`, `loc:north.old_well`. */
@@ -121,7 +122,8 @@ export type Location = z.output<typeof LocationSchema>;
 // Completion
 // ---------------------------------------------------------------------------------------------------------------------
 
-export const BP_SCALE = 10_000;
+/** Basis-point scale, owned by `@engine/sim-core` and re-exported here (same binding, so `export *` from both is fine). */
+export { BP_SCALE } from '@engine/sim-core';
 
 export const CompletionRuleSchema = z.strictObject({
   /** Locations of the area carrying this tag form the completion pool. */
