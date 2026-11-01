@@ -127,7 +127,7 @@ const BANNED_MATH = [
 ];
 
 export default defineConfig(
-  { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**'] },
+  { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '.claude/**'] },
 
   js.configs.recommended,
   ...tseslint.configs.strict,
