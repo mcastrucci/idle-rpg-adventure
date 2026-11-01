@@ -54,7 +54,8 @@ draft ──(solo)────────────────────�
 ## 5. Reveal
 
 `GET /expeditions/:id` returns encounters with `revealAt ≤ now()` plus aggregated totals so far. Progress bar uses
-`startsAt/endsAt`. The final outcome is never returned before `ends_at`.
+`startsAt/plannedEndsAt` — the *actual* `ends_at` is withheld until reached, since an earlier end would leak a death or
+retreat. The final outcome is never returned before `ends_at` (implemented by `visibleView` in the expedition kernel).
 
 ## 6. Settlement (idempotent)
 
