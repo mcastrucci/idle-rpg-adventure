@@ -80,7 +80,17 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
 
-  games/rpg/packages/rpg-sim: {}
+  games/rpg/packages/rpg-sim:
+    dependencies:
+      '@engine/sim-core':
+        specifier: workspace:*
+        version: link:../../../../engine/sim-core
+      '@rpg/rpg-schema':
+        specifier: workspace:*
+        version: link:../rpg-schema
+      '@rpg/rpg-stats':
+        specifier: workspace:*
+        version: link:../rpg-stats
 
   games/rpg/packages/rpg-stats:
     dependencies:
