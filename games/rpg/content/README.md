@@ -54,6 +54,6 @@ enemies, items, loot/resources, live/idle encounter tables, activities and the 1
 are provisional. The five commons and native Fracture mini-boss preserve the owner decisions in the design.
 
 This is not yet a playable or balanced region. In particular, flag-producing hotspot interactions, localized text,
-scenes/art and guarded-stun semantics still need implementation. See the
+and scenes/art still need implementation (guarded-stun semantics landed with #71). See the
 [authoring checkpoint](../../../docs/design/region-1-content.md) for exact data choices, unresolved contracts and
 remaining #46/#24 work.
