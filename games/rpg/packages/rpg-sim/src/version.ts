@@ -3,4 +3,4 @@
  * tick order, targeting, event shapes, RNG usage, default tuning or stat formulas) bumps it, and the golden replay
  * fixtures in `src/combat/golden.test.ts` are updated deliberately in the same commit (see README).
  */
-export const ENGINE_VERSION = 'rpg-sim@1.0.0';
+export const ENGINE_VERSION = 'rpg-sim@1.1.0';

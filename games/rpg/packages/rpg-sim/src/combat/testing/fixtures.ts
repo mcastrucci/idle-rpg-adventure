@@ -31,7 +31,8 @@ export const SKILLS = {
   }),
   /**
    * The response to a telegraph: blocks the **next received attack** (big armor buff + small shield, both 1 attack).
-   * Used on cooldown it is mostly wasted on bites; timed to a telegraph it blunts the heavy strike.
+   * Used on cooldown it is mostly wasted on bites; timed to a telegraph it blunts the heavy strike. Both effects are
+   * guards, so the blocked attack's `negatedByGuard` effects (the crushing blow's stun) are not applied.
    */
   guard: skill({
     id: 'skill:guard',
@@ -39,9 +40,25 @@ export const SKILLS = {
     windupTicks: 0,
     targeting: 'self',
     effects: [
-      { type: 'stat_mod', stat: 'armor', flat: 300, duration: { value: 1, unit: 'attacks' } },
-      { type: 'shield', coeffBp: 20_000, duration: { value: 1, unit: 'attacks' } },
+      { type: 'stat_mod', stat: 'armor', flat: 300, duration: { value: 1, unit: 'attacks' }, guard: true },
+      { type: 'shield', coeffBp: 20_000, duration: { value: 1, unit: 'attacks' }, guard: true },
     ],
+  }),
+  /** A plain armor buff (no guard marker): mitigates damage but does not negate the stun. */
+  brace: skill({
+    id: 'skill:brace',
+    cooldownTicks: 0,
+    windupTicks: 0,
+    targeting: 'self',
+    effects: [{ type: 'stat_mod', stat: 'armor', flat: 300, duration: { value: 1, unit: 'attacks' } }],
+  }),
+  /** A tiny guard shield, depleted by any real hit: the guard still counts for the hit that depletes it. */
+  ward: skill({
+    id: 'skill:ward',
+    cooldownTicks: 0,
+    windupTicks: 0,
+    targeting: 'self',
+    effects: [{ type: 'shield', coeffBp: 100, duration: { value: 1, unit: 'attacks' }, guard: true }],
   }),
   mend: skill({ id: 'skill:mend', cooldownTicks: 6, windupTicks: 0, targeting: 'ally', effects: [{ type: 'heal', coeffBp: 20_000 }] }),
   firebolt: skill({
@@ -116,6 +133,17 @@ export const SKILLS = {
     targeting: 'enemy',
     effects: [{ type: 'damage', coeffBp: 100_000, school: 'physical' }],
   }),
+  /** Telegraphed hit with a secondary stun that a guard negates (mirrors Region 1 `crushing_blow`). */
+  crushingBlow: skill({
+    id: 'skill:crushing_blow',
+    cooldownTicks: 20,
+    windupTicks: 3,
+    targeting: 'enemy',
+    effects: [
+      { type: 'damage', coeffBp: 30_000, school: 'physical' },
+      { type: 'stun', duration: { value: 3, unit: 'ticks' }, negatedByGuard: true },
+    ],
+  }),
 } as const;
 
 export const POTION = item({
@@ -161,6 +189,45 @@ export const ENEMIES = {
       { fromHpBp: 10_000, rotation: ['skill:bite', 'skill:bite', 'skill:heavy_strike'], telegraphs: ['skill:heavy_strike'] },
       { fromHpBp: 5000, rotation: ['skill:heavy_strike', 'skill:bite'], telegraphs: ['skill:heavy_strike'] },
     ],
+  }),
+  /** Opens with a telegraphed crushing blow (resolves at tick 4), then bites. */
+  brute: enemy({
+    id: 'enemy:brute',
+    rank: 'normal',
+    level: 4,
+    stats: { maxHp: 5000, power: 10 },
+    skills: ['skill:bite', 'skill:crushing_blow'],
+    ai: [
+      { when: { skillReady: 'skill:crushing_blow' }, do: { useSkill: 'skill:crushing_blow' } },
+      { when: {}, do: { useSkill: 'skill:bite' } },
+    ],
+    xp: 0,
+  }),
+  /** Fast caster that opens with a firebolt (damage + DoT), then bites. */
+  hexer: enemy({
+    id: 'enemy:hexer',
+    rank: 'normal',
+    level: 3,
+    stats: { maxHp: 5000, power: 8, haste: 300 },
+    skills: ['skill:bite', 'skill:firebolt'],
+    ai: [
+      { when: { selfHpBelowBp: 10_000 }, do: { useSkill: 'skill:bite' } },
+      { when: {}, do: { useSkill: 'skill:firebolt' } },
+    ],
+    xp: 0,
+  }),
+  /** Fast taunter: shield-bashes (damage + taunt) whenever it can. */
+  bully: enemy({
+    id: 'enemy:bully',
+    rank: 'normal',
+    level: 3,
+    stats: { maxHp: 5000, power: 8, haste: 300 },
+    skills: ['skill:bite', 'skill:shield_bash'],
+    ai: [
+      { when: { skillReady: 'skill:shield_bash' }, do: { useSkill: 'skill:shield_bash' } },
+      { when: {}, do: { useSkill: 'skill:bite' } },
+    ],
+    xp: 0,
   }),
   /** Training dummies: lots of HP, weak bite; `fastDummy` acts every 2 ticks, `dummy` every 6. */
   dummy: enemy({
@@ -277,6 +344,15 @@ export function bossSetup(heroRules: AutomationRule[] = NAIVE_RULES): CombatSetu
   return {
     heroes: [bruiser({ rules: heroRules })],
     enemies: [{ id: 'enemy:boss', enemy: 'enemy:golem' }],
+    content: CONTENT,
+  };
+}
+
+/** Solo bruiser vs the brute (telegraphed crushing blow with a guard-negated stun). */
+export function bruteSetup(heroRules: AutomationRule[] = NAIVE_RULES): CombatSetup {
+  return {
+    heroes: [bruiser({ rules: heroRules })],
+    enemies: [{ id: 'enemy:brute', enemy: 'enemy:brute', hp: 600 }],
     content: CONTENT,
   };
 }

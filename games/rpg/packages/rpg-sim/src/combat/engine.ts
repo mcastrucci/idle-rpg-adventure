@@ -22,7 +22,7 @@
 import { RngStreams, assertSeed } from '@engine/sim-core';
 import type { Seed } from '@engine/sim-core';
 import type { ConsumableItem, Skill } from '@rpg/rpg-schema';
-import { isBoss } from '@rpg/rpg-schema';
+import { isBoss, isNegatedByGuard } from '@rpg/rpg-schema';
 import { DEFAULT_STAT_FORMULAS } from '@rpg/rpg-stats';
 
 import { createCtx, emit, living } from './context.ts';
@@ -33,6 +33,7 @@ import {
   dealDamage,
   heal,
   heldBefore,
+  isGuarding,
   isHarmful,
 } from './effects.ts';
 import { automationChoice, consumableQty, enemyChoice, isSelector, resolveTargets, skillChoice } from './rules.ts';
@@ -344,18 +345,33 @@ function choose(ctx: Ctx, a: ActorState): Choice | null {
   return a.auto ? automationChoice(ctx, a) : null;
 }
 
-/** Resolves a skill: effects in order, each on its recipients; then consumes `actions`/`attacks` charges. */
+/**
+ * Resolves a skill: effects in order, each on its recipients; then consumes `actions`/`attacks` charges.
+ *
+ * Guard vs secondary control (§5): for an attack, the targets carrying a guard effect when the resolution starts are
+ * "guarded"; `negatedByGuard` effects are not applied to them (`EffectNegated`). The snapshot is taken before any
+ * effect resolves, so a guard shield depleted by the hit itself still counts.
+ */
 function resolveSkill(ctx: Ctx, a: ActorState, skill: Skill, targetIds: readonly string[]): void {
   const mark = ctx.state.nextUid;
   const targets = targetIds.map((id) => ctx.byId.get(id)).filter((t): t is ActorState => t !== undefined && t.alive);
-  for (const effect of skill.effects) {
-    const recipients = effect.to === 'self' ? [a] : targets;
-    for (const r of recipients) applyEffect(ctx, a, r, effect, skill.id, 'skill');
-  }
-  a.actionsTaken += 1;
   const isAttack =
     (skill.targeting === 'enemy' || skill.targeting === 'allEnemies') &&
     skill.effects.some((e) => (e.type === 'damage' || e.type === 'dot') && e.to === 'target');
+  const guarded = new Set(isAttack ? targets.filter((t) => isGuarding(ctx, t.id)).map((t) => t.id) : []);
+  for (const effect of skill.effects) {
+    const recipients = effect.to === 'self' ? [a] : targets;
+    for (const r of recipients) {
+      if (effect.to === 'target' && guarded.has(r.id) && isNegatedByGuard(effect)) {
+        if (r.alive) {
+          emit(ctx, { type: 'EffectNegated', sourceId: a.id, targetId: r.id, origin: skill.id, effect: effect.type, reason: 'guarded' });
+        }
+        continue;
+      }
+      applyEffect(ctx, a, r, effect, skill.id, 'skill');
+    }
+  }
+  a.actionsTaken += 1;
   afterAction(ctx, a, mark, isAttack ? targets : null);
 }
 
