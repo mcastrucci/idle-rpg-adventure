@@ -82,7 +82,11 @@ importers:
 
   games/rpg/packages/rpg-sim: {}
 
-  games/rpg/packages/rpg-stats: {}
+  games/rpg/packages/rpg-stats:
+    dependencies:
+      '@rpg/rpg-schema':
+        specifier: workspace:*
+        version: link:../rpg-schema
 
   games/rpg/tools/balance-sim: {}
 
