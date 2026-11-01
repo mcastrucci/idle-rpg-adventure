@@ -24,7 +24,7 @@ fixes the texture budget and scene format).
 - **Spike 1** — combat engine + idle precompute + estimates (ADR-0013)
 - **Spike 2** — mobile rendering PixiJS vs Phaser + Capacitor on real devices (ADR-0010, ADR-0011)
 - **Spike 3** — live instance + economy integrity under adversarial tests (ADR-0012)
-- Region 1 paper design
+- Region 1 paper design — [`docs/design/region-1.md`](design/region-1.md) (draft for product review)
 - Close spikes: update ADR statuses
 
 **Exit:** ADR-0010…0013 Accepted or Rejected with data; repo builds in CI.
