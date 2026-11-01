@@ -4,3 +4,7 @@ packages:
   - games/rpg/packages/*
   - games/rpg/tools/*
   - games/survival-sandbox
+
+# Keep the benchmark dependency on a release eligible for the install age policy.
+overrides:
+  tinybench: 6.2.2

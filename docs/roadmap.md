@@ -5,6 +5,27 @@ Labels: `milestone:M0…M8`, `area:*`, `phase:1|2`, `spike`.
 
 Core loop to validate: **Explore → Conquer → Unlock idle → Farm → Improve character → Explore a harder region.**
 
+## Current implementation snapshot
+
+The repository has reusable engine foundations (`sim-core`, `world`, `economy`, `expedition-kernel`), the content
+compiler, and RPG schema, stats, and content-plugin packages. Existing RPG JSON is technical seed content, not Region 1;
+Region 1 is documented as a paper design. The RPG combat simulator, balance simulator, server, and web client are not
+yet a playable vertical slice. The M0 spikes have not supplied validation results, so ADRs that depend on them remain
+proposals. Check the linked GitHub issues for live task status; this section describes the implementation boundary,
+not an issue-by-issue progress mirror.
+
+## Dependency guidance
+
+- Finish the expedition-kernel contract fixes surfaced by the survival sandbox before building game simulators on its
+  current interface. Implement the RPG step engine, effects, automation/AI, and replay safeguards as their contracts
+  stabilize; apply the Region 1 combat review decisions after the shared combat behaviors are integrated.
+- Server foundation work can proceed alongside simulation and does not need to wait for every M0 spike. Keep the
+  persistence and hosting choices explicit where their ADRs remain proposed.
+- Balance results require the RPG simulator and usable draft content; technical seed data alone cannot validate Region
+  1 balance.
+- Complete the mobile renderer and texture-budget validation on real devices before producing final scene art. The
+  paper design can continue in parallel.
+
 ```
 Phase 1 (solo vertical slice)
 M0 Foundations & spikes ─► M1 Simulation core ─┬─► M2 Server foundation ─► M4 Live adventure ─► M5 Region 1 & conquest ─► M6 Idle ─► M7 Region 2 & validation
@@ -17,8 +38,9 @@ M8 Party idle + live coop
 
 Epic: [#1](https://github.com/mcastrucci/idle-rpg-adventure/issues/1)
 
-Time-boxed (~3 weeks). Spikes first; in parallel only **paper design** of Region 1 (no art production until spike 2
-fixes the texture budget and scene format).
+Time-boxed (~3 weeks). Spikes first; in parallel, continue the **paper design** and prepare schema-valid draft numerical
+content as inputs to simulation. Such draft data remains provisional and does not count as a validated Region 1. Do not
+produce final scene art until spike 2 measures the renderer, texture budget, and scene format on real devices.
 
 - Monorepo bootstrap (pnpm, TS strict, lint incl. sim import ban, Vitest, CI)
 - **Spike 1** — combat engine + idle precompute + estimates (ADR-0013)
@@ -27,7 +49,8 @@ fixes the texture budget and scene format).
 - Region 1 paper design — [`docs/design/region-1.md`](design/region-1.md) (draft for product review)
 - Close spikes: update ADR statuses
 
-**Exit:** ADR-0010…0013 Accepted or Rejected with data; repo builds in CI.
+**Exit:** ADR-0010…0013 are Accepted or Rejected with data; repo builds in CI. The rendering and mobile distribution
+decisions require real-device evidence; do not infer those outcomes from a desktop prototype.
 
 ## M1 — Simulation core
 
