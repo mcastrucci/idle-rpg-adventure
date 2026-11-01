@@ -1,0 +1,11 @@
+{
+  "name": "@engine/server-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Server modules: accounts, actors, activity lock, command log, jobs, clock.",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

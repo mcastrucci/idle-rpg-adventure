@@ -1,0 +1,11 @@
+{
+  "name": "@survival/sandbox",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Toy game proving the engine boundary (tests/CLI only).",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

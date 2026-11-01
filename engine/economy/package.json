@@ -1,0 +1,11 @@
+{
+  "name": "@engine/economy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ledger, containers, escrow, idempotency.",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

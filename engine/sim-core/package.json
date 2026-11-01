@@ -1,0 +1,11 @@
+{
+  "name": "@engine/sim-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Seeded RNG streams, integer/basis-point math, determinism helpers.",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

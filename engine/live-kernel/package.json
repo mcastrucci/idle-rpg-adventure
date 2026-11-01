@@ -1,0 +1,11 @@
+{
+  "name": "@engine/live-kernel",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Instance host, leases, checkpoints, exploration FSM, encounter hook.",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}
