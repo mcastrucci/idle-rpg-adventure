@@ -67,7 +67,7 @@ its workarounds are gone.
    `ExpeditionSimulator.escrow?(config, actors)` declares what moves into `escrow` at start; `settleWithEscrow`
    returns `escrowed − consumed` per (actor, asset) to the source container, for every cutoff including −1. The
    sandbox escrows supplies from `storage` and tests the returns at every cutoff.
-2. **The kernel could not tell which area a config targets; activity IDs had no link to simulator IDs.** 
+2. **The kernel could not tell which area a config targets; activity IDs had no link to simulator IDs.**
    *Resolved:* start requests carry `{ areaId, activityId }`; `ActivityRegistry` maps content activity IDs (`ns:name`,
    here `activity:scavenge`) to simulators, whose IDs follow their own `SIMULATOR_ID_PATTERN` (`<game>.<name>`, here
    `survival.scavenge`); `checkStart` gates on completion per actor and passes `world`, `area`, eval contexts and the
