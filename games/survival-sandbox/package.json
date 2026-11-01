@@ -6,6 +6,14 @@
   "description": "Toy game proving the engine boundary (tests/CLI only).",
   "exports": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "cli": "node src/cli.ts"
+  },
+  "dependencies": {
+    "@engine/economy": "workspace:*",
+    "@engine/expedition-kernel": "workspace:*",
+    "@engine/sim-core": "workspace:*",
+    "@engine/world": "workspace:*",
+    "zod": "4.6.7"
   }
 }

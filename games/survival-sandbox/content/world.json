@@ -1,0 +1,146 @@
+{
+  "areas": [
+    { "id": "area:shelter", "kind": "hub", "locations": ["loc:shelter.yard"], "startLocation": "loc:shelter.yard" },
+    {
+      "id": "area:old_market",
+      "kind": "district",
+      "startLocation": "loc:old_market.gate",
+      "locations": [
+        "loc:old_market.gate",
+        "loc:old_market.stalls",
+        "loc:old_market.pharmacy",
+        "loc:old_market.butcher",
+        "loc:old_market.clock_tower",
+        "loc:old_market.cold_cellar"
+      ],
+      "completion": {
+        "pool": { "tag": "ordinary" },
+        "thresholdBp": 6000,
+        "required": { "flag": "old_market.generator_restored" }
+      },
+      "activities": ["activity:scavenge"]
+    },
+    {
+      "id": "area:rail_yard",
+      "kind": "district",
+      "startLocation": "loc:rail_yard.fence",
+      "locations": [
+        "loc:rail_yard.fence",
+        "loc:rail_yard.platform",
+        "loc:rail_yard.depot",
+        "loc:rail_yard.signal_box",
+        "loc:rail_yard.tunnel"
+      ],
+      "completion": {
+        "pool": { "tag": "ordinary" },
+        "thresholdBp": 6000,
+        "required": {
+          "all": [{ "discovered": "loc:rail_yard.signal_box" }, { "game": "hasTool", "tool": "tool:signal_key" }]
+        }
+      },
+      "activities": ["activity:scavenge"]
+    }
+  ],
+  "routes": [
+    {
+      "id": "route:shelter_to_old_market",
+      "from": "area:shelter",
+      "to": "area:old_market",
+      "travel": { "mode": "instant" }
+    },
+    {
+      "id": "route:old_market_to_shelter",
+      "from": "area:old_market",
+      "to": "area:shelter",
+      "travel": { "mode": "instant" }
+    },
+    {
+      "id": "route:shelter_to_rail_yard",
+      "from": "area:shelter",
+      "to": "area:rail_yard",
+      "requires": { "any": [{ "game": "hasTool", "tool": "tool:bolt_cutters" }, { "flag": "rail_yard.fence_cut" }] },
+      "travel": { "mode": "timed", "durationMin": 45 }
+    },
+    {
+      "id": "route:rail_yard_to_shelter",
+      "from": "area:rail_yard",
+      "to": "area:shelter",
+      "travel": { "mode": "timed", "durationMin": 45 }
+    }
+  ],
+  "locations": [
+    { "id": "loc:shelter.yard", "tags": ["safe"] },
+    {
+      "id": "loc:old_market.gate",
+      "tags": ["ordinary"],
+      "exits": [{ "id": "exit:old_market.gate_stalls", "to": "loc:old_market.stalls" }]
+    },
+    {
+      "id": "loc:old_market.stalls",
+      "tags": ["ordinary"],
+      "exits": [
+        { "id": "exit:old_market.stalls_gate", "to": "loc:old_market.gate" },
+        { "id": "exit:old_market.stalls_pharmacy", "to": "loc:old_market.pharmacy" },
+        { "id": "exit:old_market.stalls_butcher", "to": "loc:old_market.butcher" },
+        { "id": "exit:old_market.stalls_clock_tower", "to": "loc:old_market.clock_tower" }
+      ]
+    },
+    {
+      "id": "loc:old_market.pharmacy",
+      "tags": ["ordinary"],
+      "exits": [{ "id": "exit:old_market.pharmacy_stalls", "to": "loc:old_market.stalls" }]
+    },
+    {
+      "id": "loc:old_market.butcher",
+      "tags": ["ordinary"],
+      "exits": [
+        { "id": "exit:old_market.butcher_stalls", "to": "loc:old_market.stalls" },
+        { "id": "exit:old_market.butcher_cold_cellar", "to": "loc:old_market.cold_cellar", "tags": ["secret"] }
+      ]
+    },
+    {
+      "id": "loc:old_market.clock_tower",
+      "tags": ["ordinary"],
+      "exits": [{ "id": "exit:old_market.clock_tower_stalls", "to": "loc:old_market.stalls" }]
+    },
+    {
+      "id": "loc:old_market.cold_cellar",
+      "tags": ["secret"],
+      "exits": [{ "id": "exit:old_market.cold_cellar_butcher", "to": "loc:old_market.butcher" }]
+    },
+    {
+      "id": "loc:rail_yard.fence",
+      "tags": ["ordinary"],
+      "exits": [{ "id": "exit:rail_yard.fence_platform", "to": "loc:rail_yard.platform" }]
+    },
+    {
+      "id": "loc:rail_yard.platform",
+      "tags": ["ordinary"],
+      "exits": [
+        { "id": "exit:rail_yard.platform_fence", "to": "loc:rail_yard.fence" },
+        {
+          "id": "exit:rail_yard.platform_depot",
+          "to": "loc:rail_yard.depot",
+          "requires": { "game": "hasTool", "tool": "tool:crowbar" }
+        },
+        { "id": "exit:rail_yard.platform_signal_box", "to": "loc:rail_yard.signal_box" },
+        { "id": "exit:rail_yard.platform_tunnel", "to": "loc:rail_yard.tunnel", "tags": ["secret"] }
+      ]
+    },
+    {
+      "id": "loc:rail_yard.depot",
+      "tags": ["ordinary"],
+      "exits": [{ "id": "exit:rail_yard.depot_platform", "to": "loc:rail_yard.platform" }]
+    },
+    {
+      "id": "loc:rail_yard.signal_box",
+      "tags": ["ordinary"],
+      "exits": [{ "id": "exit:rail_yard.signal_box_platform", "to": "loc:rail_yard.platform" }]
+    },
+    {
+      "id": "loc:rail_yard.tunnel",
+      "tags": ["secret"],
+      "exits": [{ "id": "exit:rail_yard.tunnel_platform", "to": "loc:rail_yard.platform" }]
+    }
+  ]
+}

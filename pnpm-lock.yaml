@@ -72,7 +72,23 @@ importers:
 
   games/rpg/tools/balance-sim: {}
 
-  games/survival-sandbox: {}
+  games/survival-sandbox:
+    dependencies:
+      '@engine/economy':
+        specifier: workspace:*
+        version: link:../../engine/economy
+      '@engine/expedition-kernel':
+        specifier: workspace:*
+        version: link:../../engine/expedition-kernel
+      '@engine/sim-core':
+        specifier: workspace:*
+        version: link:../../engine/sim-core
+      '@engine/world':
+        specifier: workspace:*
+        version: link:../../engine/world
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
 packages:
 
