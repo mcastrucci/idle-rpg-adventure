@@ -3,9 +3,20 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "RPG server composition root (placeholder).",
+  "description": "RPG Fastify server composition root.",
   "exports": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "node src/main.ts",
+    "db:migrate": "node src/migrate.ts"
+  },
+  "dependencies": {
+    "@engine/server-kit": "workspace:*",
+    "@engine/world": "workspace:*",
+    "@rpg/rpg-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@engine/content-compiler": "workspace:*",
+    "@rpg/content-plugin": "workspace:*"
   }
 }
