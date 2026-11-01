@@ -20,7 +20,7 @@
 
 import { netDeltas } from '@engine/economy';
 import type { NetDelta } from '@engine/economy';
-import { assertInt, assertSeed, deriveSeed, mulDivFloor } from '@engine/sim-core';
+import { RngStreams, assertInt, assertSeed, deriveSeed, mulDivFloor } from '@engine/sim-core';
 import type { Seed } from '@engine/sim-core';
 
 import { assertTimeline } from './timeline.ts';
@@ -146,4 +146,23 @@ export function revisionSeed(seed: Seed, revision: number): Seed {
   if (revision < 0) throw new RangeError('revision must be >= 0');
   assertSeed(seed, 'seed');
   return revision === 0 ? seed : deriveSeed(seed, 'revision', revision);
+}
+
+/**
+ * Seed of segment `index`: `deriveSeed(seed, 'segment', index)`. Recommended RNG pattern for simulators: derive a
+ * fresh {@link segmentStreams} per segment instead of carrying RNG state across segments. A segment's rolls then
+ * depend only on `(seed, index)`, `stateAfter` holds game state only (no RNG state), and resuming from
+ * `stateAfter` of segment `k − 1` with the *same* seed reproduces the original suffix exactly, while a revision seed
+ * (`revisionSeed(seed, r)`) re-rolls it.
+ */
+export function segmentSeed(seed: Seed, index: number): Seed {
+  assertSeed(seed, 'seed');
+  assertInt(index, 'index');
+  if (index < 0) throw new RangeError('segment index must be >= 0');
+  return deriveSeed(seed, 'segment', index);
+}
+
+/** Named RNG streams of segment `index`: `RngStreams.fromSeed(segmentSeed(seed, index))`. */
+export function segmentStreams(seed: Seed, index: number): RngStreams {
+  return RngStreams.fromSeed(segmentSeed(seed, index));
 }

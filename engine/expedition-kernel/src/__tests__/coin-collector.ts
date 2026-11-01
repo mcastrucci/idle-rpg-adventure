@@ -41,7 +41,7 @@ function isInt(v: unknown, min: number, max: number): v is number {
 }
 
 export const coinCollector: ExpeditionSimulator<CoinConfig, CoinActor, CoinEvent, CoinState, CoinReport> = {
-  id: 'test.coin-collector',
+  id: 'test.coin_collector',
   version: '1',
   parseConfig(input) {
     const o = input as Record<string, unknown>;

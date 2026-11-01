@@ -55,6 +55,9 @@ importers:
       '@engine/sim-core':
         specifier: workspace:*
         version: link:../sim-core
+      '@engine/world':
+        specifier: workspace:*
+        version: link:../world
 
   engine/live-kernel: {}
 
@@ -87,6 +90,9 @@ importers:
 
   engine/world:
     dependencies:
+      '@engine/sim-core':
+        specifier: workspace:*
+        version: link:../sim-core
       zod:
         specifier: 4.6.7
         version: 4.6.7

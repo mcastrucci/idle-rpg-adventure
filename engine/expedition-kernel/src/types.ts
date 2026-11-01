@@ -8,6 +8,15 @@
 
 import type { LedgerDelta } from '@engine/economy';
 import type { Seed } from '@engine/sim-core';
+import type { Area, EvalContext, PredicateRegistry, World } from '@engine/world';
+
+/**
+ * Simulator (plugin) IDs: `<game>.<name>` in lowercase snake case separated by dots, e.g. `rpg.hunt`,
+ * `survival.scavenge`. They name *code* (stored with `version` on every expedition) and are deliberately distinct from
+ * content IDs (`ns:name`, `IdSchema`): areas list **activity** IDs (content), and an `ActivityRegistry` maps each
+ * activity ID to the simulator that runs it (several activities may share one simulator).
+ */
+export const SIMULATOR_ID_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/;
 
 /** How the simulated expedition ended. */
 export type Outcome = 'completed' | 'retreated' | 'failed';
@@ -49,17 +58,38 @@ export interface Timeline<Event, SimState = unknown> {
   readonly outcome: Outcome;
 }
 
-/** Input of `canStart`, for checks beyond the engine's own (completion, activity lock, escrow). */
-export interface StartContext<Config, Snapshot> {
+/**
+ * Input of `canStart`, for checks beyond the engine's own (area exists, activity listed and registered, area completed
+ * by every actor, escrow well-formed — see `checkStart`).
+ *
+ * `durationMin` and `paceBp` are **kernel-owned**: they come from the start request, are passed here and to `budget`,
+ * and game configs must not duplicate them.
+ */
+export interface StartContext<Config, Snapshot, Game = unknown> {
   readonly config: Config;
   readonly actors: readonly Snapshot[];
   readonly durationMin: number;
   /** Pace multiplier in basis points (10 000 = ×1). */
   readonly paceBp: number;
+  /** World and target area. Always set when called through `checkStart`; absent in direct unit-test calls. */
+  readonly world?: World;
+  readonly area?: Area;
+  /**
+   * One requirement evaluation context per actor, aligned with `actors`, plus the game's predicate registry, so a
+   * simulator can evaluate requirements (e.g. "has a tool") with `@engine/world`'s `evaluateRequirement`. Set by
+   * `checkStart`.
+   */
+  readonly evalContexts?: readonly EvalContext<Game>[];
+  readonly predicates?: PredicateRegistry<Game>;
 }
 
-/** Result of `canStart`. `code` is a stable machine-readable reason. */
-export type StartCheck = { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message?: string };
+/**
+ * Result of `canStart`. `code` is a stable machine-readable reason; `reasons` optionally carries requirement reason
+ * keys (`requires.*`) for "locked because…" UI.
+ */
+export type StartCheck =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly code: string; readonly message?: string; readonly reasons?: readonly string[] };
 
 /** Resume point for re-simulation: start at `segment` from the `stateAfter` of segment `segment - 1`. */
 export interface ResumeFrom<SimState> {
@@ -88,8 +118,8 @@ export interface SimulateInput<Config, Snapshot, SimState = unknown> {
  * Persisted expeditions record `KERNEL_VERSION` plus this simulator's `id` and `version`; a behaviour change of the
  * simulator requires bumping `version` (in-flight expeditions keep their stored timeline).
  */
-export interface ExpeditionSimulator<Config, Snapshot, Event, SimState = unknown, Report = unknown> {
-  /** Stable plugin id, e.g. `rpg.hunt`, `survival.scavenge`. */
+export interface ExpeditionSimulator<Config, Snapshot, Event, SimState = unknown, Report = unknown, Game = unknown> {
+  /** Stable plugin id matching {@link SIMULATOR_ID_PATTERN}, e.g. `rpg.hunt`, `survival.scavenge`. */
   readonly id: string;
   /** Plugin behaviour version, stored with every expedition. */
   readonly version: string;
@@ -98,15 +128,25 @@ export interface ExpeditionSimulator<Config, Snapshot, Event, SimState = unknown
    * (`schema.parse`); the kernel has no schema-library dependency.
    */
   parseConfig(input: unknown): Config;
-  /** Game-specific start checks beyond the engine's own. */
-  canStart(ctx: StartContext<Config, Snapshot>): StartCheck;
+  /** Game-specific start checks beyond the engine's own (see {@link StartContext}). */
+  canStart(ctx: StartContext<Config, Snapshot, Game>): StartCheck;
+  /**
+   * What is moved into the engine `escrow` container at start, per actor (e.g. supplies, consumables). Each delta
+   * must be `{ actorId, asset, qty > 0, from: <source container ≠ 'escrow'>, to: 'escrow' }`, with at most one source
+   * container per (actor, asset). Segments consume escrow with `from: 'escrow'` deltas; at settlement the kernel
+   * returns `escrowed − consumed` to the source container automatically (`settleWithEscrow`), so `settle` never deals
+   * with leftovers. Omitted = nothing is escrowed. Pure and deterministic.
+   */
+  escrow?(config: Config, actors: readonly Snapshot[]): LedgerDelta[];
   /** Planned total segment weight for a duration (with unit weights: the number of segments). Positive safe int. */
   budget(config: Config, durationMin: number, paceBp: number): number;
   /** Pure and deterministic. */
   simulate(input: SimulateInput<Config, Snapshot, SimState>): Timeline<Event, SimState>;
   /**
    * Ledger deltas to apply when settling segments `0..cutoff` (inclusive; `-1` = none) for `reason`. Must only
-   * depend on its arguments. Simulators without special rules can use `defaultSettle`.
+   * depend on its arguments. Simulators without special rules can use `defaultSettle`. Escrow returns are added by
+   * the kernel (`settleWithEscrow`); `settle` must never consume more from `escrow` than was escrowed, and a custom
+   * settle never grants more than `defaultSettle` would (see the contract checker).
    */
   settle(timeline: Timeline<Event, SimState>, cutoff: number, reason: SettleReason): LedgerDelta[];
   /** Report data (summary, failure log…) for segments `0..cutoff`. */

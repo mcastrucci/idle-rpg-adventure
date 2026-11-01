@@ -8,9 +8,13 @@ import {
   revisionSeed,
   spliceTimeline,
   stableStringify,
+  segmentSeed,
+  segmentStreams,
+  timelineHash,
   timelineProblems,
   totalWeight,
 } from './index.ts';
+import { deriveSeed, hashSeed } from '@engine/sim-core';
 
 describe('KERNEL_VERSION', () => {
   it('is a semver string', () => {
@@ -101,5 +105,26 @@ describe('party resumption', () => {
     const t = coinCollector.simulate({ config: { maxCoins: 5, hazardBp: 0 }, actors: [{ id: 'a' }], seed: 1, budget: 4 });
     expect(() => spliceTimeline(t, 1, t)).toThrow(/index/);
     expect(() => spliceTimeline(t, 99, t)).toThrow(RangeError);
+  });
+});
+
+describe('timelineHash', () => {
+  it('is a deterministic uint32 of the canonical JSON, independent of key order', () => {
+    const t = coinCollector.simulate({ config: { maxCoins: 5, hazardBp: 1000 }, actors: [{ id: 'a' }], seed: 11, budget: 9 });
+    const h = timelineHash(t);
+    expect(h).toBe(hashSeed(stableStringify(t)));
+    expect(h >>> 0).toBe(h);
+    expect(timelineHash(structuredClone(t))).toBe(h);
+    expect(timelineHash({ outcome: t.outcome, segments: t.segments })).toBe(h);
+    expect(timelineHash({ ...t, outcome: 'failed' === t.outcome ? 'completed' : 'failed' })).not.toBe(h);
+  });
+});
+
+describe('segmentSeed / segmentStreams', () => {
+  it("derives per-segment streams from deriveSeed(seed, 'segment', index)", () => {
+    expect(segmentSeed(42, 3)).toBe(deriveSeed(42, 'segment', 3));
+    expect(segmentStreams(42, 3).stream('x').nextU32()).toBe(segmentStreams(42, 3).stream('x').nextU32());
+    expect(segmentStreams(42, 3).stream('x').nextU32()).not.toBe(segmentStreams(42, 4).stream('x').nextU32());
+    expect(() => segmentSeed(42, -1)).toThrow(RangeError);
   });
 });

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@engine/economy": "workspace:*",
-    "@engine/sim-core": "workspace:*"
+    "@engine/sim-core": "workspace:*",
+    "@engine/world": "workspace:*"
   }
 }

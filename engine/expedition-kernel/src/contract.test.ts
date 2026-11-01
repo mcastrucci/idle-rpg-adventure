@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { coinCollector } from './__tests__/coin-collector.ts';
+import { COIN, coinCollector } from './__tests__/coin-collector.ts';
 import type { CoinActor, CoinConfig, CoinEvent, CoinReport, CoinState } from './__tests__/coin-collector.ts';
-import { checkSimulatorContract, defaultSettle } from './index.ts';
+import { TORCH, torchCollector } from './__tests__/torch-collector.ts';
+import { checkSimulatorContract, defaultSettle, settlementBoundViolations } from './index.ts';
 import type { ContractFixture, ContractRule, ExpeditionSimulator } from './index.ts';
 
 type Sim = ExpeditionSimulator<CoinConfig, CoinActor, CoinEvent, CoinState, CoinReport>;
@@ -144,5 +145,62 @@ describe('checkSimulatorContract', () => {
   it('detects a parseConfig that does not round-trip', () => {
     const lossy: Sim = { ...coinCollector, parseConfig: () => ({ maxCoins: 1, hazardBp: 0 }) };
     expect(rules(lossy)).toContain('config-roundtrip');
+  });
+
+  it('checks the simulator identity', () => {
+    expect(rules({ ...coinCollector, id: 'Coin Collector' })).toContain('identity');
+    expect(rules({ ...coinCollector, version: '' })).toContain('identity');
+  });
+
+  it('applies settlement modes per reason', () => {
+    // Leaks everything on cancel only: caught in default mode for `cancelled`, by the bound in custom mode.
+    const leakOnCancel: Sim = {
+      ...coinCollector,
+      settle: (t, cutoff, reason) => (reason === 'cancelled' ? t.segments.flatMap((s) => s.deltas) : defaultSettle(t, cutoff)),
+    };
+    const perReason = checkSimulatorContract(leakOnCancel, fixtures, { settlement: { completed: 'custom', cancelled: 'default' } });
+    expect(new Set(perReason.map((v) => v.rule))).toEqual(new Set(['settle-cutoff']));
+    expect(perReason.every((v) => /cancelled/.test(v.message))).toBe(true);
+    expect(rules(leakOnCancel, { settlement: 'custom' })).toEqual(new Set(['settle-bound']));
+    expect(rules(leakOnCancel, { settlement: { cancelled: 'custom' } })).toEqual(new Set(['settle-bound']));
+  });
+
+  it('custom mode allows penalties but never extra gains', () => {
+    const halved: Sim = {
+      ...coinCollector,
+      settle: (t, cutoff) => defaultSettle(t, cutoff).map((d) => ({ ...d, qty: d.qty - Math.floor(d.qty / 2) })),
+    };
+    const bonus: Sim = {
+      ...coinCollector,
+      settle: (t, cutoff) => [...defaultSettle(t, cutoff), { actorId: 'a', asset: COIN, qty: 1, to: 'run_bag' }],
+    };
+    expect(checkSimulatorContract(halved, fixtures)).toEqual([]);
+    expect(rules(bonus)).toContain('settle-bound');
+  });
+
+  it('settlementBoundViolations: gains capped by the default, costs may shrink to zero but not turn into gains', () => {
+    const ref = [
+      { actorId: 'a', asset: COIN, qty: 5 },
+      { actorId: 'a', asset: TORCH, qty: 2, from: 'escrow' },
+    ];
+    expect(settlementBoundViolations([{ actorId: 'a', asset: COIN, qty: 5 }], ref)).toEqual([]);
+    expect(settlementBoundViolations([{ actorId: 'a', asset: COIN, qty: 6 }], ref)).toHaveLength(1);
+    expect(settlementBoundViolations([{ actorId: 'a', asset: TORCH, qty: 1, to: 'inventory' }], ref)).toHaveLength(1);
+    expect(settlementBoundViolations([{ actorId: 'b', asset: COIN, qty: 1 }], ref)).toHaveLength(1);
+  });
+
+  it('checks escrow declaration and conservation', () => {
+    const torchFixtures = fixtures.map((f) => ({ ...f }));
+    expect(checkSimulatorContract(torchCollector, torchFixtures)).toEqual([]);
+    const greedy: Sim = {
+      ...torchCollector,
+      settle: (t, cutoff) => [...defaultSettle(t, cutoff), { actorId: 'a', asset: TORCH, qty: 99, from: 'escrow' }],
+    };
+    expect(rules(greedy)).toContain('escrow');
+    const malformed: Sim = { ...torchCollector, escrow: () => [{ actorId: 'a', asset: TORCH, qty: 1, to: 'escrow' }] };
+    expect(rules(malformed)).toContain('escrow');
+    let n = 0;
+    const drifting: Sim = { ...torchCollector, escrow: () => [{ actorId: 'a', asset: TORCH, qty: ++n, from: 'inventory', to: 'escrow' }] };
+    expect(rules(drifting)).toContain('escrow');
   });
 });

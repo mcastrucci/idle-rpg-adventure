@@ -2,6 +2,9 @@
 
 import { assertLedgerDelta } from '@engine/economy';
 import type { LedgerDelta } from '@engine/economy';
+import { hashSeed } from '@engine/sim-core';
+
+import { stableStringify } from './stable-stringify.ts';
 
 import { OUTCOMES } from './types.ts';
 import type { Segment, Timeline } from './types.ts';
@@ -85,4 +88,13 @@ export function spliceTimeline<E, S>(original: Timeline<E, S>, from: number, res
   }
   assertTimeline(resumed as Timeline<unknown, unknown>, from);
   return { segments: [...original.segments.slice(0, from), ...resumed.segments], outcome: resumed.outcome };
+}
+
+/**
+ * Deterministic uint32 hash of a timeline: `hashSeed(stableStringify(timeline))` (FNV-1a 32 + murmur3 finalizer over
+ * canonical JSON with sorted keys). Same inputs ⇒ same timeline ⇒ same hash, across processes and platforms; used for
+ * golden tests and persisted alongside the seed and versions. Not cryptographic. Throws on non-JSON data.
+ */
+export function timelineHash(timeline: Timeline<unknown, unknown>): number {
+  return hashSeed(stableStringify(timeline));
 }
