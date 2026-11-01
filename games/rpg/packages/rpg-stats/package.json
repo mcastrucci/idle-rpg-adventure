@@ -3,9 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Display-only RPG stat derivation shared with the client.",
+  "description": "Integer RPG stat derivation (attributes + equipment -> combat stats) and XP helpers, shared by client and server.",
   "exports": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@rpg/rpg-schema": "workspace:*"
   }
 }
