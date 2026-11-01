@@ -131,9 +131,18 @@ importers:
 
   games/rpg/packages/rpg-sim:
     dependencies:
+      '@engine/economy':
+        specifier: workspace:*
+        version: link:../../../../engine/economy
+      '@engine/expedition-kernel':
+        specifier: workspace:*
+        version: link:../../../../engine/expedition-kernel
       '@engine/sim-core':
         specifier: workspace:*
         version: link:../../../../engine/sim-core
+      '@engine/world':
+        specifier: workspace:*
+        version: link:../../../../engine/world
       '@rpg/rpg-schema':
         specifier: workspace:*
         version: link:../rpg-schema
