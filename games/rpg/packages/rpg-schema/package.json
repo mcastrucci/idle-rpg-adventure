@@ -3,9 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "RPG content schema extensions.",
+  "description": "RPG content schemas (enemies, skills, effects, items, loot, encounters, idle activities, automation rules) and world extensions.",
   "exports": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@engine/world": "workspace:*",
+    "zod": "4.6.7"
   }
 }
