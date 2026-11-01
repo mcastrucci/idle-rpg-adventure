@@ -13,6 +13,9 @@ Shipping the engine to the client adds version skew and bundle size, with no sec
 - Shared with the client: `packages/content-schema`, `packages/protocol`, `packages/stats` (display-only stat
   derivation, e.g. equip preview). The server always recomputes.
 
+Since [ADR-0017](0017-reusable-engine-and-game-layers.md): the rule applies to every simulator package
+(`engine/sim-core`, `engine/expedition-kernel`, `games/*/packages/*-sim`) — none may be imported by a web app.
+
 ## Consequences
 - Client shows server events; no client-side combat logic to keep in sync.
 - Equip previews may briefly disagree with server if `stats` diverges — the server value wins.

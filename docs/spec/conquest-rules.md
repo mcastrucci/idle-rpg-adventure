@@ -2,6 +2,10 @@
 
 > Status: **Draft v0.1**.
 
+> **Engine mapping (ADR-0018):** conquest is the RPG configuration of the engine's generic completion rule
+> (`pool: ordinary`, `thresholdBp: 7000`, `required: defeated(mandatory bosses)`). See
+> [`../engine/world-model.md`](../engine/world-model.md).
+
 ## 1. Definition
 
 A region is conquered by a character when both hold:

@@ -3,6 +3,10 @@
 > Status: **Draft v0.1**. Decision: [ADR-0005](../adr/0005-idle-precompute-at-start.md),
 > [ADR-0013](../adr/0013-tick-and-idle-encounter-model.md).
 
+> **Engine mapping (ADR-0019):** lifecycle, reveal, settlement, cancellation, party and estimates are implemented by
+> `engine/expedition-kernel` ([spec](../engine/expedition-kernel.md)); this document describes the RPG simulator
+> plugin (`games/rpg/packages/rpg-sim`): segments = encounters.
+
 ## 1. Lifecycle
 
 ```

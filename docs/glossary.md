@@ -2,6 +2,14 @@
 
 | Term | Spanish (concept origin) | Meaning |
 |---|---|---|
+| Actor | — | Engine term for whatever takes part in activities (RPG: the hero) |
+| Hub | Hub / lugar principal | Engine area kind where the player prepares; RPG: Sanctuary |
+| World map | Mapa global | Engine graph of areas connected by routes |
+| Area | Área | Engine term for an explorable place on the world map; RPG: region |
+| Route | Ruta / portal | World-map edge with requirements |
+| Completion | Completar / conquistar | Engine generic rule; RPG conquest is one configuration |
+| Segment | Segmento | Unit of an expedition timeline revealed over time |
+| Simulator plugin | — | Game-provided pure function that simulates an expedition |
 | Sanctuary | Santuario | Starting settlement and social hub |
 | The Fracture | La fractura | Interdimensional rift connecting fragments of universes |
 | Ark | Arca | Evacuation ship of ancient humanity |

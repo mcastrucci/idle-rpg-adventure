@@ -33,7 +33,8 @@ fixes the texture budget and scene format).
 
 Epic: [#2](https://github.com/mcastrucci/idle-rpg-adventure/issues/2)
 
-Content schemas, content compiler, RNG, stats, step engine, effects with duration units, automation rules, enemy/boss
+**Engine foundations** (package boundaries, `sim-core`, `world` graph model, `expedition-kernel` interface, survival
+sandbox), RPG content schema extensions, content compiler, stats, step engine, effects with duration units, automation rules, enemy/boss
 AI, golden replay tests, balance simulator.
 
 **Exit:** `balance-sim` runs Region 1 draft enemies vs 2 reference builds deterministically on two Node versions.

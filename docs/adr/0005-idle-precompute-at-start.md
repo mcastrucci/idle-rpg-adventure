@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-01
+- **Refined by:** [ADR-0019](0019-game-agnostic-expedition-kernel.md) (kernel/plugin split)
 
 ## Context
 Expeditions last 15–180 min, must survive app closure and server restarts, support cancellation and parties, and must

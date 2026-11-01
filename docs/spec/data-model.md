@@ -3,6 +3,10 @@
 > Status: **Draft v0.1**. Field lists are indicative; final schemas are defined in migrations (M2) and
 > `packages/content-schema` (M1). Provisional values are marked *(provisional)*.
 
+> **Engine split (ADR-0017):** generic tables (accounts, actors with `activity_state`, ledger, containers, area progress,
+> expeditions, live instances, command log) belong to engine packages; `characters` is the RPG extension of an actor
+> (`characters.actor_id`). `region_progress` below is the RPG view of engine `area_progress`.
+
 Two kinds of data:
 
 - **Content** — immutable at runtime, authored in `content/`, compiled into a bundle with a `contentHash`

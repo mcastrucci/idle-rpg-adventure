@@ -11,6 +11,7 @@ shared progression and economy.
 | Doc | What it covers |
 |---|---|
 | [Concept](docs/concept.md) | Product vision, setting, game rules, POC scope |
+| [Engine overview](docs/engine/overview.md) | Reusable engine: hub, world map, area graphs, live/idle kernels, plugin points |
 | [Architecture overview](docs/architecture/overview.md) | Stack, POC architecture, scaling path, top risks |
 | [Design review 2026-11](docs/architecture/design-review-2026-11.md) | Adversarial review behind the architecture |
 | [ADRs](docs/adr/README.md) | Architecture decisions (accepted and pending spikes) |
@@ -28,9 +29,11 @@ Capacitor for mobile later *(pending spike)*.
 ## Planned repository layout
 
 ```
-apps/web        apps/server
-packages/content-schema  packages/protocol  packages/stats  packages/sim
-tools/content-cli  tools/balance-sim
-content/
+engine/         reusable, game-agnostic packages (world graph, economy, expedition & live kernels, kits)
+games/rpg/      this game: apps/web, apps/server, RPG simulators, content, tools
+games/survival-sandbox/   toy game proving the engine boundary (tests/CLI only)
 docs/
 ```
+
+The exploration + idle model (hub → world map → areas → idle unlock) is built as a **reusable engine** so other games
+(e.g. survival) can reuse it — see [ADR-0017](docs/adr/0017-reusable-engine-and-game-layers.md).

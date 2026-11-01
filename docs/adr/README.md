@@ -11,6 +11,9 @@
 | [0007](0007-ledger-and-activity-lock.md) | Idempotent economy ledger and character activity lock | Accepted |
 | [0008](0008-declarative-content-pipeline.md) | Canonical JSON content, Zod schemas, content compiler | Accepted |
 | [0009](0009-modular-monolith.md) | Modular monolith, single deployable with process roles | Accepted |
+| [0017](0017-reusable-engine-and-game-layers.md) | Reusable engine and game layers in one monorepo | Accepted |
+| [0018](0018-hierarchical-world-graph.md) | Hierarchical world graph (world map → areas → locations) with hubs | Accepted |
+| [0019](0019-game-agnostic-expedition-kernel.md) | Game-agnostic expedition kernel with simulator plugins | Accepted |
 | [0010](0010-scene-renderer.md) | Scene viewport renderer (PixiJS vs Phaser) | Proposed — spike 2 |
 | [0011](0011-capacitor-mobile.md) | Capacitor for future iOS/Android | Proposed — spike 2 |
 | [0012](0012-live-instance-hosting.md) | Live instance hosting (in-house vs Colyseus) | Proposed — spike 3 |

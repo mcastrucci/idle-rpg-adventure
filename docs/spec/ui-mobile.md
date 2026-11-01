@@ -15,10 +15,10 @@
 
 | Screen | Content |
 |---|---|
-| **Sanctuary hub** | Tab bar: Character · Inventory · Adventure · Expeditions · (Social, phase 2). Header: level, XP bar, gold, active-expedition chip with countdown |
+| **Sanctuary hub** | Tab bar: Character · Inventory · World map · Expeditions · (Social, phase 2). Header: level, XP bar, gold, active-expedition chip with countdown |
 | **Character** | Attributes, derived stats, skill loadout (4 slots), automation rules editor (reorderable cards), build presets |
 | **Inventory / Storage** | Grid with filters; item detail sheet with compare vs equipped (uses `packages/stats`) |
-| **Adventure** | Region list with conquest progress (`X / required`, boss status), danger rating vs character, Enter button |
+| **World map** | Engine `client-kit` world map: hub and areas as nodes, routes, fog of war (known/locked/hidden with reason), per-area completion progress (`X / required`, objectives), danger rating vs actor, idle-unlocked badge, Enter button. Replaces a flat region list |
 | **Scene (live)** | Top ~60%: illustrated scene (canvas) with exit arrows and hotspots. Bottom sheet: location name, actions, run bag count, Return button (when allowed) |
 | **Combat overlay** | Enemies in scene; party frames (HP/effects) top; telegraph banner; bottom skill bar (4 skills + consumable + auto toggle); combat log drawer |
 | **Expedition setup** | Region → activity → duration chips → consumables → rules preview → **Estimate card** (XP/gold p50 with ranges, potions, death %) → Start |

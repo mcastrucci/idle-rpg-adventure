@@ -4,6 +4,9 @@
 > Decisions: [ADR-0003](../adr/0003-simulation-server-only.md), [ADR-0004](../adr/0004-deterministic-step-engine.md),
 > [ADR-0013](../adr/0013-tick-and-idle-encounter-model.md).
 
+> **Location (ADR-0017):** `games/rpg/packages/rpg-sim`, built on `engine/sim-core` (RNG, integer math). It serves the
+> engine's `EncounterHandler` (live) and `ExpeditionSimulator` (idle) plugin interfaces.
+
 ## 1. Interface
 
 ```ts

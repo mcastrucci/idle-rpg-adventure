@@ -18,6 +18,9 @@ risk (concept §15.6).
 - IDs are stable, namespaced strings (`enemy:thornback_boar`) and are **never renamed or reused**; removal = deprecation.
 - Effects are a **closed set of parameterized types** implemented in code. No expression language in JSON.
 
+Since [ADR-0017](0017-reusable-engine-and-game-layers.md): the compiler lives in `engine/content-compiler`; engine schemas
+(world, areas, locations, routes, items, containers) are extended by game schemas registered per game.
+
 ## Consequences
 - The server loads only compiled bundles; invalid content fails CI, not production.
 - Adding a new effect type requires code — intentional, keeps balance auditable.

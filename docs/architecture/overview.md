@@ -10,7 +10,14 @@ This game is **correctness-bound, not compute-bound**. At 10,000 concurrent user
 state, a character in two activities at once, or a combat engine that only works for one mode. The architecture
 optimizes for **authority, determinism, idempotency and a single source of truth**.
 
-## 2. Stack
+## 2. Engine / game split
+
+The codebase is a reusable **engine** (`engine/*`) plus concrete **games** (`games/<slug>`); this project is
+`games/rpg`. See [`docs/engine/overview.md`](../engine/overview.md) and ADR-0017/0018/0019. The diagram in §3 shows the
+RPG composition; module names map to engine packages (`server-kit`, `economy`, `world`, `live-kernel`,
+`expedition-kernel`) plus RPG plugins.
+
+## 2b. Stack
 
 | Layer | Choice | Status |
 |---|---|---|
@@ -48,13 +55,20 @@ optimizes for **authority, determinism, idempotency and a single source of truth
                         │ PostgreSQL  │  state · ledger · jobs · leases
                         └─────────────┘
 
-packages/content-schema   Zod schemas, types, IDs            (web + server + tools)
-packages/protocol         HTTP DTOs, WS messages              (web + server)
-packages/stats            display-only stat derivation        (web + server)
-packages/sim              engine, RNG, idle runner            (server + tools ONLY)
-tools/content-cli         validate, compile bundle, hash, region graph
-tools/balance-sim         Monte Carlo, TTK, XP/hour live vs idle
-content/                  JSON definitions + Tiled maps + art
+engine/sim-core              RNG streams, integer/bp math              (server + tools ONLY)
+engine/world                 world/area graph, requirements, completion (web types + server)
+engine/economy               ledger, containers, escrow                (server)
+engine/expedition-kernel     idle lifecycle, simulator interface        (server + tools ONLY)
+engine/live-kernel           InstanceHost, exploration FSM              (server)
+engine/content-compiler      validate, compile bundle, hash, graphs     (tools)
+engine/server-kit, client-kit
+games/rpg/packages/rpg-schema   RPG content schema extensions          (web + server + tools)
+games/rpg/packages/protocol     HTTP DTOs, WS messages                  (web + server)
+games/rpg/packages/rpg-stats    display-only stat derivation            (web + server)
+games/rpg/packages/rpg-sim      combat engine + RPG expedition simulator (server + tools ONLY)
+games/rpg/tools/balance-sim     Monte Carlo, TTK, XP/hour live vs idle
+games/rpg/content/              JSON definitions + Tiled maps + art
+games/survival-sandbox/         toy simulator proving the engine boundary
 ```
 
 ### Module boundaries (server)
