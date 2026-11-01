@@ -8,8 +8,8 @@ Core loop to validate: **Explore → Conquer → Unlock idle → Farm → Improv
 ## Current implementation snapshot
 
 The repository has reusable engine foundations (`sim-core`, `world`, `economy`, `expedition-kernel`), the content
-compiler, and RPG schema, stats, and content-plugin packages. Existing RPG JSON is technical seed content, not Region 1;
-Region 1 is documented as a paper design. The RPG combat simulator, balance simulator, server, and web client are not
+compiler, and RPG schema, stats, and content-plugin packages. RPG JSON includes the technical seed plus provisional Region 1
+definitions; [the authoring checkpoint](design/region-1-content.md) lists the remaining runtime and balance gaps. The RPG combat simulator, balance simulator, server, and web client are not
 yet a playable vertical slice. The M0 spikes have not supplied validation results, so ADRs that depend on them remain
 proposals. Check the linked GitHub issues for live task status; this section describes the implementation boundary,
 not an issue-by-issue progress mirror.

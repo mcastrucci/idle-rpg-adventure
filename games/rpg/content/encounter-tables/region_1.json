@@ -1,0 +1,403 @@
+[
+  {
+    "id": "enc:region_1.causeway",
+    "entries": [
+      {
+        "weight": 50,
+        "enemies": [
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "weight": 35,
+        "enemies": [
+          {
+            "enemy": "enemy:thornback_boar",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 15,
+        "enemies": [
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 3
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:region_1.old_well",
+    "entries": [
+      {
+        "weight": 45,
+        "enemies": [
+          {
+            "enemy": "enemy:thornback_boar",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 35,
+        "enemies": [
+          {
+            "enemy": "enemy:hollow_creeper",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 20,
+        "enemies": [
+          {
+            "enemy": "enemy:thornback_boar",
+            "count": 1
+          },
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:region_1.orchard",
+    "entries": [
+      {
+        "weight": 35,
+        "enemies": [
+          {
+            "enemy": "enemy:thornback_boar",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 40,
+        "enemies": [
+          {
+            "enemy": "enemy:hollow_creeper",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 25,
+        "enemies": [
+          {
+            "enemy": "enemy:thornback_boar",
+            "count": 1
+          },
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:region_1.grotto",
+    "entries": [
+      {
+        "weight": 50,
+        "enemies": [
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 3
+          }
+        ]
+      },
+      {
+        "weight": 30,
+        "enemies": [
+          {
+            "enemy": "enemy:hollow_creeper",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 20,
+        "enemies": [
+          {
+            "enemy": "enemy:hollow_creeper",
+            "count": 1
+          },
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:region_1.lantern_ruins",
+    "entries": [
+      {
+        "weight": 45,
+        "enemies": [
+          {
+            "enemy": "enemy:sentinel_lantern",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 30,
+        "enemies": [
+          {
+            "enemy": "enemy:sentinel_lantern",
+            "count": 1
+          },
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "weight": 25,
+        "enemies": [
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 2
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:region_1.terraces",
+    "entries": [
+      {
+        "weight": 35,
+        "enemies": [
+          {
+            "enemy": "enemy:hollow_creeper",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 35,
+        "enemies": [
+          {
+            "enemy": "enemy:rusted_tiller",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 30,
+        "enemies": [
+          {
+            "enemy": "enemy:hollow_creeper",
+            "count": 1
+          },
+          {
+            "enemy": "enemy:thornback_boar",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:region_1.pump_station",
+    "entries": [
+      {
+        "weight": 40,
+        "enemies": [
+          {
+            "enemy": "enemy:rusted_tiller",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 30,
+        "enemies": [
+          {
+            "enemy": "enemy:sentinel_lantern",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 15,
+        "enemies": [
+          {
+            "enemy": "enemy:rusted_tiller",
+            "count": 1
+          },
+          {
+            "enemy": "enemy:sentinel_lantern",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 15,
+        "enemies": [
+          {
+            "enemy": "enemy:sentinel_lantern",
+            "count": 1
+          },
+          {
+            "enemy": "enemy:hollow_creeper",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:region_1.greenhouse",
+    "entries": [
+      {
+        "weight": 100,
+        "enemies": [
+          {
+            "enemy": "enemy:rusted_tiller",
+            "count": 1
+          },
+          {
+            "enemy": "enemy:sentinel_lantern",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:region_1.matriarch",
+    "entries": [
+      {
+        "weight": 100,
+        "enemies": [
+          {
+            "enemy": "enemy:hollow_matriarch",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:region_1.hunt",
+    "entries": [
+      {
+        "weight": 20,
+        "enemies": [
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 3
+          }
+        ]
+      },
+      {
+        "weight": 25,
+        "enemies": [
+          {
+            "enemy": "enemy:thornback_boar",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 15,
+        "enemies": [
+          {
+            "enemy": "enemy:thornback_boar",
+            "count": 1
+          },
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 15,
+        "enemies": [
+          {
+            "enemy": "enemy:hollow_creeper",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 10,
+        "enemies": [
+          {
+            "enemy": "enemy:sentinel_lantern",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 10,
+        "enemies": [
+          {
+            "enemy": "enemy:rusted_tiller",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 5,
+        "enemies": [
+          {
+            "enemy": "enemy:sentinel_lantern",
+            "count": 1
+          },
+          {
+            "enemy": "enemy:hollow_creeper",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:region_1.gather",
+    "entries": [
+      {
+        "weight": 40,
+        "enemies": [
+          {
+            "enemy": "enemy:glowcap_mite",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "weight": 35,
+        "enemies": [
+          {
+            "enemy": "enemy:thornback_boar",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "weight": 25,
+        "enemies": [
+          {
+            "enemy": "enemy:hollow_creeper",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  }
+]

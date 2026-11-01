@@ -1,0 +1,44 @@
+[
+  {
+    "id": "idle:region_1.hunt",
+    "nameKey": "idle.region_1.hunt.name",
+    "encountersPerHour": 30,
+    "encounterTable": "enc:region_1.hunt",
+    "resourceYields": [
+      {
+        "node": "res:glowcap",
+        "lootTable": "loot:region_1.glowcap_gather",
+        "rollsPerHour": 4
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  },
+  {
+    "id": "idle:region_1.gather",
+    "nameKey": "idle.region_1.gather.name",
+    "encountersPerHour": 10,
+    "encounterTable": "enc:region_1.gather",
+    "resourceYields": [
+      {
+        "node": "res:glowcap",
+        "lootTable": "loot:region_1.glowcap_gather",
+        "rollsPerHour": 24
+      },
+      {
+        "node": "res:resin_tap",
+        "lootTable": "loot:region_1.resin_gather",
+        "rollsPerHour": 16
+      },
+      {
+        "node": "res:alloy_scrap",
+        "lootTable": "loot:region_1.scrap_gather",
+        "rollsPerHour": 12
+      }
+    ],
+    "tags": [
+      "region_1"
+    ]
+  }
+]

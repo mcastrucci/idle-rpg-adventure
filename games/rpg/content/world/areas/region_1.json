@@ -1,0 +1,50 @@
+{
+  "id": "area:region_1",
+  "kind": "explorable",
+  "nameKey": "area.region_1.name",
+  "difficulty": 1,
+  "recommendedLevel": [
+    1,
+    5
+  ],
+  "mapPosition": {
+    "x": 0,
+    "y": 100
+  },
+  "startLocation": "loc:region_1.portal_clearing",
+  "locations": [
+    "loc:region_1.portal_clearing",
+    "loc:region_1.overgrown_causeway",
+    "loc:region_1.old_well",
+    "loc:region_1.tangle_orchard",
+    "loc:region_1.glowcap_grotto",
+    "loc:region_1.lantern_ruins",
+    "loc:region_1.irrigation_terraces",
+    "loc:region_1.pump_station",
+    "loc:region_1.vault_antechamber",
+    "loc:region_1.sunken_greenhouse",
+    "loc:region_1.seed_vault_heart"
+  ],
+  "completion": {
+    "pool": {
+      "tag": "ordinary"
+    },
+    "thresholdBp": 7000,
+    "required": {
+      "all": [
+        {
+          "game": "defeated",
+          "enemy": "enemy:hollow_matriarch"
+        }
+      ]
+    }
+  },
+  "activities": [
+    "idle:region_1.hunt",
+    "idle:region_1.gather"
+  ],
+  "tags": [
+    "region_1",
+    "provisional_balance"
+  ]
+}

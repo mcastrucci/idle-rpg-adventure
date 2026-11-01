@@ -1,0 +1,283 @@
+[
+  {
+    "id": "loot:region_1.mite",
+    "rolls": 1,
+    "nothingWeight": 60,
+    "entries": [
+      {
+        "item": "item:glowcap",
+        "weight": 40,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      }
+    ],
+    "gold": {
+      "min": 0,
+      "max": 2
+    }
+  },
+  {
+    "id": "loot:region_1.boar",
+    "rolls": 1,
+    "nothingWeight": 50,
+    "entries": [
+      {
+        "item": "item:boar_hide",
+        "weight": 40,
+        "qty": {
+          "min": 1,
+          "max": 2
+        }
+      },
+      {
+        "item": "item:minor_healing_potion",
+        "weight": 10,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      }
+    ],
+    "gold": {
+      "min": 1,
+      "max": 4
+    },
+    "guaranteed": [
+      {
+        "item": "item:raw_meat",
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      }
+    ]
+  },
+  {
+    "id": "loot:region_1.creeper",
+    "rolls": 1,
+    "nothingWeight": 50,
+    "entries": [
+      {
+        "item": "item:creeper_fiber",
+        "weight": 40,
+        "qty": {
+          "min": 1,
+          "max": 2
+        }
+      },
+      {
+        "item": "item:amber_resin",
+        "weight": 10,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      }
+    ],
+    "gold": {
+      "min": 2,
+      "max": 5
+    }
+  },
+  {
+    "id": "loot:region_1.lantern",
+    "rolls": 1,
+    "nothingWeight": 45,
+    "entries": [
+      {
+        "item": "item:alloy_scrap",
+        "weight": 40,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "item": "item:lens_shard",
+        "weight": 12,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "item": "item:lantern_lens",
+        "weight": 3,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      }
+    ],
+    "gold": {
+      "min": 3,
+      "max": 7
+    }
+  },
+  {
+    "id": "loot:region_1.tiller",
+    "rolls": 1,
+    "nothingWeight": 40,
+    "entries": [
+      {
+        "item": "item:alloy_scrap",
+        "weight": 40,
+        "qty": {
+          "min": 1,
+          "max": 2
+        }
+      },
+      {
+        "item": "item:tiller_cog",
+        "weight": 15,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "item": "item:tiller_plate_buckler",
+        "weight": 5,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      }
+    ],
+    "gold": {
+      "min": 5,
+      "max": 10
+    }
+  },
+  {
+    "id": "loot:region_1.matriarch",
+    "rolls": 1,
+    "nothingWeight": 0,
+    "entries": [
+      {
+        "item": "item:sapforged_blade",
+        "weight": 35,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "item": "item:heartwood_buckler",
+        "weight": 35,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "item": "item:healing_potion",
+        "weight": 30,
+        "qty": {
+          "min": 2,
+          "max": 2
+        }
+      }
+    ],
+    "gold": {
+      "min": 40,
+      "max": 60
+    },
+    "guaranteed": [
+      {
+        "item": "item:heartwood_core",
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      }
+    ]
+  },
+  {
+    "id": "loot:region_1.glowcap_gather",
+    "rolls": 1,
+    "nothingWeight": 0,
+    "entries": [
+      {
+        "item": "item:glowcap",
+        "weight": 1,
+        "qty": {
+          "min": 1,
+          "max": 2
+        }
+      }
+    ]
+  },
+  {
+    "id": "loot:region_1.resin_gather",
+    "rolls": 1,
+    "nothingWeight": 0,
+    "entries": [
+      {
+        "item": "item:amber_resin",
+        "weight": 1,
+        "qty": {
+          "min": 1,
+          "max": 2
+        }
+      }
+    ]
+  },
+  {
+    "id": "loot:region_1.scrap_gather",
+    "rolls": 1,
+    "nothingWeight": 90,
+    "entries": [
+      {
+        "item": "item:lens_shard",
+        "weight": 10,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      }
+    ],
+    "guaranteed": [
+      {
+        "item": "item:alloy_scrap",
+        "qty": {
+          "min": 1,
+          "max": 2
+        }
+      }
+    ]
+  },
+  {
+    "id": "loot:region_1.seed_cache",
+    "rolls": 1,
+    "nothingWeight": 75,
+    "entries": [
+      {
+        "item": "item:lantern_lens",
+        "weight": 25,
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      }
+    ],
+    "guaranteed": [
+      {
+        "item": "item:healing_potion",
+        "qty": {
+          "min": 1,
+          "max": 2
+        }
+      },
+      {
+        "item": "item:seed_capsule",
+        "qty": {
+          "min": 1,
+          "max": 1
+        }
+      }
+    ]
+  }
+]

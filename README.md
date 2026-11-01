@@ -8,8 +8,10 @@ shared progression and economy.
 
 The implemented foundations include deterministic simulation utilities, world-graph and completion primitives, economy
 types, the expedition kernel, the content compiler, and RPG schema, stats, and content-plugin packages. The RPG content
-currently serves as technical seed data; it is not the designed Region 1. Region 1 has a paper design, while the RPG
-combat simulator, balance tool, server, and web client remain implementation work. See the [roadmap](docs/roadmap.md)
+includes technical seed data and provisional Region 1 definitions authored from the reviewed paper design. Region 1
+has no scene assets or measured balance yet; its interaction and combat dependencies are recorded in
+[the authoring checkpoint](docs/design/region-1-content.md). The RPG combat simulator, balance tool, server, and web
+client remain implementation work. See the [roadmap](docs/roadmap.md)
 for current dependencies and validation gaps.
 
 ## Documentation

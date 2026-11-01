@@ -1,0 +1,33 @@
+{
+  "id": "loc:region_1.sunken_greenhouse",
+  "nameKey": "loc.region_1.sunken_greenhouse.name",
+  "tags": [
+    "secret"
+  ],
+  "exits": [
+    {
+      "id": "exit:region_1.sunken_greenhouse.lantern_ruins",
+      "to": "loc:region_1.lantern_ruins",
+      "requires": {
+        "flag": "region_1.hatch_found"
+      },
+      "tags": [
+        "secret"
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "node": "res:seed_cache",
+      "lootTable": "loot:region_1.seed_cache"
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "founder_log",
+      "type": "lore",
+      "textKey": "hotspot.region_1.founder_log"
+    }
+  ],
+  "encounters": "enc:region_1.greenhouse"
+}
