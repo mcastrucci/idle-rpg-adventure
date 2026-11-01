@@ -4,7 +4,6 @@
  */
 import { PredicateRegistry, createActorWorldState, validateWorld } from '@engine/world';
 import type { ActorWorldStateInit, AreaId, EvalContext, World } from '@engine/world';
-import { z } from 'zod';
 
 import worldContent from '../content/world.json' with { type: 'json' };
 
@@ -21,10 +20,22 @@ export const DISTRICTS: readonly AreaId[] = [OLD_MARKET, RAIL_YARD];
 /** Tool content IDs, e.g. `tool:bolt_cutters`. */
 export const TOOL_ID = /^tool:[a-z0-9_]+$/;
 
+/**
+ * Arguments of `hasTool`, parsed by a plain function: `@engine/world` accepts a parse function (or any Standard
+ * Schema), so the game's predicates need no Zod at all.
+ */
+export function parseHasToolArgs(input: unknown): { readonly tool: string } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new TypeError('hasTool args must be an object');
+  const keys = Object.keys(input);
+  const tool = (input as { tool?: unknown }).tool;
+  if (keys.length !== 1 || typeof tool !== 'string' || !TOOL_ID.test(tool)) throw new TypeError('hasTool expects exactly { tool: "tool:<name>" }');
+  return { tool };
+}
+
 /** Registry with the survival predicates (`hasTool`). A fresh instance per call: registries are mutable. */
 export function survivalRegistry(): PredicateRegistry<SurvivalGameContext> {
   return new PredicateRegistry<SurvivalGameContext>().register('hasTool', {
-    args: z.strictObject({ tool: z.string().regex(TOOL_ID) }),
+    args: parseHasToolArgs,
     evaluate: ({ tool }, ctx) => ctx.game.tools.has(tool),
     reason: ({ tool }) => `requires.game.hasTool:${tool}`,
   });

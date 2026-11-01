@@ -7,30 +7,43 @@
  * when its condition drops below the threshold. Outcomes: `failed` when a group's condition reaches 0, `retreated`
  * when a group cannot afford another hour of food/water before the budget is used up, otherwise `completed`.
  *
- * RNG: each hour uses `RngStreams.fromSeed(deriveSeed(seed, 'hour', index))`, so an hour's rolls depend only on
- * `(seed, hour index)`. Resuming from `stateAfter` with the same seed reproduces the original suffix exactly; with a
+ * RNG: each hour uses the kernel's `segmentStreams(seed, index)` (`deriveSeed(seed, 'segment', index)`), so an hour's
+ * rolls depend only on `(seed, hour index)`. Resuming from `stateAfter` with the same seed reproduces the original suffix exactly; with a
  * revision seed (party revisions) the remainder is re-rolled.
+ *
+ * Escrow: `escrow(config, actors)` moves each group's supplies from its shelter `storage` into `escrow` at start; hours
+ * consume from `escrow`, and the kernel returns the rest at settlement (`settleWithEscrow`).
+ *
+ * The run duration is kernel-owned (start request → `budget`/`canStart`), not part of the config.
  *
  * All game math is integer (condition points, item counts, basis points).
  */
 import { assetKey } from '@engine/economy';
 import type { AssetRef, LedgerDelta } from '@engine/economy';
-import { defaultSettle } from '@engine/expedition-kernel';
+import { ActivityRegistry, ESCROW_CONTAINER, defaultSettle, segmentStreams } from '@engine/expedition-kernel';
 import type { ExpeditionSimulator, Outcome, Segment, Timeline } from '@engine/expedition-kernel';
-import { BP_SCALE, RngStreams, deriveSeed, mulBp, mulDivFloor } from '@engine/sim-core';
+import { BP_SCALE, mulBp, mulDivFloor } from '@engine/sim-core';
 import type { AreaId } from '@engine/world';
 
 import { INFECTION_THREAT, SCAVENGE_TABLES } from './tables.ts';
 import type { ScavengeTables } from './tables.ts';
 
+/** Simulator (plugin) ID, `<game>.<name>` (kernel `SIMULATOR_ID_PATTERN`). */
 export const SCAVENGE_SIMULATOR_ID = 'survival.scavenge';
-/** Bump on any behaviour change (in-flight expeditions keep their stored timeline). */
-export const SCAVENGE_SIMULATOR_VERSION = '1.0.0';
+/** Content activity ID listed in district `activities`, mapped to this simulator by `survivalActivities()`. */
+export const SCAVENGE_ACTIVITY_ID = 'activity:scavenge';
+/**
+ * Bump on any behaviour change (in-flight expeditions keep their stored timeline).
+ * 2.0.0: config without `durationMin`; escrow declared; per-segment RNG via the kernel's `segmentStreams`.
+ */
+export const SCAVENGE_SIMULATOR_VERSION = '2.0.0';
 
 /** Game-defined container where scavenged finds are carried until the group is back at the shelter. */
 export const PACK = 'pack';
 /** Engine container holding the supplies escrowed at start. */
-export const ESCROW = 'escrow';
+export const ESCROW = ESCROW_CONTAINER;
+/** Where supplies come from (and unused ones return to): the group's shelter storage. */
+export const SUPPLY_SOURCE = 'storage';
 
 export const SUPPLY_ITEMS = { food: 'item:ration', water: 'item:water', medkits: 'item:medkit' } as const;
 export const stack = (item: string): AssetRef => ({ kind: 'stack', item });
@@ -50,8 +63,7 @@ export interface Supplies {
 
 export interface ScavengeConfig {
   readonly district: AreaId;
-  readonly durationMin: DurationMin;
-  /** Supplies each participating group brings (escrowed at start). */
+  /** Supplies **each** participating group brings (escrowed per group at start, see `escrow`). */
   readonly supplies: Supplies;
 }
 
@@ -132,21 +144,16 @@ function onlyKeys(o: Record<string, unknown>, keys: readonly string[], name: str
 /** Hand-written validation of untrusted config input (no schema library needed). */
 export function parseScavengeConfig(input: unknown, tables: ScavengeTables = SCAVENGE_TABLES): ScavengeConfig {
   if (!isRecord(input)) throw new TypeError('config must be an object');
-  onlyKeys(input, ['district', 'durationMin', 'supplies'], 'config');
+  onlyKeys(input, ['district', 'supplies'], 'config');
   const district = input['district'];
   if (typeof district !== 'string' || !Object.hasOwn(tables.districts, district)) {
     throw new TypeError(`config.district must be one of ${Object.keys(tables.districts).join(', ')}`);
-  }
-  const durationMin = input['durationMin'];
-  if (!DURATIONS_MIN.includes(durationMin as DurationMin)) {
-    throw new TypeError(`config.durationMin must be one of ${DURATIONS_MIN.join(', ')}`);
   }
   const supplies = input['supplies'];
   if (!isRecord(supplies)) throw new TypeError('config.supplies must be an object');
   onlyKeys(supplies, ['food', 'water', 'medkits'], 'config.supplies');
   return {
     district: district as AreaId,
-    durationMin: durationMin as DurationMin,
     supplies: {
       food: intIn(supplies['food'], 0, MAX_SUPPLY, 'config.supplies.food'),
       water: intIn(supplies['water'], 0, MAX_SUPPLY, 'config.supplies.water'),
@@ -230,8 +237,12 @@ export function createScavengeSimulator(
 
     parseConfig: (input) => parseScavengeConfig(input, tables),
 
-    canStart({ config, actors, durationMin }) {
-      if (durationMin !== config.durationMin) return { ok: false, code: 'duration_mismatch' };
+    canStart({ config, actors, durationMin, area }) {
+      if (!DURATIONS_MIN.includes(durationMin as DurationMin)) {
+        return { ok: false, code: 'invalid_duration', message: `duration must be one of ${DURATIONS_MIN.join(', ')} minutes` };
+      }
+      // Started through the kernel's checkStart: the requested area must be the configured district.
+      if (area !== undefined && area.id !== config.district) return { ok: false, code: 'district_mismatch' };
       if (actors.length === 0) return { ok: false, code: 'no_actors' };
       const ids = new Set<string>();
       for (const a of actors) {
@@ -247,6 +258,17 @@ export function createScavengeSimulator(
         }
       }
       return { ok: true };
+    },
+
+    escrow(config, actors) {
+      const out: LedgerDelta[] = [];
+      for (const a of [...actors].sort((x, y) => cmp(x.actorId, y.actorId))) {
+        for (const kind of ['food', 'water', 'medkits'] as const) {
+          const qty = config.supplies[kind];
+          if (qty > 0) out.push({ actorId: a.actorId, asset: stack(SUPPLY_ITEMS[kind]), qty, from: SUPPLY_SOURCE, to: ESCROW });
+        }
+      }
+      return out;
     },
 
     budget(_config, durationMin, paceBp) {
@@ -267,7 +289,7 @@ export function createScavengeSimulator(
       let outcome: Outcome = 'completed';
       let index = from?.segment ?? 0;
       for (let used = 0; used < budget; used++, index++) {
-        const streams = RngStreams.fromSeed(deriveSeed(seed, 'hour', index));
+        const streams = segmentStreams(seed, index);
         const finds = streams.stream('finds');
         const threats = streams.stream('threats');
         const events: ScavengeEvent[] = [];
@@ -430,3 +452,8 @@ export function summarizeScavenge(timeline: Timeline<ScavengeEvent, ScavengeStat
 
 /** The simulator with the shipped content tables. */
 export const scavengeSimulator = createScavengeSimulator();
+
+/** Activity → simulator mapping of the sandbox (every district lists `activity:scavenge`). */
+export function survivalActivities(simulator = scavengeSimulator): ActivityRegistry {
+  return new ActivityRegistry().register(SCAVENGE_ACTIVITY_ID, simulator);
+}

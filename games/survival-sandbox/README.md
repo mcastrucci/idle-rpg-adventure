@@ -11,15 +11,21 @@ art, no UI.
 |---|---|
 | `content/world.json` | Shelter hub (`area:shelter`), two districts (`area:old_market`, `area:rail_yard`), 5–6 locations each with `ordinary`/`secret` tags, completion rules (60% of `ordinary` + an objective), a timed route, a route gated by `any[hasTool bolt_cutters, flag]`, an exit gated by `hasTool crowbar`. |
 | `content/scavenge.json` | Per-district find/threat tables, medkit and infection rules (integers only). |
-| `src/world.ts` | `survivalRegistry()` (`hasTool` predicate over `SurvivalGameContext { tools }`), `loadWorld()` via `validateWorld`. |
+| `src/world.ts` | `survivalRegistry()` (`hasTool` predicate over `SurvivalGameContext { tools }`, args parsed by a plain function — no Zod), `loadWorld()` via `validateWorld`. |
 | `src/tables.ts` | Zod validation of the scavenging tables. |
-| `src/scavenge.ts` | `survival.scavenge` `ExpeditionSimulator`. |
+| `src/scavenge.ts` | `survival.scavenge` `ExpeditionSimulator`; `survivalActivities()` maps the content activity `activity:scavenge` to it. |
 | `src/cli.ts` | Runs one expedition and prints timeline, reveal, settlement and estimate. |
 
 ### `survival.scavenge`
 
-- **Config** `{ district: AreaId, durationMin: 60|120|180, supplies: { food, water, medkits } }`, hand-validated by
-  `parseConfig`. Supplies are what **each** participating group brings (escrowed at start).
+- **Config** `{ district: AreaId, supplies: { food, water, medkits } }`, hand-validated by `parseConfig`. The
+  duration (60/120/180 min) is kernel-owned: it comes with the start request and `canStart` rejects other values
+  (`invalid_duration`); when started through `checkStart`, the request's area must equal `district`
+  (`district_mismatch`). Supplies are what **each** participating group brings.
+- **Start** — `checkStart` with `{ areaId, activityId: 'activity:scavenge', durationMin, paceBp }`: the engine gates
+  the district on completion (per group) before `canStart` runs.
+- **Escrow** — `escrow(config, actors)`: per group, each non-zero supply moves `storage → escrow`; hours consume from
+  `escrow`; `settleWithEscrow` returns the rest to `storage` (cancel before the first hour returns everything).
 - **Snapshot** (actor) — a survivor group `{ actorId, members, condition 0..100, carryCapacity }`.
 - **Budget** — one segment (weight 1) per in-game hour: `⌊durationMin × paceBp / (60 × 10000)⌋`, at least 1.
 - **Each hour**, per group in `actorId` order: consume one `item:ration` and one `item:water` per member (from
@@ -29,11 +35,12 @@ art, no UI.
   condition 40 (heals 35, cures infection).
 - **Outcomes** — `failed` when a group's condition reaches 0; `retreated` when a group cannot afford another hour of
   food/water before the budget ends; otherwise `completed`.
-- **RNG** — each hour uses `RngStreams.fromSeed(deriveSeed(seed, 'hour', index))`, so resuming from `stateAfter` with
+- **RNG** — each hour uses the kernel's `segmentStreams(seed, index)` (`deriveSeed(seed, 'segment', index)`), so resuming from `stateAfter` with
   the same seed reproduces the original suffix exactly (tested); party revisions re-roll with the revision seed.
 - **Settle** — natural end of a `failed` run: consumption kept, finds aggregated per (actor, item) and
   `total − ⌊total/2⌋` kept. Every other case (`completed`/`retreated` outcomes, `cancelled`, `member_left`, partial
-  cutoffs) is `defaultSettle`.
+  cutoffs) is `defaultSettle`. Contract-checked with `{ completed: 'custom', cancelled: 'default', member_left:
+  'default' }` (and in all-custom mode against the default bound).
 - **Summarize** — `{ hours, outcome (whole timeline only), finds, leftBehind, threats, medkitsUsed, suppliesUsed,
   causeOfFailure }`.
 
@@ -43,7 +50,7 @@ art, no UI.
 pnpm vitest run --project @survival/sandbox
 pnpm --filter @survival/sandbox exec node src/cli.ts --district old_market --hours 3 --seed 42
 # options: --district old_market|rail_yard --hours 1|2|3 --seed N --members N --condition 1..100 --carry N
-#          --food N --water N --medkits N --pace BP --runs N
+#          --food N --water N --medkits N --pace BP --runs N --fresh 1 (district not completed: start refused)
 ```
 
 The CLI runs on Node ≥ 22.18 with built-in type stripping (no build step, no extra dependency); workspace packages
@@ -52,50 +59,34 @@ simulated (start at t = 0); no `Date` anywhere, so the package-wide determinism 
 
 ## Boundary findings
 
-Things the sandbox needed that the engine does not provide (or provides awkwardly). Nothing was patched in the engine
-and nothing was worked around beyond what is noted; each item proposes an engine change.
+Things the sandbox needed that the engine did not provide (or provided awkwardly). All were **resolved in the engine**
+by issue #70 (`@engine/expedition-kernel` 0.2.0, `@engine/world` predicate args); the sandbox now uses the new APIs and
+its workarounds are gone.
 
-1. **Escrow has no owner in the simulator contract (unused supplies are never returned).** The kernel spec says start
-   "escrows inputs" and settlement leaves "escrow fully consumed or returned", but `ExpeditionSimulator` has no way to
-   declare what is escrowed, and `settle(timeline, cutoff, reason)` receives neither the config nor an escrow record —
-   so it cannot compute the leftover (e.g. on cancel at cutoff −1 there is no segment at all). The sandbox only emits
-   consumption (`from: 'escrow'`) and does **not** return leftovers.
-   *Proposal:* add `escrow(config, actors): LedgerDelta[]` to the simulator contract; the kernel escrows those at
-   start and, at settlement, returns per (actor, asset) `escrowed − Σ settled deltas with from: 'escrow'` to the
-   source container — generic, no game logic. (Alternatively pass `config` to `settle`.)
-2. **The kernel cannot tell which area a config targets.** Completion gating ("complete the district to unlock idle
-   runs") is an engine check, but `district` is an opaque game field of `Config`; and `area.activities` ids
-   (`ns:name`, e.g. `activity:scavenge`) have no defined link to simulator ids (`survival.scavenge` does not even match
-   `IdSchema`). *Proposal:* the start command carries `{ areaId, activityId }` explicitly (or the contract gains
-   `area(config): AreaId`), and activities map to simulator ids (e.g. `activities: [{ id, simulator }]` or allow
-   simulator ids as activity ids). Related: `canStart` gets no world/eval context, so a game cannot require e.g. a
-   tool to start a run without re-implementing requirement evaluation; consider passing an `EvalContext` or letting
-   the kernel evaluate an optional per-activity `requires`.
-3. **`PredicateRegistry` forces a Zod dependency (and version lock) on games.** `GamePredicateDefinition.args` is a
-   `z.ZodType`, so the sandbox must depend on `zod` at exactly engine/world's version (type identity), while the
-   expedition kernel deliberately avoided Zod (`parseConfig(input: unknown)`). *Proposal:* accept
-   `parseArgs(input: unknown): A` (or the Standard Schema interface, which Zod implements) in predicate definitions.
-4. **Contract checker: custom settlement loses the "no future deltas" guarantee.** With `settlement: 'custom'` only
-   validity/determinism are checked, so a custom `settle` that leaked deltas of segments after the cutoff (e.g. on
-   `cancelled`) would pass. The sandbox's settle differs from default in exactly one case (natural end of a failed
-   run), so it runs the checker twice (custom on all seeds, `default` on non-failing seeds) plus a manual test.
-   *Proposal:* per-reason modes (`settlement: { cancelled: 'default', member_left: 'default', completed: 'custom' }`),
-   and in custom mode a generic bound check: `netHoldings(settle(cutoff))` never exceeds the positive holdings of
-   `defaultSettle(cutoff)` per (actor, asset).
-5. **No timeline hash helper.** The spec guarantees "same inputs ⇒ same timeline hash" and expeditions are persisted
-   with versions, but the kernel exports no hash; the golden test uses `hashSeed(stableStringify(timeline))`.
-   *Proposal:* export `timelineHash(timeline)` from the kernel so every game (and persistence) uses the same one.
-6. **Per-segment RNG is the natural fit for resumption, but undocumented.** `stateAfter` is documented as possibly
-   encoding RNG state, yet the kernel always resumes with a *new* revision seed, so stored RNG state is never reused.
-   Deriving streams per segment (`deriveSeed(seed, 'hour', index)`) keeps `stateAfter` small and makes same-seed resume
-   reproduce the original suffix. *Proposal:* document this pattern and offer `segmentStreams(seed, index)`.
-7. **Duration lives in two places.** The kernel passes `durationMin` to `budget`/`canStart` separately from the
-   game config, while the sandbox config also carries `durationMin` (per the issue), so `canStart` must cross-check
-   (`duration_mismatch`). *Proposal:* decide whether duration is kernel-owned (drop it from game configs) and document.
-8. **Multi-actor inputs.** Config is expedition-level but supplies/escrow are per actor; the sandbox reads `supplies`
-   as "per group". Finding 1's `escrow(config, actors)` would make this explicit.
-9. **Minor:** `BP_SCALE` is exported by both `@engine/world` and `@engine/sim-core` (same value; a game doing
-   `export *` from both would get an ambiguity error). `@engine/world` could re-use sim-core's.
+1. **Escrow had no owner in the simulator contract (unused supplies were never returned).** *Resolved:*
+   `ExpeditionSimulator.escrow?(config, actors)` declares what moves into `escrow` at start; `settleWithEscrow`
+   returns `escrowed − consumed` per (actor, asset) to the source container, for every cutoff including −1. The
+   sandbox escrows supplies from `storage` and tests the returns at every cutoff.
+2. **The kernel could not tell which area a config targets; activity IDs had no link to simulator IDs.** 
+   *Resolved:* start requests carry `{ areaId, activityId }`; `ActivityRegistry` maps content activity IDs (`ns:name`,
+   here `activity:scavenge`) to simulators, whose IDs follow their own `SIMULATOR_ID_PATTERN` (`<game>.<name>`, here
+   `survival.scavenge`); `checkStart` gates on completion per actor and passes `world`, `area`, eval contexts and the
+   predicate registry to `canStart`. The sandbox cross-checks `district` against the requested area.
+3. **`PredicateRegistry` forced a Zod dependency (and version lock).** *Resolved:* predicate `args` accept any
+   Standard Schema (Zod included, so existing code is unchanged) or a plain parse function. `hasTool` now uses a parse
+   function; the sandbox keeps `zod` only for its own scavenging tables.
+4. **Contract checker: custom settlement lost the "no future deltas" guarantee.** *Resolved:* per-reason modes
+   and, in custom mode, the default bound `net(settle) ≤ max(net(defaultSettle), 0)` per (actor, asset), plus escrow
+   conservation. The sandbox's double run (custom + default on non-failing seeds) is replaced by one per-reason run.
+5. **No timeline hash helper.** *Resolved:* `timelineHash(timeline)`; the golden test uses it.
+6. **Per-segment RNG was undocumented.** *Resolved:* documented in the kernel README; `segmentSeed`/
+   `segmentStreams` helpers, used by the sandbox (this changed every roll, so the golden hash was updated
+   deliberately with simulator version 2.0.0).
+7. **Duration lived in two places.** *Resolved:* duration is kernel-owned (start request → `budget`/`canStart`);
+   `durationMin` was removed from the sandbox config (`duration_mismatch` is gone).
+8. **Multi-actor inputs.** *Resolved:* documented (config per expedition; per-actor inputs via snapshots or
+   `escrow(config, actors)`, one delta per actor and asset).
+9. **Minor: `BP_SCALE` exported twice.** *Resolved:* `@engine/world` re-exports sim-core's binding.
 
 What worked without friction: `validateWorld`, requirement/visibility/completion with a game predicate and typed
 game context, game-defined area kinds (`district`) and containers (`pack`), `placeSegments`/`visibleView` (no early
