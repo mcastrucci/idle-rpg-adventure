@@ -202,13 +202,16 @@ export function dealDamage(
   }
   amount = Math.max(1, amount);
 
+  // Shields absorb in application order; depleted ones expire right after the damage event.
   let absorbed = 0;
-  for (const shield of ctx.state.effects.filter((e) => e.holderId === target.id && e.type === 'shield')) {
-    if (shield.type !== 'shield' || absorbed === amount) break;
+  const depleted: ActiveEffect[] = [];
+  for (const shield of ctx.state.effects) {
+    if (absorbed === amount) break;
+    if (shield.holderId !== target.id || shield.type !== 'shield') continue;
     const take = Math.min(shield.amount, amount - absorbed);
     shield.amount -= take;
     absorbed += take;
-    if (shield.amount === 0) expireEffect(ctx, shield, 'depleted');
+    if (shield.amount === 0) depleted.push(shield);
   }
   const hpLoss = Math.min(target.hp, amount - absorbed);
   target.hp -= hpLoss;
@@ -224,6 +227,7 @@ export function dealDamage(
     periodic,
     hpAfter: target.hp,
   });
+  for (const shield of depleted) expireEffect(ctx, shield, 'depleted');
   if (target.hp === 0) die(ctx, target, sourceId);
   else if (target.boss !== null) checkPhase(ctx, target);
 }
