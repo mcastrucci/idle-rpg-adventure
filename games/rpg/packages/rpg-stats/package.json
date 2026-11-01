@@ -1,0 +1,11 @@
+{
+  "name": "@rpg/rpg-stats",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Display-only RPG stat derivation shared with the client.",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

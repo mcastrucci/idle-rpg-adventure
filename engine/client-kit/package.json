@@ -1,0 +1,11 @@
+{
+  "name": "@engine/client-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Themeable client shell pieces and screens.",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

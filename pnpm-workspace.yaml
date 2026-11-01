@@ -1,0 +1,6 @@
+packages:
+  - engine/*
+  - games/rpg/apps/*
+  - games/rpg/packages/*
+  - games/rpg/tools/*
+  - games/survival-sandbox

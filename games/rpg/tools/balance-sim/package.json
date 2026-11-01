@@ -1,0 +1,11 @@
+{
+  "name": "@rpg/balance-sim",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Offline balance simulator.",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}
