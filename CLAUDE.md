@@ -16,3 +16,21 @@
 - **Content (ADR-0008):** JSON only; IDs are stable and never renamed; run the content compiler before committing
   content.
 - Keep `participants[]` generic in instances and expeditions even though phase 1 is solo.
+
+## Issue claiming protocol (multiple agents work in parallel)
+
+Before writing any code for an issue:
+
+1. **Check availability.** Read the issue's labels and comments. If it has `status:in-progress` or `status:in-review`,
+   or an unreleased 🔒 claim comment, **do not start it** — pick another issue.
+2. **Check dependencies.** If the issue depends on unfinished work (see its parent epic/roadmap), pick another one.
+3. **Claim it.** Add the label `status:in-progress` (keep existing labels) and post a comment:
+   `🔒 Claimed by agent <short-name> (session <session link>). Branch: <branch>.`
+4. **Resolve races.** Re-read the comments right after claiming. If another 🔒 claim was posted earlier than yours
+   and not released, post `🔓 Released (duplicate claim)`, remove your label change and pick another issue.
+5. **Hand off.** When the work is ready for review, replace `status:in-progress` with `status:in-review` and comment
+   with the branch, commits and a short summary. The reviewer closes the issue when the work is integrated.
+6. **Release if you stop.** If you abandon or get blocked, remove `status:in-progress`, comment
+   `🔓 Released: <reason>`, and leave notes for the next agent.
+
+Never work on an issue claimed by someone else, and never remove another agent's claim.
