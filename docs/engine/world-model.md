@@ -87,15 +87,20 @@ Closed, composable, pure:
 
 ## 6. Visibility (fog of war)
 
-An area is shown on the world map as:
-- **known** if it is a hub, adjacent via any route to a known/visited area, or revealed by a flag;
-- **locked** (shown with reason) if known but its route requirements fail;
-- **hidden** otherwise.
-Within an area, undiscovered locations are hidden except as "unknown exits" from discovered ones.
+Implemented by `computeWorldView` in `engine/world` (one-hop rule, so not everything connected becomes visible):
+
+- **Reachable:** hubs, plus areas reachable from a reachable area through routes whose requirements hold.
+- **Base:** hubs plus areas the actor has visited (visited, has discoveries, or completed).
+- **Seen:** base areas, targets of routes leaving a base area, or areas whose optional `revealedBy` requirement holds.
+- **known** = seen and reachable · **locked** = seen but not reachable (with the failing route reasons) · **hidden** = otherwise.
+
+Within an area, undiscovered locations are hidden except as "unknown exits" from discovered ones; exits tagged
+`secret` stay hidden until their target is discovered.
 
 ## 7. Validation (content compiler)
 
 - Every area reachable from some hub under satisfiable requirements (no cycles of impossible requirements).
+- Each location belongs to exactly one area; exits never cross areas (areas connect only through routes).
 - Within each area: all locations reachable from `startLocation`; completion pool ≥ `requiredCount` reachable without
   `secret`-tagged exits; required objectives placeable.
 - Frozen completion baselines unchanged once published.
