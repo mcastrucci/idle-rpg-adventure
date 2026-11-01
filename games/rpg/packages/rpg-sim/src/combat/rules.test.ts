@@ -4,6 +4,7 @@ import { createCombat, runToEnd } from '../index.ts';
 import type { CombatEvent, CombatPolicy, CombatSetup, EnemySetup, HeroSetup } from '../index.ts';
 import {
   CONTENT,
+  ENEMIES,
   GUARD_RULES,
   NAIVE_RULES,
   advance,
@@ -150,7 +151,7 @@ describe('enemy AI and boss phases', () => {
     expect(phase).toMatchObject([{ actorId: 'enemy:boss', phase: 1, fromHpBp: 5000 }]);
     const trigger = events[(phase[0]?.seq ?? 0) - 1];
     expect(trigger).toMatchObject({ type: 'DamageDealt', targetId: 'enemy:boss' });
-    expect(trigger?.type === 'DamageDealt' && trigger.hpAfter * 10_000 <= 270 * 5000).toBe(true);
+    expect(trigger?.type === 'DamageDealt' && trigger.hpAfter * 10_000 <= ENEMIES.golem.stats.maxHp * 5000).toBe(true);
 
     const bossActs = ofType(events, 'ActionStarted').filter((e) => e.actorId === 'enemy:boss');
     const before = bossActs.filter((e) => e.seq < (phase[0]?.seq ?? 0)).map(actionName);
@@ -181,14 +182,24 @@ describe('telegraph balance (Monte Carlo over seeds)', () => {
     return { wins, hpLeft };
   };
 
-  it('a manual guard response to the telegraphed heavy strike beats naive rules; guard automation also helps', () => {
+  it('a manual guard response to the telegraphed heavy strike beats naive rules, and timing is what matters', () => {
     const naive = tally(bossSetup(NAIVE_RULES));
     const manual = tally(bossSetup(NAIVE_RULES), manualGuardPolicy);
+    // Good automation answers the telegraph too (§7: survivable by good rules in idle).
     const auto = tally(bossSetup(GUARD_RULES));
-    // Integer comparisons on win counts out of N (observed at rpg-sim@1.0.0: naive 0, guard rules ~12, manual ~84).
+    // Control: the same guard used whenever it is ready, ignoring telegraphs.
+    const spam = tally(
+      bossSetup(
+        rules([
+          { when: { skillReady: 'skill:guard' }, do: { useSkill: 'skill:guard' } },
+          { when: {}, do: { useSkill: 'skill:strike' } },
+        ]),
+      ),
+    );
+    // Integer comparisons on win counts out of N (at rpg-sim@1.0.0: naive 0, spam 78, guard rules 99, manual 99).
     expect(manual.wins).toBeGreaterThanOrEqual(naive.wins + N / 2);
-    expect(auto.wins).toBeGreaterThan(naive.wins);
-    expect(manual.wins).toBeGreaterThan(auto.wins);
+    expect(auto.wins).toBeGreaterThanOrEqual(naive.wins + N / 2);
+    expect(manual.wins).toBeGreaterThanOrEqual(spam.wins + N / 10);
     expect(manual.hpLeft).toBeGreaterThan(naive.hpLeft);
   });
 });

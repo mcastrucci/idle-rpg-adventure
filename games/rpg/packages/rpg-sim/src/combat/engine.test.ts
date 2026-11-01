@@ -4,6 +4,7 @@ import { ENGINE_VERSION, createCombat, hashEvents, isFinished, runToEnd, step } 
 import type { CombatEvent, CombatInput, CombatState } from '../index.ts';
 import {
   CONTENT,
+  SKILLS,
   advance,
   bossSetup,
   bruiser,
@@ -167,7 +168,7 @@ describe('telegraphs and windups', () => {
   it('a windup emits TelegraphStarted and resolves exactly windupTicks later', () => {
     const { events } = runToEnd(bossSetup(), 1);
     const telegraph = ofType(events, 'TelegraphStarted')[0];
-    expect(telegraph).toMatchObject({ actorId: 'enemy:boss', skill: 'skill:heavy_strike', resolveAtTick: (telegraph?.tick ?? 0) + 4 });
+    expect(telegraph).toMatchObject({ actorId: 'enemy:boss', skill: 'skill:heavy_strike', resolveAtTick: (telegraph?.tick ?? 0) + SKILLS.heavyStrike.windupTicks });
     const hit = ofType(events, 'DamageDealt').find((e) => e.origin === 'skill:heavy_strike');
     expect(hit?.tick).toBe(telegraph?.resolveAtTick);
   });

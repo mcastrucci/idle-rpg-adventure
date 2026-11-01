@@ -29,14 +29,17 @@ export const SKILLS = {
       { type: 'taunt', duration: { value: 3, unit: 'attacks' } },
     ],
   }),
-  /** The manual response to a telegraph: a big armor buff on self for a few ticks plus a small shield. */
+  /**
+   * The response to a telegraph: blocks the **next received attack** (big armor buff + small shield, both 1 attack).
+   * Used on cooldown it is mostly wasted on bites; timed to a telegraph it blunts the heavy strike.
+   */
   guard: skill({
     id: 'skill:guard',
     cooldownTicks: 10,
     windupTicks: 0,
     targeting: 'self',
     effects: [
-      { type: 'stat_mod', stat: 'armor', flat: 300, duration: { value: 6, unit: 'ticks' } },
+      { type: 'stat_mod', stat: 'armor', flat: 300, duration: { value: 1, unit: 'attacks' } },
       { type: 'shield', coeffBp: 20_000, duration: { value: 1, unit: 'attacks' } },
     ],
   }),
@@ -105,12 +108,13 @@ export const SKILLS = {
       { type: 'stat_mod', stat: 'armor', flat: -5, duration: { value: 10, unit: 'ticks' } },
     ],
   }),
+  /** Telegraphed: windup 6 ≥ the bruiser's 6-tick interval, so a ready action always falls inside the window. */
   heavyStrike: skill({
     id: 'skill:heavy_strike',
     cooldownTicks: 12,
-    windupTicks: 4,
+    windupTicks: 6,
     targeting: 'enemy',
-    effects: [{ type: 'damage', coeffBp: 45_000, school: 'physical' }],
+    effects: [{ type: 'damage', coeffBp: 100_000, school: 'physical' }],
   }),
 } as const;
 
@@ -149,7 +153,7 @@ export const ENEMIES = {
     id: 'enemy:golem',
     rank: 'boss',
     level: 5,
-    stats: { maxHp: 270, power: 20, armor: 10, critBp: 500 },
+    stats: { maxHp: 300, power: 16, armor: 10, critBp: 500 },
     skills: ['skill:bite', 'skill:heavy_strike'],
     ai: [{ when: {}, do: { useSkill: 'skill:bite' } }],
     xp: 300,
