@@ -1,0 +1,107 @@
+{
+  "medkit": {
+    "useBelowCondition": 40,
+    "heal": 35
+  },
+  "infection": {
+    "damagePerHour": 5
+  },
+  "districts": {
+    "area:old_market": {
+      "searchesPerMember": 1,
+      "finds": [
+        {
+          "item": null,
+          "weight": 35
+        },
+        {
+          "item": "item:scrap",
+          "weight": 30,
+          "min": 1,
+          "max": 3
+        },
+        {
+          "item": "item:canned_food",
+          "weight": 25,
+          "min": 1,
+          "max": 2
+        },
+        {
+          "item": "item:medicine",
+          "weight": 10,
+          "min": 1,
+          "max": 1
+        }
+      ],
+      "threatChanceBp": 2500,
+      "threats": [
+        {
+          "threat": "threat:horde",
+          "weight": 50,
+          "minDamage": 15,
+          "maxDamage": 35
+        },
+        {
+          "threat": "threat:collapse",
+          "weight": 30,
+          "minDamage": 10,
+          "maxDamage": 20
+        },
+        {
+          "threat": "threat:infection",
+          "weight": 20,
+          "minDamage": 5,
+          "maxDamage": 10
+        }
+      ]
+    },
+    "area:rail_yard": {
+      "searchesPerMember": 2,
+      "finds": [
+        {
+          "item": null,
+          "weight": 30
+        },
+        {
+          "item": "item:scrap",
+          "weight": 50,
+          "min": 2,
+          "max": 5
+        },
+        {
+          "item": "item:canned_food",
+          "weight": 10,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "item:medicine",
+          "weight": 10,
+          "min": 1,
+          "max": 2
+        }
+      ],
+      "threatChanceBp": 4500,
+      "threats": [
+        {
+          "threat": "threat:horde",
+          "weight": 60,
+          "minDamage": 25,
+          "maxDamage": 50
+        },
+        {
+          "threat": "threat:collapse",
+          "weight": 25,
+          "minDamage": 15,
+          "maxDamage": 30
+        },
+        {
+          "threat": "threat:infection",
+          "weight": 15,
+          "minDamage": 10,
+          "maxDamage": 15
+        }
+      ]
+    }
+  }
+}
