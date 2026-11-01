@@ -1,0 +1,28 @@
+{
+  "id": "enemy:test_grove.slime",
+  "nameKey": "enemy.test_grove.slime.name",
+  "rank": "normal",
+  "level": 1,
+  "stats": {
+    "maxHp": 40,
+    "power": 5,
+    "armor": 1
+  },
+  "skills": [
+    "skill:test_strike"
+  ],
+  "ai": [
+    {
+      "when": {},
+      "do": {
+        "useSkill": "skill:test_strike",
+        "target": "lowestHpEnemy"
+      }
+    }
+  ],
+  "xp": 10,
+  "lootTable": "loot:test_grove.slime",
+  "tags": [
+    "technical_seed"
+  ]
+}

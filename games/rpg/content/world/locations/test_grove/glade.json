@@ -1,0 +1,42 @@
+{
+  "id": "loc:test_grove.glade",
+  "nameKey": "loc.test_grove.glade.name",
+  "tags": [
+    "ordinary"
+  ],
+  "exits": [
+    {
+      "id": "exit:test_grove.glade.entrance",
+      "to": "loc:test_grove.entrance"
+    },
+    {
+      "id": "exit:test_grove.glade.den",
+      "to": "loc:test_grove.warden_den",
+      "requires": {
+        "game": "levelAtLeast",
+        "level": 2
+      }
+    },
+    {
+      "id": "exit:test_grove.glade.hollow",
+      "to": "loc:test_grove.hidden_hollow",
+      "tags": [
+        "secret"
+      ]
+    }
+  ],
+  "encounters": "enc:test_grove.glade",
+  "resources": [
+    {
+      "node": "res:test_grove.herb_patch",
+      "lootTable": "loot:test_grove.herb_gather"
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "old_stump",
+      "type": "search",
+      "textKey": "hotspot.test_grove.old_stump"
+    }
+  ]
+}

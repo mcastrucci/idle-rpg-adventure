@@ -1,0 +1,50 @@
+[
+  {
+    "id": "enc:test_grove.glade",
+    "entries": [
+      {
+        "weight": 70,
+        "enemies": [
+          {
+            "enemy": "enemy:test_grove.slime"
+          }
+        ]
+      },
+      {
+        "weight": 30,
+        "enemies": [
+          {
+            "enemy": "enemy:test_grove.slime",
+            "count": 2
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:test_grove.warden",
+    "entries": [
+      {
+        "weight": 1,
+        "enemies": [
+          {
+            "enemy": "enemy:test_grove.warden"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enc:test_grove.hunt",
+    "entries": [
+      {
+        "weight": 1,
+        "enemies": [
+          {
+            "enemy": "enemy:test_grove.slime"
+          }
+        ]
+      }
+    ]
+  }
+]

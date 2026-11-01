@@ -1,0 +1,8 @@
+{
+  "id": "route:sanctuary_to_test_grove",
+  "from": "area:sanctuary",
+  "to": "area:test_grove",
+  "travel": {
+    "mode": "instant"
+  }
+}

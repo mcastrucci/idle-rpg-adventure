@@ -1,0 +1,17 @@
+{
+  "name": "@rpg/content-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "RPG game plugin for @engine/content-compiler: collections, world extensions, references and cross-document checks.",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@engine/content-compiler": "workspace:*",
+    "@engine/world": "workspace:*",
+    "@rpg/rpg-schema": "workspace:*",
+    "zod": "4.6.7"
+  }
+}
