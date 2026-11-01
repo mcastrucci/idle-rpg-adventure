@@ -52,6 +52,9 @@ importers:
       '@engine/sim-core':
         specifier: workspace:*
         version: link:../sim-core
+      '@engine/world':
+        specifier: workspace:*
+        version: link:../world
 
   engine/live-kernel: {}
 

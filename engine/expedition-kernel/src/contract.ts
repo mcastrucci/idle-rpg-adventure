@@ -4,14 +4,16 @@
  * is empty, e.g. `expect(checkSimulatorContract(sim, fixtures)).toEqual([])`.
  */
 
-import { assertLedgerDelta } from '@engine/economy';
+import { assertLedgerDelta, assetKey, netHoldings } from '@engine/economy';
+import type { LedgerDelta } from '@engine/economy';
 import type { Seed } from '@engine/sim-core';
 
+import { escrowProblems, escrowReturns } from './escrow.ts';
 import { revisionSeed } from './placement.ts';
 import { stableStringify } from './stable-stringify.ts';
 import { defaultSettle, spliceTimeline, timelineProblems, totalWeight } from './timeline.ts';
-import { SETTLE_REASONS } from './types.ts';
-import type { ExpeditionSimulator, SimulateInput, Timeline } from './types.ts';
+import { SETTLE_REASONS, SIMULATOR_ID_PATTERN } from './types.ts';
+import type { ExpeditionSimulator, SettleReason, SimulateInput, Timeline } from './types.ts';
 
 export interface ContractFixture<Config, Snapshot> {
   /** Optional label used in violation messages. */
@@ -22,18 +24,30 @@ export interface ContractFixture<Config, Snapshot> {
   readonly seeds: readonly Seed[];
 }
 
+/**
+ * How `settle` is checked for one reason:
+ * - `default`: it must equal {@link defaultSettle} for every cutoff (so it never includes deltas of later segments).
+ * - `custom`: validity, determinism, escrow conservation and the **default bound**: for every cutoff and every
+ *   (actor, asset), `net(settle(t, cutoff, reason)) ≤ max(net(defaultSettle(t, cutoff)), 0)`, where `net` is the net
+ *   holding change over all containers (`netHoldings`). A custom rule may therefore reduce gains (failure penalties),
+ *   drop or reduce costs down to zero, but never grant more of anything than the default would up to that cutoff —
+ *   which also rules out leaking gains of segments after the cutoff. Escrow returns are moves (holding-neutral) and
+ *   are bounded separately by escrow conservation.
+ */
+export type SettlementMode = 'default' | 'custom';
+
 export interface ContractOptions {
   /**
-   * `default`: `settle` must equal {@link defaultSettle} for every cutoff and reason (so it never includes deltas of
-   * segments after the cutoff). `custom`: only validity and determinism of `settle` are checked. When omitted:
-   * `default` iff `simulator.settle === defaultSettle`.
+   * One mode for every reason, or per reason (`{ completed: 'custom', cancelled: 'default', member_left: 'default' }`).
+   * Omitted (or a reason missing from the record): `default` iff `simulator.settle === defaultSettle`, else `custom`.
    */
-  readonly settlement?: 'default' | 'custom';
+  readonly settlement?: SettlementMode | Readonly<Partial<Record<SettleReason, SettlementMode>>>;
   /** Check every cutoff up to this many segments; longer timelines are sampled. Default 64. */
   readonly maxExhaustiveCutoffs?: number;
 }
 
 export type ContractRule =
+  | 'identity'
   | 'fixture'
   | 'threw'
   | 'json'
@@ -45,11 +59,13 @@ export type ContractRule =
   | 'settle-delta'
   | 'settle-determinism'
   | 'settle-cutoff'
+  | 'settle-bound'
+  | 'escrow'
   | 'summarize-determinism'
   | 'resume';
 
 export interface ContractViolation {
-  /** Index of the fixture in the list. */
+  /** Index of the fixture in the list (`-1` for simulator-level rules such as `identity`). */
   readonly fixture: number;
   readonly seed?: Seed;
   readonly rule: ContractRule;
@@ -65,6 +81,21 @@ function tryStringify(value: unknown): string | undefined {
   }
 }
 
+/**
+ * Violations of the default bound (see {@link SettlementMode}): every (actor, asset) whose net holding change in
+ * `custom` exceeds `max(net change in reference, 0)`. Empty = within bounds.
+ */
+export function settlementBoundViolations(custom: readonly LedgerDelta[], reference: readonly LedgerDelta[]): string[] {
+  const allowed = new Map<string, number>();
+  for (const h of netHoldings(reference)) allowed.set(JSON.stringify([h.actorId, assetKey(h.asset)]), h.qty);
+  const out: string[] = [];
+  for (const h of netHoldings(custom)) {
+    const limit = Math.max(allowed.get(JSON.stringify([h.actorId, assetKey(h.asset)])) ?? 0, 0);
+    if (h.qty > limit) out.push(`${h.actorId} ${assetKey(h.asset)}: +${h.qty} exceeds the default bound ${limit}`);
+  }
+  return out;
+}
+
 function sampleCutoffs(length: number, max: number): number[] {
   if (length <= max) return Array.from({ length: length + 1 }, (_, i) => i - 1);
   return [...new Set([-1, 0, length >>> 1, length - 2, length - 1])].filter((c) => c < length).sort((a, b) => a - b);
@@ -73,27 +104,41 @@ function sampleCutoffs(length: number, max: number): number[] {
 /**
  * Checks a simulator against the kernel contract on every fixture and seed and returns the violations (empty = OK):
  *
+ * - `id` matches `SIMULATOR_ID_PATTERN` and `version` is non-empty (`identity`, fixture −1);
  * - `simulate` is deterministic (same input twice, the second time deep-cloned ⇒ identical stable JSON), does not
  *   mutate its input, and returns JSON data;
  * - segment indices are contiguous from 0, weights are positive safe integers, outcome is known, every delta is
  *   well-formed with a safe-integer `qty`, and Σ weight ≤ budget;
  * - `parseConfig` accepts the fixture config (as JSON data) and returns an equal config;
+ * - `escrow` (when declared) is deterministic JSON, does not mutate its input and is well-formed (`escrowProblems`);
  * - `settle` for every reason and cutoff (sampled for long timelines) returns well-formed, deterministic deltas and
- *   does not mutate the timeline; with default settlement it equals `defaultSettle`, so no delta of a later segment
- *   is ever included;
+ *   does not mutate the timeline; per reason, in `default` mode it equals `defaultSettle` (so no delta of a later
+ *   segment is ever included), in `custom` mode it stays within the default bound (`settle-bound`, see
+ *   {@link SettlementMode}); in both modes it conserves escrow: never takes more out of `escrow` than was escrowed per
+ *   (actor, asset), never moves anything into it, so returns are non-negative (`escrow`);
  * - `summarize` is deterministic at cutoffs −1 and last;
  * - resumption: where `stateAfter` of segment k−1 is present (k sampled at 1, middle, last), `simulate` with
  *   `from: { segment: k, state }`, `revisionSeed(seed, 1)` and the remaining budget is deterministic and returns a
  *   valid timeline starting at index k within the remaining budget.
  */
-export function checkSimulatorContract<Config, Snapshot, Event, SimState, Report>(
-  simulator: ExpeditionSimulator<Config, Snapshot, Event, SimState, Report>,
+export function checkSimulatorContract<Config, Snapshot, Event, SimState, Report, Game>(
+  simulator: ExpeditionSimulator<Config, Snapshot, Event, SimState, Report, Game>,
   fixtures: readonly ContractFixture<Config, Snapshot>[],
   options: ContractOptions = {},
 ): ContractViolation[] {
   const violations: ContractViolation[] = [];
-  const useDefault = (options.settlement ?? (simulator.settle === defaultSettle ? 'default' : 'custom')) === 'default';
+  const inferred: SettlementMode = simulator.settle === defaultSettle ? 'default' : 'custom';
+  const setting = options.settlement;
+  const modeOf = (reason: SettleReason): SettlementMode =>
+    typeof setting === 'string' ? setting : (setting?.[reason] ?? inferred);
   const maxCutoffs = options.maxExhaustiveCutoffs ?? 64;
+
+  if (typeof simulator.id !== 'string' || !SIMULATOR_ID_PATTERN.test(simulator.id)) {
+    violations.push({ fixture: -1, rule: 'identity', message: `simulator id ${JSON.stringify(simulator.id)} does not match ${String(SIMULATOR_ID_PATTERN)}` });
+  }
+  if (typeof simulator.version !== 'string' || simulator.version === '') {
+    violations.push({ fixture: -1, rule: 'identity', message: 'simulator version must be a non-empty string' });
+  }
 
   fixtures.forEach((fixture, fi) => {
     const label = fixture.name === undefined ? `fixture ${fi}` : `fixture ${fi} (${fixture.name})`;
@@ -122,6 +167,27 @@ export function checkSimulatorContract<Config, Snapshot, Event, SimState, Report
     const parsed = attempt('parseConfig', () => simulator.parseConfig(JSON.parse(stableStringify(fixture.config))));
     if (parsed !== undefined && tryStringify(parsed) !== stableStringify(fixture.config)) {
       report('config-roundtrip', 'parseConfig(config) does not return an equal config');
+    }
+
+    // escrow: deterministic, JSON, well-formed, no input mutation
+    let escrow: LedgerDelta[] | undefined = [];
+    if (simulator.escrow !== undefined) {
+      const escrowOf = simulator.escrow.bind(simulator);
+      escrow = attempt('escrow', () => escrowOf(fixture.config, fixture.actors));
+      const again = attempt('escrow (repeat)', () => escrowOf(structuredClone(fixture.config), structuredClone(fixture.actors)));
+      if (tryStringify({ config: fixture.config, actors: fixture.actors }) !== inputJson) report('input-mutation', 'escrow mutated its config or actors');
+      if (escrow !== undefined) {
+        const ej = tryStringify(escrow);
+        if (ej === undefined) {
+          report('json', 'escrow is not JSON data');
+          escrow = undefined;
+        } else {
+          if (ej !== tryStringify(again)) report('escrow', 'escrow is not deterministic');
+          const problems = escrowProblems(escrow);
+          for (const p of problems) report('escrow', p);
+          if (problems.length > 0) escrow = undefined;
+        }
+      }
     }
 
     for (const seed of fixture.seeds) {
@@ -154,6 +220,7 @@ export function checkSimulatorContract<Config, Snapshot, Event, SimState, Report
       // settle
       const last = t1.segments.length - 1;
       for (const reason of SETTLE_REASONS) {
+        const mode = modeOf(reason);
         for (const cutoff of sampleCutoffs(t1.segments.length, maxCutoffs)) {
           const where = `settle(cutoff ${cutoff}, ${reason})`;
           const d1 = attempt(where, () => simulator.settle(t1, cutoff, reason), seed);
@@ -172,8 +239,28 @@ export function checkSimulatorContract<Config, Snapshot, Event, SimState, Report
             }
           });
           if (dj !== tryStringify(d2)) report('settle-determinism', `${where} is not deterministic`, seed);
-          if (useDefault && dj !== stableStringify(defaultSettle(t1 as Timeline<unknown, unknown>, cutoff))) {
+          const reference = defaultSettle(t1 as Timeline<unknown, unknown>, cutoff);
+          if (mode === 'default' && dj !== stableStringify(reference)) {
             report('settle-cutoff', `${where} differs from defaultSettle (deltas outside segments 0..${cutoff}?)`, seed);
+          }
+          let wellFormed = true;
+          for (const d of d1) {
+            try {
+              assertLedgerDelta(d);
+            } catch {
+              wellFormed = false;
+            }
+          }
+          if (!wellFormed) continue;
+          if (mode === 'custom') {
+            for (const v of settlementBoundViolations(d1, reference)) report('settle-bound', `${where}: ${v}`, seed);
+          }
+          if (escrow !== undefined) {
+            try {
+              escrowReturns(escrow, d1);
+            } catch (e) {
+              report('escrow', `${where}: ${(e as Error).message}`, seed);
+            }
           }
         }
       }
