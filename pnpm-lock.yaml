@@ -154,7 +154,26 @@ importers:
         specifier: workspace:*
         version: link:../rpg-schema
 
-  games/rpg/tools/balance-sim: {}
+  games/rpg/tools/balance-sim:
+    dependencies:
+      '@engine/content-compiler':
+        specifier: workspace:*
+        version: link:../../../../engine/content-compiler
+      '@engine/sim-core':
+        specifier: workspace:*
+        version: link:../../../../engine/sim-core
+      '@rpg/content-plugin':
+        specifier: workspace:*
+        version: link:../content-plugin
+      '@rpg/rpg-schema':
+        specifier: workspace:*
+        version: link:../../packages/rpg-schema
+      '@rpg/rpg-sim':
+        specifier: workspace:*
+        version: link:../../packages/rpg-sim
+      '@rpg/rpg-stats':
+        specifier: workspace:*
+        version: link:../../packages/rpg-stats
 
   games/rpg/tools/content-plugin:
     dependencies:

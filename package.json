@@ -15,6 +15,7 @@
     "lint:boundaries:test": "vitest run --project boundaries",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm content:validate",
     "content-cli": "node engine/content-compiler/src/bin.ts",
+    "balance-sim": "node games/rpg/tools/balance-sim/src/bin.ts",
     "content:validate": "pnpm content-cli validate games/rpg/content --game ./games/rpg/tools/content-plugin/src/index.ts"
   },
   "devDependencies": {
