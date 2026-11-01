@@ -37,6 +37,9 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/foundation_test
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the golden append-only check can read the base commit.
+          fetch-depth: 0
 
       # Uses the version pinned in package.json "packageManager".
       - uses: pnpm/action-setup@v4
@@ -50,3 +53,10 @@ jobs:
 
       # typecheck, lint, tests, and `pnpm content:validate` (content-cli on games/rpg/content).
       - run: pnpm check
+
+      # Golden replay hashes are append-only per engine version: changing engine behaviour without bumping
+      # ENGINE_VERSION (and appending new fixtures) fails here or in the golden test (ADR-0004, combat-engine §10).
+      - name: golden fixtures are append-only
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node tools/golden/check-append-only.ts "$BASE" games/rpg/packages/rpg-sim/src/combat/golden.json
