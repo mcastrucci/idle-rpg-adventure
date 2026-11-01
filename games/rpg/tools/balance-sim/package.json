@@ -3,9 +3,21 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Offline balance simulator.",
+  "description": "Offline Monte Carlo balance simulator over compiled RPG content (TTK, win rate, boss success, XP/gold per hour).",
   "exports": "./src/index.ts",
+  "bin": {
+    "balance-sim": "./src/bin.ts"
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "balance-sim": "node src/bin.ts"
+  },
+  "dependencies": {
+    "@engine/content-compiler": "workspace:*",
+    "@engine/sim-core": "workspace:*",
+    "@rpg/content-plugin": "workspace:*",
+    "@rpg/rpg-schema": "workspace:*",
+    "@rpg/rpg-sim": "workspace:*",
+    "@rpg/rpg-stats": "workspace:*"
   }
 }
