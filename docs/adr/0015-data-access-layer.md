@@ -1,6 +1,6 @@
 # ADR-0015: Data access layer (Drizzle)
 
-- **Status:** Proposed — implementation selected; acceptance awaits the real-PostgreSQL CI validation below
+- **Status:** Accepted
 - **Date:** 2026-11-01
 - **Validation:** M2 server foundation (#25), PostgreSQL 16 on Node 22 and 24
 
@@ -27,16 +27,18 @@ applying the journal, so concurrently booting roles cannot race migrations. Prod
 command before process rollout. Startup migration is explicitly opt-in. Every server verifies exact migration
 checksums/timestamps before accepting requests; an unapplied, edited or newer schema fails boot.
 
-## Validation and acceptance gate
+## Validation evidence
 
 The checked-in integration suite creates a disposable real PostgreSQL database, races two migration runners,
 replays the migration, verifies the journal and rolls back a real Drizzle transaction. It also boots the RPG server,
 checks content identity, process role gating, injected timestamps, shutdown order and failed-boot pool cleanup. CI
 runs this suite against PostgreSQL 16 on Node 22 and 24 and fails if its database URL is absent.
 
-Local unit/type/lint checks can run without a database. They do not validate database semantics. The current agent
-runtime cannot initialize a cluster because it runs as root and disallows switching user; move this ADR to Accepted
-only after the required real-PostgreSQL CI checks pass.
+The [required CI run](https://github.com/mcastrucci/idle-rpg-adventure/actions/runs/41341922151) passed on Node 22
+and 24 against PostgreSQL 16: 494 tests, including all seven real-database integration cases, plus typecheck, lint
+and content validation. This is the acceptance evidence for #25 and the Drizzle selection.
+
+Local checks without `TEST_DATABASE_URL` skip database tests and do not replace this evidence.
 
 ## Consequences
 

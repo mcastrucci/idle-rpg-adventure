@@ -10,8 +10,9 @@ The implemented foundations include deterministic simulation utilities, world-gr
 types, the expedition kernel, the content compiler, and RPG schema, stats, and content-plugin packages. The RPG content
 includes technical seed data and provisional Region 1 definitions authored from the reviewed paper design. Region 1
 has no scene assets or measured balance yet; its interaction and combat dependencies are recorded in
-[the authoring checkpoint](docs/design/region-1-content.md). The RPG combat simulator, balance tool, server, and web
-client remain implementation work. See the [roadmap](docs/roadmap.md)
+[the authoring checkpoint](docs/design/region-1-content.md). A [Fastify/PostgreSQL server foundation](games/rpg/apps/server/README.md)
+provides content boot, migrations, process roles, health and module lifecycle. Authentication and game-state services,
+the RPG combat simulator, balance tool and web client remain implementation work. See the [roadmap](docs/roadmap.md)
 for current dependencies and validation gaps.
 
 ## Documentation
