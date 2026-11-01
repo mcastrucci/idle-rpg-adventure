@@ -6,6 +6,18 @@
   "description": "Server modules: accounts, actors, activity lock, command log, jobs, clock.",
   "exports": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts"
+  },
+  "dependencies": {
+    "fastify": "5.12.7",
+    "pg": "8.23.1",
+    "drizzle-orm": "0.45.4"
+  },
+  "devDependencies": {
+    "@types/pg": "8.15.5",
+    "drizzle-kit": "0.31.11",
+    "@engine/content-compiler": "workspace:*",
+    "@engine/world": "workspace:*"
   }
 }

@@ -1,0 +1,61 @@
+# @engine/server-kit
+
+Reusable Fastify/PostgreSQL foundation for game composition roots. It provides validated process configuration,
+injected wall time, a pg pool and typed Drizzle database, checked SQL migrations, compiled-content integrity checks,
+module lifecycle, structured logs, health and shutdown handling. No game schemas or economy/auth behavior lives here.
+
+`createServer({ config, game, clock?, modules?, validateContent? })` verifies and freezes compiled content, runs the
+game validator, opens PostgreSQL, verifies the migration version, records the observed content version and starts
+selected modules. It resolves only after Fastify is ready. Call `app.listen()` in the executable; tests use
+`app.inject()`. Close with `app.close()` to drain requests, close module resources, then release the pool. Failed boot
+also closes resources. `installShutdownHandlers` adds SIGTERM/SIGINT handling with a configurable hard deadline.
+
+Modules declare a unique domain name, process roles and `register(app, context)`. Context contains explicit `clock`,
+`database` and immutable `content` dependencies. Fastify encapsulates module decorations/hooks; use explicit service
+interfaces when one module needs another. Register resource cleanup through `onClose`. All named domain boundaries
+(auth, character, ledger, content, conquest, live-host, expeditions, party, jobs, debug) are available; only implemented
+modules are registered. This foundation installs no empty domain modules. Only the ledger module may eventually
+mutate ownership/balances, and only activity may change an actor's activity state (ADR-0007).
+
+`ROLES=api,live,worker` is the default; any non-empty unique subset starts only matching modules. A module declaring
+several roles starts once even when several match. Every role has `/health/live` and `/health/ready` for operations;
+readiness checks PostgreSQL and returns the verified `contentHash` and enabled roles, while liveness is process-only.
+Database errors produce a generic 503 response. Configuration and credentials are never included in startup logs.
+Fastify emits JSON request/module lifecycle logs and redacts authorization/cookie headers.
+
+`SystemClock` is the only wall-time source. Services consume `Clock.nowMs()`; `ManualClock.set/advance` allows time
+travel in tests. Deterministic simulation receives integer times as input, rather than a clock or database handle.
+
+## Database migrations
+
+Schema definitions live in `src/schema.ts`. `pnpm --filter @engine/server-kit db:generate` generates reviewable SQL,
+a journal and snapshots in `migrations/`; commit all three. Generation needs no database. Never edit an applied
+migration: add a new one. The first migration creates the game-agnostic `content_releases` table, recording each
+immutable content hash once with the injected first-seen timestamp. Game state is added by later feature migrations.
+
+`database.migrate()` uses Drizzle's node-postgres migrator on a dedicated connection while holding a PostgreSQL
+session advisory lock, serializing concurrent migration runners. Its transaction owns DDL and journal insertion.
+Every boot compares journal hashes/timestamps with this build's migrations, failing on unapplied, edited or newer
+migrations. Production defaults to a separate migration command before starting roles; `MIGRATE_ON_BOOT=true` is an
+explicit local/single-deployment convenience. Queries, connection acquisition and statements have bounded timeouts.
+
+## Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DATABASE_URL` | required | PostgreSQL URL naming a database; use direct connections for future LISTEN/NOTIFY. |
+| `CONTENT_BUNDLE_PATH` | required | Existing compiled format-1 JSON bundle; hash and game ID must match. |
+| `ROLES` | `api,live,worker` | Unique subset of the three process roles. |
+| `HOST` / `PORT` | `0.0.0.0` / `3000` | Health/module HTTP listener; port 0 supports tests. |
+| `LOG_LEVEL` | `info` | Pino log level, including `silent` for tests. |
+| `DB_POOL_MAX` | `10` | Maximum connections per process (1–100). |
+| `DB_TIMEOUT_MS` | `5000` | Connection/query/statement timeout (1–120000). |
+| `SHUTDOWN_TIMEOUT_MS` | `10000` | Hard deadline for draining process shutdown (1–120000). |
+| `MIGRATE_ON_BOOT` | `false` | Explicit `true` enables serialized startup migrations. |
+
+CI supplies a real PostgreSQL 16 service on both supported Node versions. Set `TEST_DATABASE_URL` locally to run the
+same integration suite (`pnpm vitest run --project @rpg/server`). The user must have `CREATEDB`: tests create and drop
+a uniquely named disposable database and never clear the URL's existing database. With no URL these tests skip;
+CI deliberately fails if its URL is missing. The suite covers concurrent/replayed migrations, transaction rollback,
+content identity and first-seen clock, api/live/worker lifecycle, shutdown order, degraded readiness and failed-boot
+pool cleanup. Unit tests separately check config, manual time and hash parity with real compiler output.
