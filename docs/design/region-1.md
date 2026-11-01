@@ -177,7 +177,7 @@ Unguarded `crushing_blow` deals ≈ 20–25% of a level 4 hero's max HP and stun
 | | Live (manual) | Idle (automation) |
 |---|---|---|
 | `crushing_blow` | The rotation is readable: the blow follows two basics in P1 and P2, and every other action in P3. `guard` lasts **1 attack**, so casting it early lets a basic attack eat it. The skilled play is to queue `guard` right after the second basic (or the moment the telegraph appears). Expected mitigation: ≈ 100%. | The rule `enemyTelegraphing + skillReady guard → guard` only fires if the hero becomes ready during the 3-tick windup. At a 5-tick interval that is ≈ 60% of blows. The other 40% land unguarded and are paid for with potions. |
-| `strangling_roots` DoT | Cleanse (`second_wind` / `sap_tonic`) right after the DoT is applied | No "has debuff" condition exists, so cleansing is HP-threshold driven: later and sometimes wasted (Q-B7) |
+| `strangling_roots` DoT | Cleanse (`second_wind` / `sap_tonic`) right after the DoT is applied | A `selfHasHarmfulEffect` rule can cleanse right after the DoT lands (added by #71, Q-B7) |
 | Phase 3 | Save a potion and `guard` for the faster blows; burst with `precise_strike` | Same rules, more potion use |
 
 Result targets: §7.4. A well-configured L5 hero beats the boss in idle-like automation. A live player can beat it about
