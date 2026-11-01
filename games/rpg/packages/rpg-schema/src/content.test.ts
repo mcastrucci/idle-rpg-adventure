@@ -153,6 +153,40 @@ describe('invalid fixtures fail with useful paths', () => {
     expect(issuePaths(AutomationRulesSchema, [{ when: {}, do: { useSkill: 'skill:a', target: 'randomAlly' } }])).toEqual(['0.do']);
   });
 
+  it('selfHasHarmfulEffect: accepted (only `true`) in automation and enemy AI rules', () => {
+    const cleanse = { when: { selfHasHarmfulEffect: true }, do: { useSkill: 'skill:second_wind' } };
+    expect(AutomationRulesSchema.parse([cleanse])[0]?.when.selfHasHarmfulEffect).toBe(true);
+    expect(issuePaths(AutomationRulesSchema, [{ ...cleanse, when: { selfHasHarmfulEffect: false } }])).toEqual([
+      '0.when.selfHasHarmfulEffect',
+    ]);
+    const boar = { ...thornbackBoar, ai: [{ when: { selfHasHarmfulEffect: true }, do: { useSkill: 'skill:gore' } }, ...thornbackBoar.ai] };
+    expect(EnemySchema.safeParse(boar).success).toBe(true);
+  });
+
+  it('guard / negatedByGuard: accepted on guards and attack stuns, rejected elsewhere', () => {
+    const d = { value: 1, unit: 'attacks' } as const;
+    const guardedBlow = {
+      ...crushingBlow,
+      effects: [crushingBlow.effects[0], { type: 'stun', duration: { value: 2, unit: 'ticks' }, negatedByGuard: true }],
+    };
+    expect(SkillSchema.parse(guardedBlow).effects[1]).toMatchObject({ type: 'stun', negatedByGuard: true, to: 'target' });
+    expect(EffectSchema.safeParse({ type: 'stat_mod', stat: 'armor', flat: 150, duration: d, guard: true }).success).toBe(true);
+    expect(EffectSchema.safeParse({ type: 'shield', coeffBp: 5000, duration: d, guard: true }).success).toBe(true);
+
+    // Only `true`; only on shields and beneficial stat_mods; negatedByGuard only on target stuns of attack skills.
+    expect(issuePaths(EffectSchema, { type: 'shield', coeffBp: 5000, duration: d, guard: false })).toEqual(['guard']);
+    expect(issuePaths(EffectSchema, { type: 'stat_mod', stat: 'armor', flat: -5, duration: d, guard: true })).toEqual(['guard']);
+    expect(issuePaths(EffectSchema, { type: 'hot', coeffBp: 5000, duration: d, guard: true })).toEqual(['']);
+    expect(issuePaths(EffectSchema, { type: 'dot', coeffBp: 5000, school: 'magic', duration: d, negatedByGuard: true })).toEqual(['']);
+    expect(issuePaths(EffectSchema, { type: 'stun', duration: d, negatedByGuard: true, to: 'self' })).toEqual(['negatedByGuard']);
+    const selfStun = { ...guardedBlow, targeting: 'self', effects: [guardedBlow.effects[1]] };
+    expect(issuePaths(SkillSchema, selfStun)).toEqual(['effects.0.negatedByGuard']);
+    const noDamage = { ...guardedBlow, effects: [guardedBlow.effects[1]] };
+    expect(issuePaths(SkillSchema, noDamage)).toEqual(['effects.0.negatedByGuard']);
+    const potion = { ...minorHealingPotion, use: [{ type: 'stun', duration: d, negatedByGuard: true }] };
+    expect(issuePaths(ItemSchema, potion)).toEqual(['use']);
+  });
+
   it('rejects inconsistent item stacking and equipment without a slot', () => {
     expect(issuePaths(ItemSchema, { ...minorHealingPotion, maxStack: undefined })).toEqual(['maxStack']);
     expect(issuePaths(ItemSchema, { ...minorHealingPotion, stackable: false })).toEqual(['maxStack']);

@@ -35,6 +35,11 @@ export const RuleConditionSchema = z.strictObject({
   selfHpBelowBp: BpSchema.optional(),
   /** Some living ally (actor included) is strictly below this share of max HP. */
   allyHpBelowBp: BpSchema.optional(),
+  /**
+   * The actor carries at least one cleansable harmful effect: a `dot`, a `stun` or a negative `stat_mod` (exactly what
+   * `cleanse` removes; `taunt` does not count). Meant for "cleanse when debuffed" rules.
+   */
+  selfHasHarmfulEffect: z.literal(true).optional(),
   /** Some enemy is winding up a telegraphed action. */
   enemyTelegraphing: z.literal(true).optional(),
   /** The skill is equipped and off cooldown. */
@@ -64,7 +69,10 @@ export const AutomationRulesSchema = z
   .max(MAX_AUTOMATION_RULES, `at most ${MAX_AUTOMATION_RULES} automation rules (provisional slot limit)`);
 export type AutomationRules = z.output<typeof AutomationRulesSchema>;
 
-/** Enemy AI conditions: the automation vocabulary minus what only makes sense for heroes. */
+/**
+ * Enemy AI conditions: the automation vocabulary minus what only makes sense for heroes. `selfHasHarmfulEffect` is
+ * kept: the evaluator is shared and an enemy with a cleanse skill can use it (no Region 1 enemy does yet).
+ */
 export const AiConditionSchema = RuleConditionSchema.omit({ enemyTelegraphing: true, hasConsumable: true });
 export type AiCondition = z.output<typeof AiConditionSchema>;
 

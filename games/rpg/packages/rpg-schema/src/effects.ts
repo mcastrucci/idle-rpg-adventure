@@ -35,6 +35,13 @@ const CoeffBpSchema = z.int().positive();
 const PeriodTicksSchema = z.int().positive().default(1);
 const to = EffectRecipientSchema.default('target');
 
+/**
+ * Guard marker (combat-engine §5 "Guard vs secondary control"), allowed on beneficial durable effects (`shield`,
+ * positive `stat_mod`). While the holder carries a guard effect, the attacks it receives do not apply their effects
+ * flagged `negatedByGuard`. The guard effect itself is consumed by its own duration unit as usual.
+ */
+const guard = z.literal(true).optional();
+
 export const DamageEffectSchema = z.strictObject({
   type: z.literal('damage'),
   coeffBp: CoeffBpSchema,
@@ -46,6 +53,7 @@ export const ShieldEffectSchema = z.strictObject({
   type: z.literal('shield'),
   coeffBp: CoeffBpSchema,
   duration: DurationSchema,
+  guard,
   to,
 });
 export const DotEffectSchema = z.strictObject({
@@ -72,15 +80,30 @@ export const StatModEffectSchema = z
     deltaBp: z.int().optional(),
     flat: z.int().optional(),
     duration: DurationSchema,
+    guard,
     to,
   })
   .refine((e) => (e.deltaBp === undefined) !== (e.flat === undefined), {
     message: 'stat_mod needs exactly one of "deltaBp" or "flat"',
     path: ['deltaBp'],
   })
-  .refine((e) => e.deltaBp !== 0 && e.flat !== 0, { message: 'stat_mod delta must not be 0', path: ['deltaBp'] });
+  .refine((e) => e.deltaBp !== 0 && e.flat !== 0, { message: 'stat_mod delta must not be 0', path: ['deltaBp'] })
+  .refine((e) => e.guard === undefined || (e.deltaBp ?? 0) > 0 || (e.flat ?? 0) > 0, {
+    message: 'only a beneficial (positive) stat_mod can be a guard',
+    path: ['guard'],
+  });
 export const TauntEffectSchema = z.strictObject({ type: z.literal('taunt'), duration: DurationSchema, to });
-export const StunEffectSchema = z.strictObject({ type: z.literal('stun'), duration: DurationSchema, to });
+/**
+ * `negatedByGuard`: a secondary control effect of an attack that is not applied to a recipient who was guarding when
+ * the attack resolved (combat-engine §5). Only meaningful on attack skills hitting the target (checked by
+ * `SkillSchema`; consumables reject it).
+ */
+export const StunEffectSchema = z
+  .strictObject({ type: z.literal('stun'), duration: DurationSchema, negatedByGuard: z.literal(true).optional(), to })
+  .refine((e) => e.negatedByGuard === undefined || e.to === 'target', {
+    message: 'negatedByGuard only applies to effects on the attacked target (to: "target")',
+    path: ['negatedByGuard'],
+  });
 /** Removes harmful effects (DoTs, stuns, negative stat mods) from the recipient. */
 export const CleanseEffectSchema = z.strictObject({ type: z.literal('cleanse'), to });
 
@@ -98,4 +121,9 @@ export const EffectSchema = z.discriminatedUnion('type', [
 export type Effect = z.output<typeof EffectSchema>;
 export type EffectInput = z.input<typeof EffectSchema>;
 export type EffectType = Effect['type'];
+
+/** True if the effect is only applied to targets that were not guarding (combat-engine §5). */
+export function isNegatedByGuard(effect: Effect): effect is Extract<Effect, { type: 'stun' }> {
+  return effect.type === 'stun' && effect.negatedByGuard === true;
+}
 export const EFFECT_TYPES = EffectSchema.options.map((o) => o.shape.type.value) as readonly EffectType[];

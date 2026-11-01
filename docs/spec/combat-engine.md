@@ -70,6 +70,28 @@ Each effect declares a **duration unit**:
 
 Example: `taunt { charges: 3, unit: "attacks" }` forces the target to attack the taunter for its next 3 attacks.
 
+### Guard vs secondary control (owner decision Q-B6, #71)
+
+A mitigation that absorbs a telegraphed hit also prevents that hit's secondary control effect (e.g. `guard` prevents
+the stun of `crushing_blow`). Expressed declaratively in content; the engine never checks skill IDs:
+
+- **Guard marker** — `guard: true` on a beneficial durable effect (`shield`, or `stat_mod` with a positive delta). An
+  actor carrying at least one active guard effect is *guarding*.
+- **Negatable effect** — `negatedByGuard: true` on a `stun` with `to: "target"` (currently the only control effect that
+  accepts it; the set can grow with the same rule). Only valid in an **attack** skill: `enemy`/`allEnemies` targeting
+  with a `damage` or `dot` effect on the target. Consumables reject it.
+
+Rule: when an attack resolves, each target that is guarding **at the start of the resolution** (before any of its
+effects apply) is guarded against this attack. `negatedByGuard` effects are not applied to a guarded target; the engine
+emits `EffectNegated { sourceId, targetId, origin, effect, reason: "guarded" }` instead. Every other effect resolves
+normally (the damage is reduced only by the guard's own stats/shield). The guard effects are then consumed by their
+own duration units as usual (an `attacks` guard is consumed by this hit). A guard shield depleted by the hit still
+counts, because guarding is read before the damage. Other targets of the same attack are judged independently. A
+mitigating buff without `guard: true` (e.g. `shield_bash`'s armor) does not negate anything.
+
+Region 1: `guard` = two `stat_mod`s (armor/resist +150, 1 attack) marked `guard: true`; `crushing_blow`'s stun is
+`negatedByGuard: true`. A guard eaten by an earlier attack is gone, so timing still matters.
+
 ## 6. Automation rules
 
 Ordered list evaluated top-down when the actor is ready and has no queued manual action. First matching rule fires.
@@ -84,7 +106,11 @@ Ordered list evaluated top-down when the actor is ready and has no queued manual
 ]
 ```
 
-- Conditions and actions are a closed set (validated by Zod).
+- Conditions and actions are a closed set (validated by Zod): `selfHpBelowBp`, `allyHpBelowBp`, `enemyTelegraphing`,
+  `skillReady`, `enemiesAtLeast`, `hasConsumable`, `selfHasHarmfulEffect`.
+- `selfHasHarmfulEffect: true` (Q-B7, #71) holds when the actor carries an effect that `cleanse` removes: a `dot`, a
+  `stun` or a negative `stat_mod` (not `taunt`). Example: `{ "when": { "selfHasHarmfulEffect": true, "skillReady":
+  "skill:second_wind" }, "do": { "useSkill": "skill:second_wind" } }`. Enemy AI accepts it too (shared evaluator).
 - Rule slots limited *(provisional: 6)*.
 - Same rules drive live auto mode, disconnected participants and idle.
 
@@ -105,10 +131,12 @@ telegraphed heavy strike countered by `guard`), while being survivable by good a
 
 Typed, append-only, used for rendering (live), reports (idle), death logs and tests:
 `CombatStarted`, `ActionStarted`, `TelegraphStarted`, `DamageDealt`, `Healed`, `EffectApplied`, `EffectExpired`,
-`ConsumableUsed`, `ActorDied`, `PhaseChanged`, `CombatEnded`.
+`ConsumableUsed`, `ActorDied`, `PhaseChanged`, `CombatEnded` (plus engine-specific events such as `EffectNegated`; see
+the `@rpg/rpg-sim` README).
 
 ## 10. Versioning and tests
 
 - `ENGINE_VERSION` constant; any behavioural change bumps it.
-- Golden replay fixtures: `(setup, seed, inputs) → hash(events)`; CI runs them on two Node LTS versions.
+- Golden replay fixtures: `(setup, seed, inputs) → hash(events)`; CI runs them on two Node LTS versions. Fixtures are
+  an append-only history per `ENGINE_VERSION`; CI rejects edits to an existing version's hashes.
 - Property tests: no negative HP, ended combats stay ended, determinism (run twice ⇒ same hash).
