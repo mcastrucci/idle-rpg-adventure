@@ -32,6 +32,7 @@ fixes the texture budget and scene format).
 ## M1 — Simulation core
 
 Epic: [#2](https://github.com/mcastrucci/idle-rpg-adventure/issues/2)
+
 Content schemas, content compiler, RNG, stats, step engine, effects with duration units, automation rules, enemy/boss
 AI, golden replay tests, balance simulator.
 
@@ -40,6 +41,7 @@ AI, golden replay tests, balance simulator.
 ## M2 — Server foundation
 
 Epic: [#3](https://github.com/mcastrucci/idle-rpg-adventure/issues/3)
+
 Fastify skeleton with roles and injectable clock, Postgres + migrations, guest auth, characters + activity lock, ledger
 + invariant checker, command idempotency, job queue, debug endpoints, deploy pipeline.
 
@@ -48,6 +50,7 @@ Fastify skeleton with roles and injectable clock, Postgres + migrations, guest a
 ## M3 — Sanctuary & character client
 
 Epic: [#4](https://github.com/mcastrucci/idle-rpg-adventure/issues/4)
+
 Web app shell (routing, API/WS clients), character screen, inventory/storage/equip, automation rules editor.
 
 **Exit:** on a phone, a player can create a character, equip items and edit automation rules.
@@ -55,6 +58,7 @@ Web app shell (routing, API/WS clients), character screen, inventory/storage/equ
 ## M4 — Live adventure (solo)
 
 Epic: [#5](https://github.com/mcastrucci/idle-rpg-adventure/issues/5)
+
 InstanceHost with leases/checkpoints, exploration state machine, live WS protocol, scene viewport, combat overlay, run
 bag/return, death/penalties/corpses.
 
@@ -63,6 +67,7 @@ bag/return, death/penalties/corpses.
 ## M5 — Region 1 & conquest
 
 Epic: [#6](https://github.com/mcastrucci/idle-rpg-adventure/issues/6)
+
 Tiled import, 10 locations, enemies/loot/mini-boss, discovery + conquest evaluation, adventure screen.
 
 **Exit:** Region 1 can be conquered in live and unlocks idle (success criteria 1–3).
@@ -70,6 +75,7 @@ Tiled import, 10 locations, enemies/loot/mini-boss, discovery + conquest evaluat
 ## M6 — Idle expeditions (solo)
 
 Epic: [#7](https://github.com/mcastrucci/idle-rpg-adventure/issues/7)
+
 Start transaction + precompute, reveal API + progress screen, settlement, cancellation, estimates + setup screen, report
 + death log.
 
@@ -78,6 +84,7 @@ Start transaction + precompute, reveal API + progress screen, settlement, cancel
 ## M7 — Region 2 & loop validation
 
 Epic: [#8](https://github.com/mcastrucci/idle-rpg-adventure/issues/8)
+
 Region 2 + special encounter, balance pass (live > idle XP/hour for efficient play), telemetry for success criteria,
 playtest round.
 
@@ -86,6 +93,7 @@ playtest round.
 ## M8 — Cooperation (phase 2)
 
 Epic: [#9](https://github.com/mcastrucci/idle-rpg-adventure/issues/9)
+
 Friends + presence, party idle invitations (expiry, `config_version`), party simulation + reward split, leaving +
 re-simulation, live coop (2 players) with disconnection grace, cooperative encounter.
 
