@@ -7,5 +7,9 @@
   "exports": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@engine/economy": "workspace:*",
+    "@engine/sim-core": "workspace:*"
   }
 }
