@@ -1,0 +1,13 @@
+{
+  "id": "area:sanctuary",
+  "kind": "hub",
+  "nameKey": "area.sanctuary.name",
+  "mapPosition": {
+    "x": 0,
+    "y": 0
+  },
+  "startLocation": "loc:sanctuary.plaza",
+  "locations": [
+    "loc:sanctuary.plaza"
+  ]
+}

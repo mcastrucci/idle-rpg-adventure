@@ -22,7 +22,9 @@ games/rpg/content/
   items/*.json
   loot-tables/*.json
   encounter-tables/*.json
-  progression/xp-curve.json
+  resource-nodes/*.json
+  idle-activities/*.json
+  progression/xp-curve.json                     # the single XP curve, id "progression:xp_curve"
 ```
 
 - A `.json` file holds one entity or an array of entities; subdirectories are free-form and file names never matter

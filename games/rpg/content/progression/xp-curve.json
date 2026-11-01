@@ -1,0 +1,10 @@
+{
+  "id": "progression:xp_curve",
+  "xpToNext": [
+    100,
+    250,
+    450,
+    700,
+    1000
+  ]
+}

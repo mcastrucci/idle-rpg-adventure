@@ -1,0 +1,55 @@
+{
+  "id": "enemy:test_grove.warden",
+  "nameKey": "enemy.test_grove.warden.name",
+  "rank": "boss",
+  "level": 3,
+  "stats": {
+    "maxHp": 300,
+    "power": 12,
+    "armor": 4,
+    "resist": 2
+  },
+  "skills": [
+    "skill:test_strike",
+    "skill:test_slam"
+  ],
+  "ai": [
+    {
+      "when": {
+        "skillReady": "skill:test_slam"
+      },
+      "do": {
+        "useSkill": "skill:test_slam"
+      }
+    },
+    {
+      "when": {},
+      "do": {
+        "useSkill": "skill:test_strike"
+      }
+    }
+  ],
+  "xp": 120,
+  "lootTable": "loot:test_grove.warden",
+  "phases": [
+    {
+      "fromHpBp": 10000,
+      "rotation": [
+        "skill:test_strike"
+      ]
+    },
+    {
+      "fromHpBp": 5000,
+      "rotation": [
+        "skill:test_strike",
+        "skill:test_slam"
+      ],
+      "telegraphs": [
+        "skill:test_slam"
+      ]
+    }
+  ],
+  "tags": [
+    "technical_seed"
+  ]
+}

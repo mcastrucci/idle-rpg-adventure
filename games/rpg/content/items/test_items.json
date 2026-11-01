@@ -1,0 +1,25 @@
+[
+  {
+    "id": "item:test_grove.herb",
+    "nameKey": "item.test_grove.herb.name",
+    "kind": "material",
+    "value": 1,
+    "stackable": true,
+    "maxStack": 99
+  },
+  {
+    "id": "item:test_tonic",
+    "nameKey": "item.test_tonic.name",
+    "kind": "consumable",
+    "value": 5,
+    "stackable": true,
+    "maxStack": 20,
+    "use": [
+      {
+        "type": "heal",
+        "coeffBp": 3000,
+        "to": "self"
+      }
+    ]
+  }
+]
