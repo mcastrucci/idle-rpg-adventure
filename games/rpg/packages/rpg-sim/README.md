@@ -157,8 +157,8 @@ Typed, append-only, each with `seq` (0-based, contiguous for the whole combat) a
   new entry under the new version (never edit an existing entry) in the same commit, explaining the change. What fails
   CI: a hash change without new fixtures (test); a bump without a fixture entry, or a current version that is not the
   last entry (test); hashes edited under an existing version, i.e. new hashes without a bump (CI step
-  `tools/golden/check-append-only.ts` against the PR base / previous push). New cases may be added to the current entry.
-  Editing test content in `testing/fixtures.ts` that changes an existing case also needs a new entry (bump, and say that
+  `tools/golden/check-append-only.ts` against the PR base, the previous push on the default branch, or the merge base
+  with the default branch elsewhere). New cases may be added to the current entry. Editing test content in `testing/fixtures.ts` that changes an existing case also needs a new entry (bump, and say that
   only the inputs changed). CI runs it on Node 22 and 24. 1.1.0 (#71) changed no existing replay except the version
   stamp in `CombatStarted` (verified by re-running 1.0.0's fixtures with the old version string) and added the
   `brute-*` guard cases.

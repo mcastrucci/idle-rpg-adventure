@@ -56,7 +56,19 @@ jobs:
 
       # Golden replay hashes are append-only per engine version: changing engine behaviour without bumping
       # ENGINE_VERSION (and appending new fixtures) fails here or in the golden test (ADR-0004, combat-engine §10).
+      # Base: the PR base; on the default branch the previous push; on other branches the merge base with the default
+      # branch (iterating on a version entry that is not integrated yet is allowed inside a branch).
       - name: golden fixtures are append-only
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node tools/golden/check-append-only.ts "$BASE" games/rpg/packages/rpg-sim/src/combat/golden.json
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ -n "$PR_BASE" ]; then
+            BASE="$PR_BASE"
+          elif [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
+            BASE="$BEFORE"
+          else
+            BASE="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD || true)"
+          fi
+          node tools/golden/check-append-only.ts "$BASE" games/rpg/packages/rpg-sim/src/combat/golden.json
