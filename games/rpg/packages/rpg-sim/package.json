@@ -3,13 +3,16 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "RPG simulators (server-only, deterministic): the step-based combat engine.",
+  "description": "RPG simulators (server-only, deterministic): the step-based combat engine and the idle expedition simulators.",
   "exports": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@engine/economy": "workspace:*",
+    "@engine/expedition-kernel": "workspace:*",
     "@engine/sim-core": "workspace:*",
+    "@engine/world": "workspace:*",
     "@rpg/rpg-schema": "workspace:*",
     "@rpg/rpg-stats": "workspace:*"
   },

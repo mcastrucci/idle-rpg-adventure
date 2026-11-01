@@ -71,4 +71,5 @@ jobs:
           else
             BASE="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD || true)"
           fi
-          node tools/golden/check-append-only.ts "$BASE" games/rpg/packages/rpg-sim/src/combat/golden.json
+          node tools/golden/check-append-only.ts "$BASE" games/rpg/packages/rpg-sim/src/combat/golden.json \
+            games/rpg/packages/rpg-sim/src/expedition/golden.json
