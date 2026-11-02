@@ -93,6 +93,15 @@ state distinguishes completed from cancelled; the timeline outcome is `completed
   23.7 ms for Thornblade. Two hundred estimates took 5.169 s and 3.882 s, respectively, above the 2 s target; estimate
   caching remains a prerequisite tracked by #53. These figures measure simulator work, not database-backed start latency.
 - UI must label estimates as estimates.
+- **Implemented (#53):** `POST /characters/:actorId/expedition-estimate` (read-only, same server snapshot and start gate
+  as a real start; the client sends no stats). Run count `n = clamp(⌊5000 / budget⌋, 60, 200)` *(provisional)*: a
+  180-minute hunt uses 60 runs, 15–30 minutes 200. Samples run on a worker-thread pool (started at boot) in 4 fixed seed
+  chunks whose root seed derives from the cache key, never from a start seed. Results are cached in an in-process LRU
+  keyed by the SHA-256 of `(buildHash, rulesHash, configHash, areaId, activityId, durationMin, paceBp, n, contentHash,
+  kernelVersion, simulatorId, simulatorVersion, estimate model version)`. Measured: first cache miss 0.36–1.06 s, cache
+  hit < 0.1 ms in process (about 15 ms over HTTP), so the 2 s spike-1 budget is met cached or not and the per-encounter
+  fallback is not needed. A validation test checks that about 80 % of independent real runs fall within [p10, p90].
+  Design and numbers: [server README, Expedition estimates](../../games/rpg/apps/server/README.md#expedition-estimates-53).
 
 ## 9. Death in idle
 

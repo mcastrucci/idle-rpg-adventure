@@ -14,6 +14,7 @@ import type { EstimateJob } from './estimate-samples.ts';
 const port = parentPort;
 if (!port) throw new Error('estimate-worker must run as a worker thread');
 const registry = createRpgActivityRegistry((workerData as { content: LoadedContent }).content);
+port.postMessage({ ready: true });
 
 port.on('message', (message: { id: number; job: EstimateJob; chunk: number }) => {
   try {

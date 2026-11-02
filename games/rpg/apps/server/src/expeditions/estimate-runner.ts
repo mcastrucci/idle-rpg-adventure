@@ -15,6 +15,8 @@ import type { EstimateJob, RunSample } from './estimate-samples.ts';
 export interface EstimateRunner {
   /** All samples of `job`, chunks merged in chunk order (deterministic for the job). */
   run(job: EstimateJob): Promise<RunSample[]>;
+  /** Optional: prepare ahead of the first job (e.g. start threads and load modules). Never rejects. */
+  warmUp?(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -42,7 +44,7 @@ interface Task {
   readonly resolve: (samples: RunSample[]) => void;
   readonly reject: (error: Error) => void;
 }
-interface Slot { worker: Worker | null; task: Task | null }
+interface Slot { worker: Worker | null; task: Task | null; ready: Promise<void> }
 
 /**
  * Fixed-size worker pool, spawned lazily on the first job. Each worker receives the content bundle once
@@ -52,7 +54,7 @@ interface Slot { worker: Worker | null; task: Task | null }
 export function createWorkerEstimateRunner(content: LoadedContent, options: { workers?: number } = {}): EstimateRunner {
   const size = options.workers ?? defaultEstimateWorkers();
   if (!Number.isSafeInteger(size) || size < 1) throw new RangeError('workers must be a positive integer');
-  const slots: Slot[] = Array.from({ length: size }, () => ({ worker: null, task: null }));
+  const slots: Slot[] = Array.from({ length: size }, () => ({ worker: null, task: null, ready: Promise.resolve() }));
   const queue: Task[] = [];
   let nextId = 1;
   let closed = false;
@@ -60,7 +62,13 @@ export function createWorkerEstimateRunner(content: LoadedContent, options: { wo
   function spawn(slot: Slot): Worker {
     const worker = new Worker(new URL('./estimate-worker.ts', import.meta.url), { workerData: { content } });
     worker.unref();
-    worker.on('message', (message: { id: number; samples?: RunSample[]; error?: string }) => {
+    slot.ready = new Promise<void>(resolve => {
+      const done = () => resolve();
+      worker.once('message', done);
+      worker.once('exit', done);
+    });
+    worker.on('message', (message: { id?: number; ready?: boolean; samples?: RunSample[]; error?: string }) => {
+      if (message.ready) return;
       const task = slot.task;
       if (!task || task.id !== message.id) return;
       slot.task = null;
@@ -100,6 +108,11 @@ export function createWorkerEstimateRunner(content: LoadedContent, options: { wo
       }));
       pump();
       return (await Promise.all(chunks)).flat();
+    },
+    async warmUp() {
+      if (closed) return;
+      for (const slot of slots) slot.worker ??= spawn(slot);
+      await Promise.all(slots.map(slot => slot.ready));
     },
     async close() {
       closed = true;

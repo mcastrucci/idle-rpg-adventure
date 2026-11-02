@@ -51,6 +51,8 @@ async function prepareEstimate(tx: ActorTransaction, content: LoadedContent, acc
 
 export function createEstimateService(content: LoadedContent, options: EstimateServiceOptions = {}) {
   const runner = (options.createRunner ?? (bundle => createWorkerEstimateRunner(bundle)))(content);
+  // Start the worker threads (module loading, content parsing) at boot so the first estimate does not pay for it.
+  void runner.warmUp?.();
   const cache = options.cache ?? new EstimateCache<EstimateAggregate>({ maxEntries: options.cacheEntries ?? 512, maxPending: options.maxPending ?? 8 });
   return {
     cache,

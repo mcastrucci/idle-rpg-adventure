@@ -72,11 +72,18 @@ describe.runIf(process.env['RPG_ESTIMATE_BENCH'] === '1')('estimate latency', ()
       const hit = await cache.getOrCompute('k', async () => { throw new Error('miss'); });
       const cachedMs = ms(t);
       await pool.close();
+      // As in the server: threads started (warmUp) at boot, then the first cache miss.
+      const booted = createWorkerEstimateRunner(content);
+      await booted.warmUp();
+      t = process.hrtime.bigint();
+      await booted.run(job);
+      const afterBootMs = ms(t);
+      await booted.close();
       expect(cold.value).toEqual(fromInline);
       expect(hit.cached).toBe(true);
       expect(warm).toHaveLength(runs);
       console.log(JSON.stringify({ durationMin, budget, runs, workers: defaultEstimateWorkers(), inlineMs: Math.round(inlineMs),
-        poolColdMs: Math.round(poolColdMs), poolWarmMs: Math.round(poolWarmMs), cachedMs: cachedMs.toFixed(3),
+        poolColdMs: Math.round(poolColdMs), firstAfterBootMs: Math.round(afterBootMs), poolWarmMs: Math.round(poolWarmMs), cachedMs: cachedMs.toFixed(3),
         died: fromInline.outcomeRatesBp.died, xp: fromInline.xp, node: process.version }));
     }
   }, 180_000);

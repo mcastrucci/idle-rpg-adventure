@@ -2,12 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { CSSProperties } from 'react';
 
-import type { ExpeditionDto, ExpeditionOptionsDto, ExpeditionStartPayload } from '@rpg/protocol';
+import type { ExpeditionDto, ExpeditionEstimateRequest, ExpeditionOptionsDto, ExpeditionStartPayload } from '@rpg/protocol';
 import { cancelExpeditionCommand, CommandUnconfirmedError, recoverUnavailableExpeditionCommand, startExpeditionCommand } from '../api/commands.ts';
 import type { CommandRequest } from '../api/commands.ts';
 import type { ApiClient } from '../api/http.ts';
 import type { CharacterDto } from '../api/types.ts';
 import { describeError } from '../app/useGameSession.ts';
+import { describeRule } from '../rules/describe.ts';
+import { toDraft } from '../rules/draft.ts';
+import { EstimateCard } from './expedition/EstimateCard.tsx';
+import type { EstimateState } from './expedition/EstimateCard.tsx';
+import { lastExpeditionProblem, loadLastExpedition, saveLastExpedition } from './expedition/lastExpedition.ts';
+import type { LastExpedition } from './expedition/lastExpedition.ts';
 
 interface Props {
   readonly character: CharacterDto | null;
@@ -15,11 +21,15 @@ interface Props {
   readonly api: ApiClient;
   readonly runCommand: <T,>(request: CommandRequest<T>) => Promise<T>;
   readonly refreshCharacter: () => Promise<void>;
+  /** Quiet period after the last setup change before an estimate is requested. */
+  readonly estimateDebounceMs?: number;
 }
 
 const POLL_MS = 15_000;
+const ESTIMATE_DEBOUNCE_MS = 400;
+const RULES_PREVIEW = 4;
 
-export function ExpeditionScreen({ character, canCommand, api, runCommand, refreshCharacter }: Props) {
+export function ExpeditionScreen({ character, canCommand, api, runCommand, refreshCharacter, estimateDebounceMs = ESTIMATE_DEBOUNCE_MS }: Props) {
   const actorId = character?.actorId ?? null;
   const activeId = character?.activityState === 'expedition' ? character.activityId : null;
   const [options, setOptions] = useState<ExpeditionOptionsDto | null>(null);
@@ -107,6 +117,57 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
     (!consumableItem || (availableItem && consumableQty > 0 && consumableQty <= availableItem.availableQty)) && !activeId && canCommand);
   const canStart = startEligible && !pending && (!unconfirmed || unconfirmed.envelope.operation === 'expedition.start');
 
+  // Estimate card: a debounced, read-only server estimate of exactly the request a Start would send.
+  const setupValid = Boolean(actorId && options && selectedArea && selectedActivity && options.durationsMin.includes(durationMin) &&
+    paceBp >= options.paceBp.min && paceBp <= options.paceBp.max &&
+    (!consumableItem || (availableItem && consumableQty > 0 && consumableQty <= availableItem.availableQty)) && !activeId);
+  const estimateKey = setupValid && selectedArea && selectedActivity ? JSON.stringify({
+    request: { areaId: selectedArea.areaId, activityId: selectedActivity.activityId, durationMin, paceBp },
+    config: { consumables: consumableItem && consumableQty > 0 ? [{ item: consumableItem, qty: consumableQty }] : [], retreat: { belowHpBp, onlyWhenNoHealing } },
+  } satisfies ExpeditionEstimateRequest) : null;
+  const [estimateState, setEstimateState] = useState<EstimateState>({ status: 'idle' });
+  const [estimateNonce, setEstimateNonce] = useState(0);
+  // The build and rules are server-side: refresh the estimate when the character (version) changes.
+  const characterVersion = character?.version ?? 0;
+  useEffect(() => {
+    if (!actorId || !estimateKey) { setEstimateState({ status: 'idle' }); return; }
+    const body = JSON.parse(estimateKey) as ExpeditionEstimateRequest;
+    let cancelled = false;
+    setEstimateState((state) => ({ status: 'loading', previous: state.status === 'ready' ? state.estimate : state.status === 'loading' ? state.previous : null }));
+    const timer = window.setTimeout(() => {
+      Promise.resolve().then(() => api.expeditionEstimate(actorId, body)).then(
+        (estimate) => { if (!cancelled) setEstimateState({ status: 'ready', estimate }); },
+        (failure: unknown) => { if (!cancelled) setEstimateState({ status: 'error', error: describeError(failure) }); });
+    }, estimateDebounceMs);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [actorId, api, estimateKey, estimateNonce, estimateDebounceMs, characterVersion]);
+
+  // "Repeat last expedition": the last started request, per character on this device.
+  const [lastExpedition, setLastExpedition] = useState<LastExpedition | null>(null);
+  useEffect(() => { setLastExpedition(actorId ? loadLastExpedition(actorId) : null); }, [actorId]);
+  const lastProblem = lastExpedition && options ? lastExpeditionProblem(lastExpedition, options) : null;
+  const canRepeat = Boolean(lastExpedition && options && !lastProblem && !activeId && canCommand && !pending && !unconfirmed);
+  const rulePreview = useMemo(() => toDraft(character?.automationRules ?? []).map(({ rule }) => {
+    try { return describeRule(rule); } catch { return 'Custom rule'; }
+  }), [character?.automationRules]);
+
+  function applySetup(last: LastExpedition) {
+    setAreaId(last.request.areaId);
+    setActivityId(last.request.activityId);
+    setDurationMin(last.request.durationMin);
+    setPaceBp(last.request.paceBp);
+    setConsumableItem(last.config.consumables[0]?.item ?? '');
+    setConsumableQty(last.config.consumables[0]?.qty ?? 0);
+    setBelowHpBp(last.config.retreat.belowHpBp);
+    setOnlyWhenNoHealing(last.config.retreat.onlyWhenNoHealing);
+  }
+
+  function repeatLast() {
+    if (!actorId || !lastExpedition || !canRepeat) return;
+    applySetup(lastExpedition);
+    void send(startExpeditionCommand({ actorId, request: lastExpedition.request, config: lastExpedition.config }), 'start');
+  }
+
   async function send(request: CommandRequest<ExpeditionDto>, action: 'start' | 'cancel' | 'recover') {
     setPending(true); setError(null);
     try {
@@ -114,6 +175,12 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
       setUnconfirmed(null);
       setExpedition(result);
       setCancelOpen(false);
+      if (action === 'start' && actorId) {
+        const started = request.envelope.payload as unknown as ExpeditionStartPayload;
+        const last: LastExpedition = { request: started.request, config: started.config };
+        saveLastExpedition(actorId, last);
+        setLastExpedition(last);
+      }
       try { await refreshCharacter(); } catch (failure) { setReadError(describeError(failure)); }
       void loadOptions();
     } catch (failure) {
@@ -159,6 +226,13 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
       {character && !activeId && <form className="form expedition-form" onSubmit={start}>
         <h2 className="screen__subtitle">Start an expedition</h2>
         {!options && !optionsError && <p className="muted">Checking conquered activities…</p>}
+        {options && lastExpedition && <section className="repeat-card" aria-labelledby="repeat-title">
+          <h3 id="repeat-title">Last expedition</h3>
+          <p>{label(lastExpedition.request.activityId)} · {label(lastExpedition.request.areaId)} · {formatDuration(lastExpedition.request.durationMin)}
+            {lastExpedition.config.consumables.length ? ` · ${formatItems(lastExpedition.config.consumables)}` : ''}</p>
+          {lastProblem && <p className="muted">{lastProblem}</p>}
+          <button type="button" className="button" disabled={!canRepeat} onClick={repeatLast}>Repeat last expedition</button>
+        </section>}
         {options && availableAreas.length > 0 && <>
           <label className="form__label" htmlFor="expedition-area">Conquered area</label>
           <select id="expedition-area" className="form__input" value={areaId} onChange={(event) => setAreaId(event.target.value)} disabled={pending || unconfirmed !== null}>
@@ -168,10 +242,12 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
           <select id="expedition-activity" className="form__input" value={selectedActivity?.activityId ?? ''} onChange={(event) => setActivityId(event.target.value)} disabled={pending || unconfirmed !== null}>
             {activities.map((activity) => <option key={activity.activityId} value={activity.activityId}>{label(activity.activityId)}</option>)}
           </select>
-          <label className="form__label" htmlFor="expedition-duration">Duration</label>
-          <select id="expedition-duration" className="form__input" value={durationMin} onChange={(event) => setDurationMin(Number(event.target.value))} disabled={pending || unconfirmed !== null}>
-            {options.durationsMin.map((duration) => <option key={duration} value={duration}>{duration} minutes</option>)}
-          </select>
+          <fieldset className="duration-chips">
+            <legend className="form__label">Duration</legend>
+            {options.durationsMin.map((duration) => <button key={duration} type="button" aria-pressed={duration === durationMin}
+              className={duration === durationMin ? 'duration-chip duration-chip--active' : 'duration-chip'}
+              onClick={() => setDurationMin(duration)} disabled={pending || unconfirmed !== null}>{formatDuration(duration)}</button>)}
+          </fieldset>
           {options.paceBp.min === options.paceBp.max
             ? <p className="muted">Pace: Normal</p>
             : <><label className="form__label" htmlFor="expedition-pace">Pace (%)</label>
@@ -189,6 +265,14 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
           <label className="form__label" htmlFor="expedition-retreat">Retreat below health (%)</label>
           <input id="expedition-retreat" className="form__input" type="number" min="0" max="100" step="1" value={belowHpBp / 100} onChange={(event) => setBelowHpBp(Math.round(Number(event.target.value) * 100))} disabled={pending || unconfirmed !== null} />
           <label className="expedition-check"><input type="checkbox" checked={onlyWhenNoHealing} onChange={(event) => setOnlyWhenNoHealing(event.target.checked)} disabled={pending || unconfirmed !== null} /> Retreat only when no healing remains</label>
+          <section className="rules-preview" aria-labelledby="rules-preview-title">
+            <h3 id="rules-preview-title">Automation rules</h3>
+            {rulePreview.length === 0 ? <p className="muted">No automation rules set.</p>
+              : <ol>{rulePreview.slice(0, RULES_PREVIEW).map((text, index) => <li key={index}>{text}</li>)}</ol>}
+            {rulePreview.length > RULES_PREVIEW && <p className="muted">+{rulePreview.length - RULES_PREVIEW} more</p>}
+            <a className="button button--secondary button--link" href="#/character/rules">Edit automation rules</a>
+          </section>
+          <EstimateCard state={estimateState} onRetry={() => setEstimateNonce((n) => n + 1)} />
           {error && <p className="form__error" role="alert">Could not start expedition ({error}).</p>}
           <button className="button" type="submit" disabled={!canStart}>{pending ? 'Starting…' : unconfirmed ? 'Retry start' : 'Start expedition'}</button>
         </>}
@@ -251,6 +335,9 @@ function assetName(asset: unknown): string {
     if (typeof name === 'string') return label(name);
   }
   return eventText(asset);
+}
+function formatDuration(minutes: number): string {
+  return minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`;
 }
 function formatItems(items: readonly { item: string; qty: number }[]): string { return items.length ? items.map(({ item, qty }) => `${label(item)} ×${qty}`).join(', ') : 'none'; }
 function eventText(value: unknown): string {
