@@ -15,7 +15,7 @@ export function RunBagPanel({ holdings, onRefresh }: {
   const entries = [...bags.entries()].sort(([a], [b]) => a.localeCompare(b));
   return <section className="run-bag" aria-labelledby="run-bag-title">
     <div className="run-bag__heading">
-      <div><h2 id="run-bag-title">Unsecured live rewards</h2><p>Rewards move to inventory only when you return to Sanctuary.</p></div>
+      <div><h2 id="run-bag-title">Unsecured live rewards</h2><p>Only the current run’s bag moves to inventory when you return to Sanctuary. Bags from ended runs stay unsecured until recovery is available.</p></div>
       <button className="button button--secondary" type="button" onClick={onRefresh}>Refresh</button>
     </div>
     {entries.length === 0 ? <p className="muted">No live rewards are waiting in a run bag.</p> : entries.map(([container, items]) => {
