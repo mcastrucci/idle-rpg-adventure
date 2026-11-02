@@ -128,13 +128,16 @@ describe.skipIf(!adminUrl)('live instance hosting under adversarial conditions (
     seq = 0;
     readonly seqs: number[] = [];
     readonly who: Player;
+    pongs = 0;
+    closed = '';
     constructor(url: string, who: Player) {
       this.who = who;
       this.socket = new WebSocket(url, { headers: { authorization: `Bearer ${who.sessionToken}` } });
       clients.add(this);
+      this.socket.on('close', (code, reason) => { this.closed = `${code} ${reason.toString()}`; });
       this.socket.on('message', (data) => {
         const text = data.toString();
-        if (text === 'pong') return;
+        if (text === 'pong') { this.pongs += 1; return; }
         const message = JSON.parse(text) as Message;
         if (message.type === 'live.snapshot') { this.epoch = message['epoch'] as number; this.seq = message['seq'] as number; }
         if (message.type === 'live.event') {
@@ -150,7 +153,7 @@ describe.skipIf(!adminUrl)('live instance hosting under adversarial conditions (
       for (let waited = 0; waited < timeoutMs; waited += 5) {
         const index = this.inbox.findIndex(predicate);
         if (index >= 0) return this.inbox.splice(index, 1)[0] as Message;
-        if (this.socket.readyState === WebSocket.CLOSED) throw new Error('socket closed while waiting');
+        if (this.socket.readyState === WebSocket.CLOSED) throw new Error(`socket closed while waiting (${this.closed})`);
         await delay(5);
       }
       throw new Error('timed out waiting for message');
@@ -165,10 +168,16 @@ describe.skipIf(!adminUrl)('live instance hosting under adversarial conditions (
     command(instanceId: string, command: Record<string, unknown>, commandId: string = randomUUID()) {
       return this.request({ op: 'live.command', instanceId, actorId: this.who.actorId, commandId, command });
     }
-    async ping(): Promise<void> {
+    /** Waits for the pong so pings never outrun the server's bounded frame queue (it closes the socket at 8 pending). */
+    async ping(timeoutMs = 5000): Promise<void> {
       if (this.socket.readyState !== WebSocket.OPEN) return;
+      const expected = this.pongs + 1;
       this.socket.send('ping');
-      await delay(5);
+      for (let waited = 0; this.pongs < expected; waited += 2) {
+        if (this.socket.readyState !== WebSocket.OPEN) return;
+        if (waited >= timeoutMs) throw new Error('timed out waiting for pong');
+        await delay(2);
+      }
     }
     async drop(): Promise<void> {
       const closed = once(this.socket, 'close');

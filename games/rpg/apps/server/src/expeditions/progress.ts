@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { createActorWorldState } from '@engine/world';
 import type { EvalContext } from '@engine/world';
 import type { AssetRef } from '@engine/economy';
@@ -35,6 +35,17 @@ export async function recordDiscovery(tx: ActorTransaction, clock: Clock, actorI
 }
 export async function recordObjective(tx: ActorTransaction, clock: Clock, actorId: string, objectiveKey: string): Promise<void> {
   await tx.insert(rpgActorObjectives).values({ actorId, objectiveKey, recordedAt: new Date(clock.nowMs()) }).onConflictDoNothing();
+}
+/** Trusted reset seam (debug tools). With `areaId`, removes that area's discoveries/completion; otherwise everything. */
+export async function resetRecordedProgress(tx: ActorTransaction, actorId: string, areaId?: string): Promise<void> {
+  if (areaId === undefined) {
+    await tx.delete(rpgAreaDiscoveries).where(eq(rpgAreaDiscoveries.actorId, actorId));
+    await tx.delete(rpgCompletedAreas).where(eq(rpgCompletedAreas.actorId, actorId));
+    await tx.delete(rpgActorObjectives).where(eq(rpgActorObjectives.actorId, actorId));
+    return;
+  }
+  await tx.delete(rpgAreaDiscoveries).where(and(eq(rpgAreaDiscoveries.actorId, actorId), eq(rpgAreaDiscoveries.areaId, areaId)));
+  await tx.delete(rpgCompletedAreas).where(and(eq(rpgCompletedAreas.actorId, actorId), eq(rpgCompletedAreas.areaId, areaId)));
 }
 export async function recordAreaCompletion(tx: ActorTransaction, clock: Clock, actorId: string, areaId: string): Promise<void> {
   await tx.insert(rpgCompletedAreas).values({ actorId, areaId, completedAt: new Date(clock.nowMs()) }).onConflictDoNothing();
