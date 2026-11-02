@@ -4,6 +4,7 @@ packages:
   - games/rpg/packages/*
   - games/rpg/tools/*
   - games/survival-sandbox
+  - spikes/*
 
 allowBuilds:
   esbuild: false
