@@ -154,6 +154,9 @@ importers:
       '@rpg/rpg-schema':
         specifier: workspace:*
         version: link:../../packages/rpg-schema
+      '@rpg/rpg-stats':
+        specifier: workspace:*
+        version: link:../../packages/rpg-stats
       react:
         specifier: 19.3.1
         version: 19.3.1
