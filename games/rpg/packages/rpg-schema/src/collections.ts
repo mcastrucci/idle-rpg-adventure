@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { EnemySchema } from './enemies.ts';
 import { IdleActivitySchema, ResourceNodeSchema } from './gathering.ts';
 import { ItemSchema } from './items.ts';
+import { MerchantSchema } from './merchants.ts';
 import { XpCurveSchema } from './progression.ts';
 import { SkillSchema } from './skills.ts';
 import { EncounterTableSchema, LootTableSchema } from './tables.ts';
@@ -23,6 +24,7 @@ export const rpgCollections = {
   enemies: { schema: EnemySchema, idPrefix: 'enemy:' },
   skills: { schema: SkillSchema, idPrefix: 'skill:' },
   items: { schema: ItemSchema, idPrefix: 'item:' },
+  merchants: { schema: MerchantSchema, idPrefix: 'merchant:' },
   lootTables: { schema: LootTableSchema, idPrefix: 'loot:' },
   encounterTables: { schema: EncounterTableSchema, idPrefix: 'enc:' },
   resourceNodes: { schema: ResourceNodeSchema, idPrefix: 'res:' },

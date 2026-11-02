@@ -1,0 +1,24 @@
+{
+  "id": "merchant:region_1",
+  "offers": [
+    {
+      "id": "offer:minor_healing_potion",
+      "item": "item:minor_healing_potion",
+      "buyPrice": { "currency": "gold", "amount": 12 },
+      "stock": "infinite"
+    },
+    {
+      "id": "offer:sap_tonic",
+      "item": "item:sap_tonic",
+      "buyPrice": { "currency": "gold", "amount": 18 },
+      "stock": "infinite"
+    },
+    {
+      "id": "offer:healing_potion",
+      "item": "item:healing_potion",
+      "buyPrice": { "currency": "gold", "amount": 40 },
+      "stock": "infinite",
+      "requiresCompletedArea": "area:region_1"
+    }
+  ]
+}
