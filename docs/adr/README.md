@@ -17,7 +17,7 @@
 | [0010](0010-scene-renderer.md) | Scene viewport renderer (PixiJS vs Phaser) | Proposed — spike 2 |
 | [0011](0011-capacitor-mobile.md) | Capacitor for future iOS/Android | Proposed — spike 2 |
 | [0012](0012-live-instance-hosting.md) | Live instance hosting (in-house vs Colyseus) | Proposed — spike 3 |
-| [0013](0013-tick-and-idle-encounter-model.md) | Combat tick duration and idle encounter model | Proposed — spike 1 |
+| [0013](0013-tick-and-idle-encounter-model.md) | Combat tick duration and idle encounter model | Accepted — [spike 1](../spikes/spike-1-sim.md) |
 | [0014](0014-tiled-scene-editor.md) | Tiled as the scene layout editor | Proposed — M5 |
 | [0015](0015-data-access-layer.md) | Data access layer (Drizzle) | Accepted |
 | [0016](0016-hosting.md) | Hosting for the POC | Proposed — M2 |
