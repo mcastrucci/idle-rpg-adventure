@@ -15,19 +15,21 @@ import { divFloor, hashSeed, mulBp, RngStreams } from '@engine/sim-core';
 import type { JsonValue, LiveCommandResult, LiveGame, LiveStep } from '@engine/live-kernel';
 import { createActorWorldState, evaluateRequirement } from '@engine/world';
 import type { AreaId, LocationId } from '@engine/world';
-import { createCombat, ENGINE_VERSION, rpgIdleContentFromBundle, step } from '@rpg/rpg-sim';
+import { createCombat, ENGINE_VERSION, rpgIdleContentFromBundle, rollLoot, step } from '@rpg/rpg-sim';
 import type { CombatContent, CombatInput, CombatState, ConsumableStack, HeroSetup, RpgIdleContent } from '@rpg/rpg-sim';
 import type { AutomationRule, ConsumableItem } from '@rpg/rpg-schema';
 import { DEFAULT_STAT_FORMULAS, deriveStats } from '@rpg/rpg-stats';
+import { totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
 import type { DeriveStatsInput } from '@rpg/rpg-stats';
+import { XpCurveSchema } from '@rpg/rpg-schema';
 
 import type { RpgLiveEffect } from './effects.ts';
 import { BOSS_ROOM_TAG, buildLiveWorld, SAFE_TAG, SECRET_TAG } from './world.ts';
 import type { LiveLocation, LiveWorld } from './world.ts';
 
 export const RPG_LIVE_GAME_ID = 'rpg.live';
-/** Bumped with any change of rules or checkpoint shape: a node refuses to restore another version's checkpoint. */
-export const RPG_LIVE_VERSION = `rpg.live@0.3.0+${ENGINE_VERSION}`;
+/** Bumped for the instance-scoped run bag, hero XP/snapshot fields and reward checkpoint shape; old state is refused. */
+export const RPG_LIVE_VERSION = `rpg.live@0.4.0+${ENGINE_VERSION}`;
 /** Open decision #1 (provisional). */
 export const RPG_LIVE_TICK_MS = 500;
 
@@ -52,11 +54,15 @@ export interface RpgLiveHeroWorld {
 
 export interface RpgLiveHeroSetup {
   readonly actorId: string;
-  readonly build: DeriveStatsInput;
+  build: DeriveStatsInput;
+  /** XP within the supplied level, from the server character row. */
+  readonly xp?: number;
   readonly skills: readonly string[];
   readonly rules: readonly AutomationRule[];
   /** Snapshot consumable loadout carried into the instance (escrow through the ledger is #28/#42). */
   readonly consumables?: readonly ConsumableStack[];
+  /** Hash of server-owned character/build/equipment/supply/progress rows validated under actor locks at create. */
+  readonly snapshotHash?: string;
   readonly world?: RpgLiveHeroWorld;
 }
 export interface RpgLiveGroup { readonly id: string; readonly enemies: readonly string[] }
@@ -75,7 +81,9 @@ export type RpgLivePhase = 'exploring' | 'combat' | 'dead' | 'closing';
 
 interface HeroState {
   readonly actorId: string;
-  readonly build: DeriveStatsInput;
+  readonly snapshotHash?: string;
+  build: DeriveStatsInput;
+  xp: number;
   readonly skills: readonly string[];
   readonly rules: readonly AutomationRule[];
   /** Current HP; `null` = full. */
@@ -84,12 +92,15 @@ interface HeroState {
   consumables: { item: string; qty: number }[];
   /** Consumables used in this instance (ledger consumption hook for #42/#28). */
   used: Record<string, number>;
+  /** Cumulative units already emitted as durable ledger effects. */
+  usedReported: Record<string, number>;
   /** Persisted progress at start plus this instance's discoveries/defeats. */
   world: { discovered: string[]; objectives: string[]; completedAreas: string[] };
 }
 interface GroupState { id: string; enemies: string[]; boss: boolean; defeated: boolean }
 
 export interface RpgLiveState {
+  readonly instanceId: string;
   readonly seed: number;
   readonly area: string;
   location: string;
@@ -105,6 +116,8 @@ export interface RpgLiveState {
   hotspotsDone: string[];
   /** `<location>/<nodeId>` already gathered (once per instance per node). */
   gathered: string[];
+  /** Per-actor secured-in-this-instance loot; mirrored to `run_bag:<instanceId>` by checkpoint effects. */
+  runBag: Record<string, { items: Record<string, number>; gold: number }>;
   combat: CombatState | null;
   combatGroup: string | null;
   encounters: number;
@@ -174,6 +187,9 @@ export interface RpgLiveContent {
 export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveState> {
   const idle: RpgIdleContent = rpgIdleContentFromBundle(content);
   const combatContent: CombatContent = idle.combat;
+  const progression = content.collections['progression']?.[0] as { id?: unknown; xpToNext?: unknown } | undefined;
+  if (!progression || progression.id !== 'progression:xp_curve') throw new RangeError('missing live XP curve');
+  const xpCurve = XpCurveSchema.parse({ xpToNext: progression.xpToNext });
   const world: LiveWorld = buildLiveWorld(content.world);
   const formulas = idle.formulas ?? DEFAULT_STAT_FORMULAS;
 
@@ -188,6 +204,27 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
     const found = combatContent.items[item];
     return found?.kind === 'consumable' ? found : undefined;
   };
+  const lootTable = (table: string) => {
+    const value = idle.lootTables[table];
+    if (!value) throw new RangeError(`unknown live loot table ${table}`);
+    return value;
+  };
+  const bagFor = (state: RpgLiveState, actorId: string) => state.runBag[actorId] ??= { items: {}, gold: 0 };
+  const addLoot = (state: RpgLiveState, actorId: string, items: readonly { item: string; qty: number }[], gold: number) => {
+    const bag = bagFor(state, actorId);
+    for (const drop of items) bag.items[drop.item] = (bag.items[drop.item] ?? 0) + drop.qty;
+    bag.gold += gold;
+  };
+  function flushConsumableEffects(state: RpgLiveState, effects: RpgLiveEffect[]): void {
+    for (const hero of state.heroes) for (const [item, used] of Object.entries(hero.used)) {
+      const reported = hero.usedReported[item] ?? 0;
+      for (let ordinal = reported + 1; ordinal <= used; ordinal += 1) {
+        effects.push({ type: 'consumableUsed', actionId: `consume:${hero.actorId}:${item}:${ordinal}`,
+          actorId: hero.actorId, item, qty: 1 });
+      }
+      if (used > reported) hero.usedReported[item] = used;
+    }
+  }
 
   /** Open decision #14 (provisional): deterministic per (instance seed, location), independent of visit order. */
   function rollGroups(seed: number, location: LiveLocation): GroupState[] {
@@ -315,10 +352,11 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       area: state.area,
       location: state.location,
       heroes: state.heroes.map((hero) => ({ actorId: hero.actorId, hp: hero.hp, present: hero.present,
-        consumables: hero.consumables, used: hero.used })),
+        consumables: hero.consumables, used: hero.used, level: hero.build.level, xp: hero.xp })),
       defeatedGroups: Object.values(state.visited).flatMap((v) => v.groups.filter((g) => g.defeated).map((g) => g.id)),
-      // Run bag hook (#42): gathered nodes are recorded here until loot rolls land in `run_bag` through the ledger.
       gathered: state.gathered,
+      runBag: Object.entries(state.runBag).sort(([a], [b]) => a.localeCompare(b)).map(([actorId, bag]) => ({ actorId,
+        items: Object.entries(bag.items).sort(([a], [b]) => a.localeCompare(b)).map(([item, qty]) => ({ item, qty })), gold: bag.gold })),
     } as unknown as JsonValue;
   }
 
@@ -327,14 +365,17 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
     version: RPG_LIVE_VERSION,
     tickIntervalMs: RPG_LIVE_TICK_MS,
 
-    init({ participants, seed, setup }) {
+    init({ instanceId, participants, seed, setup }) {
       const parsed = setup as unknown as RpgLiveSetup;
       const startArea = parsed.area ?? (parsed.location === undefined ? undefined : world.locations.get(parsed.location)?.area);
       const area = startArea === undefined ? undefined : world.areas.get(startArea);
       if (!area) throw new RangeError('live setup needs an explorable area or one of its locations');
       const location = parsed.location ?? area.startLocation;
       if (!area.locations.includes(location)) throw new RangeError(`location ${location} is not in ${area.id}`);
+      const groupIds = new Set<string>();
       for (const group of parsed.groups ?? []) {
+        if (groupIds.has(group.id)) throw new RangeError(`duplicate live group ${group.id}`);
+        groupIds.add(group.id);
         if (group.enemies.length === 0 || group.enemies.some((enemy) => combatContent.enemies[enemy] === undefined)) {
           throw new RangeError(`invalid enemy group ${group.id}`);
         }
@@ -346,13 +387,17 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
           if (!consumable(c.item) || !Number.isSafeInteger(c.qty) || c.qty <= 0) throw new RangeError(`invalid consumable ${c.item}`);
           return { item: c.item, qty: c.qty };
         });
-        return { actorId: hero.actorId, build: structuredClone(hero.build), skills: [...hero.skills], rules: structuredClone([...hero.rules]),
-          hp: null, present: true, consumables, used: {},
+        const totalXp = totalXpFromLevelProgress(hero.build.level, hero.xp ?? 0, xpCurve);
+        const level = xpProgress(totalXp, xpCurve).level;
+        return { actorId: hero.actorId, ...(hero.snapshotHash ? { snapshotHash: hero.snapshotHash } : {}),
+          build: { ...structuredClone(hero.build), level }, xp: totalXp,
+          skills: [...hero.skills], rules: structuredClone([...hero.rules]),
+          hp: null, present: true, consumables, used: {}, usedReported: {},
           world: { discovered: [...(hero.world?.discovered ?? [])], objectives: [...(hero.world?.objectives ?? [])],
             completedAreas: [...(hero.world?.completedAreas ?? [])] } };
       }).sort((a, b) => (a.actorId < b.actorId ? -1 : 1));
-      const state: RpgLiveState = { seed, area: area.id, location, previous: null, phase: 'exploring', heroes, visited: {}, flags: [],
-        hotspotsDone: [], gathered: [], combat: null, combatGroup: null, encounters: 0, bossWarning: null, outbox: [], pending: [] };
+      const state: RpgLiveState = { instanceId, seed, area: area.id, location, previous: null, phase: 'exploring', heroes, visited: {}, flags: [],
+        hotspotsDone: [], gathered: [], runBag: {}, combat: null, combatGroup: null, encounters: 0, bossWarning: null, outbox: [], pending: [] };
       // Entering the area discovers its first location; the record is committed with the first durable write.
       enter(state, location, state.outbox, [], parsed.groups);
       return state;
@@ -458,9 +503,15 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
           if (!node) return { rejected: 'unknown_node' };
           const key = `${here.id}/${node.nodeId}`;
           if (state.gathered.includes(key)) return { rejected: 'already_gathered' };
+          if (hero.hp === 0) return { rejected: 'hero_dead' };
           state.gathered.push(key);
-          // Run bag hook (#42): roll `node.lootTable` on the instance `loot` stream and grant into `run_bag` via the ledger.
-          events.push({ type: 'gathered', nodeId: node.nodeId, resource: node.resource, lootTable: node.lootTable });
+          const actionId = `gather:${key}`;
+          const rolled = rollLoot(lootTable(node.lootTable), RngStreams.fromSeed(hashSeed(state.seed, actionId)).stream('loot'));
+          addLoot(state, actorId, rolled.items, rolled.gold);
+          effects.push({ type: 'lootGranted', actionId, actorId, items: rolled.items.map((drop) => ({ ...drop,
+            kind: combatContent.items[drop.item]?.kind === 'equipment' ? 'unique_mint' as const : 'stack' as const })), gold: rolled.gold });
+          events.push({ type: 'gathered', nodeId: node.nodeId, resource: node.resource, lootTable: node.lootTable,
+            drops: rolled.items.map(({ item, qty }) => ({ item, qty })), gold: rolled.gold, actorId });
           return persist(state, events, effects);
         }
 
@@ -485,8 +536,36 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       const groupId = state.combatGroup;
       const group = currentGroups(ended).find((g) => g.id === groupId);
       const effects: RpgLiveEffect[] = [];
+      flushConsumableEffects(ended, effects);
       if (outcome === 'victory' && group) {
         group.defeated = true;
+        const fighters = result.state.actors.filter((a) => a.side === 'hero' && a.alive).map((a) =>
+          ended.heroes.find((h) => h.actorId === a.id)).filter((h): h is HeroState => Boolean(h?.present));
+        const actionId = `victory:${group.id}`;
+        const xpEach = group.enemies.reduce((sum, enemy) => sum + (combatContent.enemies[enemy]?.xp ?? 0), 0);
+        const rewards = fighters.map((hero) => ({ actorId: hero.actorId, xp: xpEach,
+          drops: [] as { item: string; qty: number; kind: 'stack' | 'unique_mint' }[], gold: 0 }));
+        for (const [enemyIndex, enemyId] of group.enemies.entries()) {
+          const tableId = combatContent.enemies[enemyId]?.lootTable;
+          if (!tableId || rewards.length === 0) continue;
+          const rolled = rollLoot(lootTable(tableId), RngStreams.fromSeed(hashSeed(state.seed, actionId, enemyIndex)).stream('loot'));
+          const recipient = rewards[enemyIndex % rewards.length];
+          if (!recipient) continue;
+          recipient.drops.push(...rolled.items.map((drop) => ({ ...drop,
+            kind: combatContent.items[drop.item]?.kind === 'equipment' ? 'unique_mint' as const : 'stack' as const })));
+          recipient.gold += rolled.gold;
+        }
+        for (const reward of rewards) {
+          const hero = ended.heroes.find((h) => h.actorId === reward.actorId);
+          if (!hero) continue;
+          hero.xp += reward.xp;
+          hero.build = { ...hero.build, level: xpProgress(hero.xp, xpCurve).level };
+          addLoot(ended, hero.actorId, reward.drops, reward.gold);
+          if (reward.xp > 0) effects.push({ type: 'xpGranted', actionId, actorId: hero.actorId, xp: reward.xp,
+            xpToNext: xpCurve.xpToNext });
+          if (reward.drops.length > 0 || reward.gold > 0) effects.push({ type: 'lootGranted', actionId, actorId: hero.actorId, items: reward.drops, gold: reward.gold });
+        }
+        events.push({ type: 'combatRewards', groupId: group.id, rewards });
         if (group.boss) {
           // Boss credit goes to the participants who were in the fight, alive or dead (conquest-rules, provisional).
           const bosses = [...new Set(group.enemies.filter((enemy) => combatContent.enemies[enemy]?.rank === 'boss'))].sort();
@@ -524,8 +603,10 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       return {
         phase: state.phase, area: state.area, location: state.location,
         heroes: state.heroes.map((hero) => ({ actorId: hero.actorId, hp: hero.hp, maxHp: maxHp(hero), present: hero.present,
-          consumables: hero.consumables })),
+          consumables: hero.consumables, level: hero.build.level, xp: hero.xp })),
         groups: currentGroups(state).map((group) => ({ id: group.id, enemies: group.enemies, boss: group.boss, defeated: group.defeated })),
+        runBag: Object.entries(state.runBag).sort(([a], [b]) => a.localeCompare(b)).map(([actorId, bag]) => ({ actorId,
+          items: Object.entries(bag.items).sort(([a], [b]) => a.localeCompare(b)).map(([item, qty]) => ({ item, qty })), gold: bag.gold })),
         exits: here.exits.flatMap((exit) => {
           const status = exitStatus(state, exit);
           if (!status.open && exit.tags.includes(SECRET_TAG)) return [];
@@ -559,6 +640,7 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
     }
     const events: JsonValue[] = [{ type: 'combatEnded', outcome: 'retreated', groupId: group.id }];
     const effects: RpgLiveEffect[] = [];
+    flushConsumableEffects(state, effects);
     const from = state.location;
     const next: RpgLiveState = { ...state, phase: 'exploring', combat: null, combatGroup: null, pending: [] };
     if (state.previous !== null) {
@@ -595,7 +677,9 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
     hero.used[itemId] = (hero.used[itemId] ?? 0) + 1;
     hero.hp = after === max ? null : after;
     // Ledger consumption (#42/#28): `used` is reported in the close result for settlement.
-    return persist(state, [{ type: 'consumableUsed', actorId: hero.actorId, itemId, hpBefore: before, hp: after }]);
+    const effects: RpgLiveEffect[] = [];
+    flushConsumableEffects(state, effects);
+    return persist(state, [{ type: 'consumableUsed', actorId: hero.actorId, itemId, hpBefore: before, hp: after }], effects);
   }
 
   return game;

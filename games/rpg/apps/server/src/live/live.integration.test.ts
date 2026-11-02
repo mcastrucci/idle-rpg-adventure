@@ -330,6 +330,10 @@ describe.skipIf(!adminUrl)('live instance hosting under adversarial conditions (
       .toHaveLength(1);
     const device1 = await connect(nodeA, a);
     expect(await device1.request({ op: 'live.attach', instanceId: 'not-a-uuid', actorId: a.actorId })).toMatchObject({ error: 'invalid_live_command' });
+    expect(await device1.request({ op: 'live.attach', instanceId, actorId: a.actorId, resume: { epoch: -1, seq: 0 } }))
+      .toMatchObject({ error: 'invalid_live_command' });
+    expect(await device1.request({ op: 'live.command', instanceId, actorId: a.actorId, commandId: randomUUID(),
+      command: { type: 'returnToSanctuary' }, stateAfter: {} })).toMatchObject({ error: 'invalid_live_command' });
     // Another account can neither attach to nor command someone else's participant.
     const intruder = await connect(nodeA, await player());
     expect(await intruder.request({ op: 'live.attach', instanceId, actorId: a.actorId })).toMatchObject({ error: 'not_participant' });

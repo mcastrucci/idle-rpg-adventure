@@ -7,6 +7,7 @@ import { characterModule } from './characters/http.ts';
 import { executeCharacterSocketCommand } from './character-commands.ts';
 import { createRpgLiveHost } from './live/index.ts';
 import type { RpgLiveHost } from './live/index.ts';
+import { handleRpgLiveSocketCommand } from './live/protocol.ts';
 import { createExpeditionModule } from './expeditions/http.ts';
 import { createRpgJobsModule } from './expeditions/jobs.ts';
 import { supportedSettlementPolicies } from './expeditions/policy.ts';
@@ -43,7 +44,7 @@ export function createRpgServer(config: ServerConfig, options: { clock?: Clock; 
     modules: [content, ...(debug ? [debug.module] : []), createAuthModule({
       enableHttp: config.roles.includes('api'), enableLive: config.roles.includes('live'),
       // `live.*` operations go to the instance host; everything else is a character command envelope.
-      onCommand: async (payload, identity, context, connection) => await live.handleSocketCommand(payload, identity, connection)
+      onCommand: async (payload, identity, context, connection) => await handleRpgLiveSocketCommand(payload, identity, connection, live)
         ?? executeCharacterSocketCommand(context, identity.accountId, payload, options.seedSource, settlementPolicies),
     }), characterModule, live.module, createExpeditionModule(options.seedSource, settlementPolicies, options.estimates), createCommandMaintenanceModule(),
     createRpgJobsModule(options.jobHandlers ?? {}, settlementPolicies), ...(options.modules ?? [])] });

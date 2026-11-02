@@ -226,7 +226,11 @@ describe('RPG live plugin: exploration (#38)', () => {
     for (const actor of combat.actors) if (actor.side === 'enemy') { actor.hp = 1; }
     for (let i = 0; i < 2000 && game.isTicking(step.state); i += 1) step = game.tick(step.state);
     expect(step.state.phase).toBe('exploring');
-    expect(step.effects).toMatchObject([{ type: 'bossDefeated', actorId: HERO, areaId: 'area:region_1', enemyIds: ['enemy:hollow_matriarch'] }]);
+    expect(step.effects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'bossDefeated', actorId: HERO, areaId: 'area:region_1', enemyIds: ['enemy:hollow_matriarch'] }),
+      expect.objectContaining({ type: 'xpGranted', actorId: HERO, xp: expect.any(Number) }),
+      expect.objectContaining({ type: 'lootGranted', actorId: HERO }),
+    ]));
     expect(step.state.heroes[0]?.world.objectives).toContain('defeated:enemy:hollow_matriarch');
     expect(ok(game.applyCommand(step.state, HERO, { type: 'returnToSanctuary' })).close?.outcome).toBe('returned');
   });
@@ -252,10 +256,11 @@ describe('RPG live plugin: exploration (#38)', () => {
     let step: LiveStep<RpgLiveState> = { state: fighting };
     for (let tick = 0; tick < 2000 && game.isTicking(step.state); tick += 1) step = game.tick(step.state);
     expect(step.state.phase).toBe('exploring');
-    expect(step.effects).toMatchObject([
-      { type: 'bossDefeated', actorId: HERO, enemyIds: ['enemy:hollow_matriarch'] },
-      { type: 'bossDefeated', actorId: DEAD_HERO, enemyIds: ['enemy:hollow_matriarch'] },
-    ]);
+    expect(step.effects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'bossDefeated', actorId: HERO, enemyIds: ['enemy:hollow_matriarch'] }),
+      expect.objectContaining({ type: 'bossDefeated', actorId: DEAD_HERO, enemyIds: ['enemy:hollow_matriarch'] }),
+      expect.objectContaining({ type: 'xpGranted', actorId: HERO }),
+    ]));
     const effects = (step.effects ?? []) as unknown as RpgLiveEffect[];
     expect(effects.some(effect => effect.type === 'bossDefeated' && effect.actorId === ALLY)).toBe(false);
     expect(step.state.heroes.find((candidate) => candidate.actorId === DEAD_HERO)?.world.objectives)
@@ -307,7 +312,10 @@ describe('RPG live plugin: exploration (#38)', () => {
     expect(game.view(grotto)).toMatchObject({ resources: [{ nodeId: 'res:glowcap#0', gathered: false }, { nodeId: 'res:glowcap#1', gathered: false }] });
     const first = ok(game.applyCommand(grotto, HERO, { type: 'gather', nodeId: 'res:glowcap#0' }));
     expect(first.checkpoint).toBe(true);
-    expect(first.events).toEqual([{ type: 'gathered', nodeId: 'res:glowcap#0', resource: 'res:glowcap', lootTable: 'loot:region_1.glowcap_gather' }]);
+    expect(first.events).toMatchObject([{ type: 'gathered', nodeId: 'res:glowcap#0', resource: 'res:glowcap',
+      lootTable: 'loot:region_1.glowcap_gather', actorId: HERO, drops: expect.any(Array), gold: expect.any(Number) }]);
+    expect(first.effects).toContainEqual(expect.objectContaining({ type: 'lootGranted', actionId: `gather:${R1('glowcap_grotto')}/res:glowcap#0`, actorId: HERO }));
+    expect(first.state.runBag[HERO]).toBeDefined();
     expect(game.applyCommand(first.state, HERO, { type: 'gather', nodeId: 'res:glowcap#0' })).toEqual({ rejected: 'already_gathered' });
     expect(game.applyCommand(first.state, HERO, { type: 'gather', nodeId: 'res:glowcap#1' })).not.toHaveProperty('rejected');
     expect(game.applyCommand(first.state, HERO, { type: 'gather', nodeId: 'res:glowcap#2' })).toEqual({ rejected: 'unknown_node' });
