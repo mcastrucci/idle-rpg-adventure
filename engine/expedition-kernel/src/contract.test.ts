@@ -189,6 +189,30 @@ describe('checkSimulatorContract', () => {
     expect(settlementBoundViolations([{ actorId: 'b', asset: COIN, qty: 1 }], ref)).toHaveLength(1);
   });
 
+  it('checks that a cancel after the end settles exactly like the natural end (cancel-after-end)', () => {
+    let n = 0;
+    const flaky: Sim = {
+      ...coinCollector,
+      settle: (t, cutoff, reason) => (reason === 'completed' && cutoff === t.segments.length - 1 && n++ % 4 === 2 ? [] : defaultSettle(t, cutoff)),
+    };
+    expect(rules(flaky, { settlement: 'custom' })).toContain('cancel-after-end');
+    expect(rules(coinCollector)).not.toContain('cancel-after-end');
+  });
+
+  it('passes the fixture target (areaId/activityId) to simulate, including resumption', () => {
+    const seen = new Set<string>();
+    const targeted: Sim = {
+      ...coinCollector,
+      simulate(input) {
+        seen.add(`${input.areaId ?? '-'}|${input.activityId ?? '-'}|${input.from === undefined ? 'fresh' : 'resumed'}`);
+        return coinCollector.simulate(input);
+      },
+    };
+    const fixture = { ...fixtures[0], areaId: 'area:mine', activityId: 'activity:dig' } as ContractFixture<CoinConfig, CoinActor>;
+    expect(checkSimulatorContract(targeted, [fixture])).toEqual([]);
+    expect(seen).toEqual(new Set(['area:mine|activity:dig|fresh', 'area:mine|activity:dig|resumed']));
+  });
+
   it('checks escrow declaration and conservation', () => {
     const torchFixtures = fixtures.map((f) => ({ ...f }));
     expect(checkSimulatorContract(torchCollector, torchFixtures)).toEqual([]);

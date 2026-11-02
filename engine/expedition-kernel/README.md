@@ -8,7 +8,9 @@ here; determinism rules (ADR-0004) apply: integer math, no clock (timestamps are
 
 ## Versioning
 
-`KERNEL_VERSION` (`0.2.0`) versions the kernel's behaviour (placement rule, settle semantics, estimate seeding).
+`KERNEL_VERSION` (`0.3.0`) versions the kernel's behaviour (placement rule, settle semantics, estimate seeding).
+0.3.0 (#77): cancel-after-end guard, kernel-owned activity target, `checkStart` order and error codes, `unique_mint`
+assets, game metrics in estimates — see "Changes in v0.3" below.
 Persisted expeditions record `KERNEL_VERSION` **and** the simulator's `id` + `version` (plus seed and content hash).
 Bump the relevant one on any behaviour change.
 
@@ -19,10 +21,10 @@ interface ExpeditionSimulator<Config, Snapshot, Event, SimState = unknown, Repor
   id: string;                    // SIMULATOR_ID_PATTERN: 'rpg.hunt', 'survival.scavenge'
   version: string;
   parseConfig(input: unknown): Config;               // throws on invalid input (Zod optional, game-side)
-  canStart(ctx: StartContext<Config, Snapshot, Game>): StartCheck;   // + world, area, evalContexts, predicates
+  canStart(ctx: StartContext<Config, Snapshot, Game>): StartCheck;   // + areaId, activityId (v0.3), world, area, …
   escrow?(config: Config, actors: Snapshot[]): LedgerDelta[];         // moved into 'escrow' at start (v0.2)
-  budget(config: Config, durationMin: number, paceBp: number): number;  // planned total weight
-  simulate(input: { config; actors: Snapshot[]; seed: Seed; budget: number;
+  budget(config: Config, durationMin: number, paceBp: number, target?: ActivityRef): number;  // planned total weight
+  simulate(input: { config; actors: Snapshot[]; seed: Seed; budget: number; areaId?; activityId?;   // target: v0.3
                     from?: { segment: number; state: SimState } }): Timeline<Event, SimState>;
   settle(timeline, cutoff: number, reason: SettleReason): LedgerDelta[];  // segments 0..cutoff, -1 = none
   summarize(timeline, cutoff: number): Report;
@@ -51,15 +53,21 @@ weight** (= segment count with unit weights).
   `idle:hunt`) listed in `area.activities`. An `ActivityRegistry` maps activity → simulator (many-to-one allowed);
   `unregisteredActivities(world, registry)` finds content activities without a simulator.
 - A start command carries `StartRequest { areaId, activityId, durationMin, paceBp }` plus the raw game config.
-- `checkStart({ world, request, activities, simulator, config, actors, evalContexts, predicates })` runs the engine
-  gates in order — `start.unknownArea`, `start.activityNotInArea`, `start.unknownActivity` / `start.simulatorMismatch`,
-  `start.invalidDuration`, `start.noActors` / `start.contextMismatch`, `start.areaNotCompleted` (every actor, via
-  `evaluateCompletion`; areas without a completion rule are open; `reasons` = `completion.discoveries:<area>` and the
-  failing `required` keys), `start.invalidEscrow`, `start.invalidBudget` — then `simulator.canStart` with `world`,
-  `area`, one `EvalContext` per actor and the `PredicateRegistry`, so a game can require e.g. a tool via
-  `evaluateRequirement`. On success it returns `{ ok: true, budget, escrow }`. Locks/CAS/ledger stay with the caller.
-- **Duration is kernel-owned:** `durationMin`/`paceBp` come from the request and are passed to `budget`/`canStart`;
-  game configs must not carry them.
+- `checkStart({ world, request, activities, simulator, rawConfig, actors, evalContexts, predicates })` runs, in order
+  (first failure wins, codes in `START_CODES`): `start.unknownArea`, `start.activityNotInArea`,
+  `start.unknownActivity` / `start.simulatorMismatch`, `start.invalidDuration`, `start.noActors` /
+  `start.contextMismatch`, `start.areaNotCompleted` (every actor, via `evaluateCompletion`; areas without a completion
+  rule are open; `reasons` = `completion.discoveries:<area>` and the failing `required` keys), then **parses the raw
+  config** (`start.invalidConfig`), calls `simulator.canStart` with the parsed config, `areaId`, `activityId`,
+  duration, `world`, `area`, one `EvalContext` per actor and the `PredicateRegistry` (its refusal is returned as-is),
+  then `escrow` (`start.invalidEscrow`) and `budget(config, durationMin, paceBp, { areaId, activityId })`
+  (`start.invalidBudget`). Every simulator call is guarded: a throw (or a malformed `canStart` result,
+  `start.simulatorError`) becomes a `start.*` failure with the error as `message` — `checkStart` never throws because
+  of a simulator. On success it returns `{ ok: true, config, budget, escrow }` (the **parsed** config to persist).
+  Locks/CAS/ledger stay with the caller.
+- **Duration and target are kernel-owned:** `durationMin`/`paceBp` and `areaId`/`activityId` come from the request and
+  are passed to `canStart`/`budget`/`simulate`; game configs must not carry them. Persist `areaId`/`activityId` with
+  the expedition and pass them again to `simulate` on resumption and to `estimate`.
 
 ## Inputs: per expedition vs per actor
 
@@ -107,9 +115,29 @@ math via `mulDivFloor`; reveal times are non-decreasing and may coincide when `d
 `placeSegments(timeline, startsAtMs, durationMs, budget)` → `PlacedTimeline` with `revealAtMs` per segment,
 `plannedEndsAtMs` and the actual `endsAtMs` (server-only until reached).
 
+## Settlement resolution: cancel-after-end guard (v0.3)
+
+**The server never chooses the settle reason or cutoff itself.** It calls
+`resolveSettlement(placed, nowMs, requested)` with `requested ∈ 'complete' | 'cancel' | 'member_left'`, or the one-call
+`settleAt(simulator, timeline, placed, nowMs, requested, config, actors)` (= resolve + `settleWithEscrow`):
+
+| request | `now < endsAt` | `now ≥ endsAt` |
+|---|---|---|
+| `complete` (settlement job) | refused: `settle.notEnded` (no timestamps in the refusal) | `completed`, cutoff = last |
+| `cancel` (owner command) | `cancelled`, cutoff = `revealCutoff(now)` | **`completed`, cutoff = last** (`converted: true`) |
+| `member_left` | `member_left`, cutoff = `revealCutoff(now)` | `completed`, cutoff = last (`converted: true`) |
+
+`endsAt` is the **actual** end (earlier than the planned end on an early failure/retreat). Without the guard, a cancel
+whose cutoff covers the fatal segment would settle with `cancelled` and skip penalties that a simulator applies only
+to a natural end (e.g. the RPG/sandbox loss on a failed run). Before the end the reveal cutoff never covers the last
+segment (it is revealed exactly at `endsAt`). `canCancel(placed, now)` (`now < endsAt`) lets a server reject a late
+cancel command, but it must still settle the expedition as `completed`. The contract checker proves the guard per
+fixture and seed (`cancel-after-end`).
+
 ## Reveal, cancel, seeds
 
-- `revealCutoff(placed, nowMs)` — last segment with `revealAtMs ≤ now` (−1 if none). `cancelCutoff` = same.
+- `revealCutoff(placed, nowMs)` — last segment with `revealAtMs ≤ now` (−1 if none). `cancelCutoff` = same (use it
+  only through `resolveSettlement`).
 - `visibleView(placed, nowMs)` — client-safe: revealed segments without `stateAfter`, `revealedDeltas` (net), the
   **planned** end, and `outcome`/`endedAtMs` only once `now ≥ endsAt`. It never exposes the actual end or the segment
   count early (an early end would reveal a failure in advance), so progress bars use `plannedEndsAtMs`.
@@ -117,10 +145,14 @@ math via `mulDivFloor`; reveal times are non-decreasing and may coincide when `d
 
 ## Estimates
 
-`estimate(simulator, { config, actors, budget }, runs, rootSeed)` runs `simulate` with
-`estimateSeed(rootSeed, i) = deriveSeed(rootSeed, 'estimate', i)`, settles each full timeline with `completed`, and
-returns per `(actorId, asset)` net holdings `min/p10/p50/p90/max` (nearest rank `⌈p·n/100⌉`; runs without a change
-count as 0), outcome counts and `outcomeRatesBp = ⌊count·10000/runs⌋`. All integers.
+`estimate(simulator, { config, actors, budget, areaId?, activityId? }, runs, rootSeed, { metrics? })` runs `simulate`
+with `estimateSeed(rootSeed, i) = deriveSeed(rootSeed, 'estimate', i)` (and the target), settles each full timeline
+with `completed`, and returns per `(actorId, asset)` net holdings `min/p10/p50/p90/max` (nearest rank `⌈p·n/100⌉`;
+runs without a change count as 0), outcome counts and `outcomeRatesBp = ⌊count·10000/runs⌋`. All integers.
+
+Non-ledger outcomes (v0.3): an optional game extractor `metrics(timeline, settled) => Record<string, number>` (safe
+integers, e.g. `{ 'xp:<actorId>': 120 }`) is aggregated per key with the same percentiles into `metrics` (sorted by
+key; missing keys count as 0; `[]` without an extractor).
 
 ## Contract checker
 
@@ -132,8 +164,10 @@ Returns `ContractViolation[]` (no test-framework dependency). Checks: simulator 
 determinism (stable JSON with sorted keys via
 `stableStringify`), no input mutation, JSON-only data, contiguous indices from 0, positive integer weights, safe-integer
 delta quantities, Σweight ≤ budget, `parseConfig` round-trip, `settle` validity/determinism for every reason and cutoff, escrow
-well-formedness/determinism and conservation (`escrow`), `summarize` determinism, and resumption from `stateAfter`
-(when present).
+well-formedness/determinism and conservation (`escrow`), `summarize` determinism, resumption from `stateAfter`
+(when present), and the cancel-after-end guard (`cancel-after-end`: a cancel resolved at `endsAt` settles exactly like
+`completed` over the whole timeline, escrow returns included; one resolved 1 ms earlier is `cancelled` before the last
+segment). Fixtures may carry `areaId`/`activityId` (v0.3), passed to every `simulate` call.
 
 Settlement modes, one for all reasons or per reason (`{ settlement: { completed: 'custom', cancelled: 'default',
 member_left: 'default' } }`; missing reasons default to `default` iff `settle === defaultSettle`):
@@ -143,3 +177,17 @@ member_left: 'default' } }`; missing reasons default to `default` iff `settle ==
   `net(settle) ≤ max(net(defaultSettle(cutoff)), 0)` with `net` = `netHoldings` over all containers. Custom rules may
   reduce gains (failure penalties) or waive costs down to zero, never grant more than the default up to the cutoff
   (so leaked future gains are caught). Escrow returns are holding-neutral and bounded by escrow conservation.
+
+## Changes in v0.3 (#77, findings of the RPG idle simulator #76)
+
+- **Cancel-after-end guard** — `resolveSettlement`, `canCancel`, `settleAt`, `SETTLE_NOT_ENDED`, contract rule
+  `cancel-after-end` (see above).
+- **Kernel-owned target** — `ActivityRef` moved to `types.ts`; `StartContext.areaId/activityId`,
+  `SimulateInput.areaId/activityId`, `budget(…, target?)`, `EstimateInput.areaId/activityId`,
+  `ContractFixture.areaId/activityId`. All optional, so v0.2 simulators compile unchanged.
+- **Start order** — `CheckStartInput.config` → `rawConfig` (raw input; the success result carries the parsed
+  `config`); order parse → `canStart` → `escrow` → `budget`; new codes `start.invalidConfig`, `start.simulatorError`;
+  throws mapped to codes.
+- **Unique minting** — `@engine/economy` `{ kind: 'unique_mint', item }` (grant of `qty` new instances); escrow rejects
+  it.
+- **Estimates** — `estimate(…, { metrics })` → `EstimateResult.metrics: MetricEstimate[]` (always present).

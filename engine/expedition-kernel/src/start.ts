@@ -5,25 +5,20 @@
 
 import type { LedgerDelta } from '@engine/economy';
 import { NAMESPACED_ID_PATTERN, evaluateCompletion } from '@engine/world';
-import type { AreaId, EvalContext, PredicateRegistry, World } from '@engine/world';
+import type { EvalContext, PredicateRegistry, World } from '@engine/world';
 
 import { escrowProblems } from './escrow.ts';
 import { SIMULATOR_ID_PATTERN } from './types.ts';
-import type { ExpeditionSimulator, StartCheck } from './types.ts';
+import type { ActivityRef, ExpeditionSimulator, StartCheck } from './types.ts';
+
+export type { ActivityRef } from './types.ts';
 
 /** A simulator of any game, as stored in an {@link ActivityRegistry}. */
 export type AnyExpeditionSimulator = ExpeditionSimulator<unknown, unknown, unknown, unknown, unknown, unknown>;
 
-/** What a start command targets: an activity (content ID listed in `area.activities`) in an area. */
-export interface ActivityRef {
-  readonly areaId: AreaId;
-  /** Content ID (`ns:name`, e.g. `activity:scavenge`, `idle:hunt`) listed in the area's `activities`. */
-  readonly activityId: string;
-}
-
 /**
- * Start request (the client command carries this plus the raw game config). `durationMin` and `paceBp` are
- * **kernel-owned** (placement, budget); game configs must not duplicate them.
+ * Start request (the client command carries this plus the raw game config). `areaId`, `activityId`, `durationMin` and
+ * `paceBp` are **kernel-owned** (gating, placement, budget, simulation); game configs must not duplicate them.
  */
 export interface StartRequest extends ActivityRef {
   readonly durationMin: number;
@@ -77,25 +72,63 @@ export interface CheckStartInput<Config, Snapshot, Game> {
   readonly activities: ActivityRegistry;
   /** The simulator the caller resolved for `request.activityId` (typed); must be the registered one. */
   readonly simulator: ExpeditionSimulator<Config, Snapshot, unknown, unknown, unknown, Game>;
-  /** Parsed config (`simulator.parseConfig(raw)`). */
-  readonly config: Config;
+  /**
+   * The **raw**, untrusted game config of the start command (v0.3). `checkStart` parses it with
+   * `simulator.parseConfig` before anything else uses it and returns the parsed config on success. (An already parsed
+   * config works too: the contract checker requires `parseConfig` to round-trip.)
+   */
+  readonly rawConfig: unknown;
   readonly actors: readonly Snapshot[];
   /** One evaluation context per actor, aligned with `actors` (completion is per actor). */
   readonly evalContexts: readonly EvalContext<Game>[];
   readonly predicates: PredicateRegistry<Game>;
 }
 
-/** {@link checkStart} result: on success, the planned budget and the validated escrow to apply. */
-export type StartGate =
-  | { readonly ok: true; readonly budget: number; readonly escrow: readonly LedgerDelta[] }
+/** {@link checkStart} result: on success, the parsed config, the planned budget and the validated escrow to apply. */
+export type StartGate<Config = unknown> =
+  | { readonly ok: true; readonly config: Config; readonly budget: number; readonly escrow: readonly LedgerDelta[] }
   | Extract<StartCheck, { ok: false }>;
 
-function fail(code: string, message?: string, reasons?: readonly string[]): StartGate {
+/** Stable failure codes of {@link checkStart}, in gate order (a simulator refusal keeps its own code). */
+export const START_CODES = [
+  'start.unknownArea',
+  'start.activityNotInArea',
+  'start.unknownActivity',
+  'start.simulatorMismatch',
+  'start.invalidDuration',
+  'start.noActors',
+  'start.contextMismatch',
+  'start.areaNotCompleted',
+  'start.invalidConfig',
+  'start.simulatorError',
+  'start.invalidEscrow',
+  'start.invalidBudget',
+] as const;
+export type StartCode = (typeof START_CODES)[number];
+
+type StartFailure = Extract<StartCheck, { ok: false }>;
+
+function fail(code: StartCode, message?: string, reasons?: readonly string[]): StartFailure {
   return { ok: false, code, ...(message === undefined ? {} : { message }), ...(reasons === undefined ? {} : { reasons }) };
 }
 
+/** Runs `fn`; a throw becomes `{ threw: message }`. */
+function guarded<T>(fn: () => T): { readonly value: T } | { readonly threw: string } {
+  try {
+    return { value: fn() };
+  } catch (e) {
+    return { threw: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+function isStartCheck(v: unknown): v is StartCheck {
+  if (typeof v !== 'object' || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return r['ok'] === true || (r['ok'] === false && typeof r['code'] === 'string' && r['code'] !== '');
+}
+
 /**
- * The engine's start checks, in order (first failure wins; codes are stable):
+ * The engine's start checks, in order (first failure wins; codes are stable, see {@link START_CODES}):
  *
  * 1. `start.unknownArea` — `request.areaId` is not an area of `world`;
  * 2. `start.activityNotInArea` — `request.activityId` is not listed in `area.activities`;
@@ -106,14 +139,20 @@ function fail(code: string, message?: string, reasons?: readonly string[]): Star
  * 6. `start.areaNotCompleted` — some actor has not completed the area (`@engine/world` `evaluateCompletion`; areas
  *    without a completion rule need none). `reasons` lists `completion.discoveries:<areaId>` when too few pool locations
  *    are discovered, then the failing `required` reason keys; `message` names the actor indices;
- * 7. `start.invalidEscrow` — `simulator.escrow` returned malformed deltas; `start.invalidBudget` — `simulator.budget`
- *    is not a positive safe integer;
- * 8. `simulator.canStart` with the world, the area, the eval contexts and the predicate registry.
+ * 7. `start.invalidConfig` — `simulator.parseConfig(rawConfig)` threw (v0.3: the config is parsed before anything
+ *    uses it);
+ * 8. `simulator.canStart` with the parsed config, the request's area/activity/duration/pace, the world, the area, the
+ *    eval contexts and the predicate registry; its refusal is returned as-is; a throw or a malformed result is
+ *    `start.simulatorError`;
+ * 9. `start.invalidEscrow` — `simulator.escrow` threw or returned malformed deltas;
+ * 10. `start.invalidBudget` — `simulator.budget(config, durationMin, paceBp, { areaId, activityId })` threw or is not a
+ *    positive safe integer.
  *
- * Pure: it reads only its input. Locks, activity CAS and the ledger are the caller's (server-kit) job.
+ * Never throws because of the simulator (v0.3): every simulator call is guarded and mapped to a `start.*` code whose
+ * `message` carries the error. Pure: it reads only its input. Locks, activity CAS and the ledger are the caller's job.
  */
-export function checkStart<Config, Snapshot, Game>(input: CheckStartInput<Config, Snapshot, Game>): StartGate {
-  const { world, request, simulator, config, actors, evalContexts, predicates } = input;
+export function checkStart<Config, Snapshot, Game>(input: CheckStartInput<Config, Snapshot, Game>): StartGate<Config> {
+  const { world, request, simulator, actors, evalContexts, predicates } = input;
   const area = world.areas.find((a) => a.id === request.areaId);
   if (area === undefined) return fail('start.unknownArea', `unknown area ${request.areaId}`);
   if (!(area.activities ?? []).includes(request.activityId)) {
@@ -146,21 +185,38 @@ export function checkStart<Config, Snapshot, Game>(input: CheckStartInput<Config
     return fail('start.areaNotCompleted', `actors ${missing.join(', ')} have not completed ${area.id}`, [...new Set(reasons)]);
   }
 
-  const escrow = simulator.escrow === undefined ? [] : simulator.escrow(config, actors);
-  const escrowIssues = escrowProblems(escrow);
-  if (escrowIssues.length > 0) return fail('start.invalidEscrow', escrowIssues.join('; '));
-  const budget = simulator.budget(config, request.durationMin, request.paceBp);
-  if (!Number.isSafeInteger(budget) || budget <= 0) return fail('start.invalidBudget', `budget ${String(budget)} is not a positive safe integer`);
+  const parsed = guarded(() => simulator.parseConfig(input.rawConfig));
+  if ('threw' in parsed) return fail('start.invalidConfig', parsed.threw);
+  const config = parsed.value;
 
-  const check = simulator.canStart({
-    config,
-    actors,
-    durationMin: request.durationMin,
-    paceBp: request.paceBp,
-    world,
-    area,
-    evalContexts,
-    predicates,
-  });
-  return check.ok ? { ok: true, budget, escrow } : check;
+  const target: ActivityRef = { areaId: request.areaId, activityId: request.activityId };
+  const check = guarded(() =>
+    simulator.canStart({
+      config,
+      actors,
+      durationMin: request.durationMin,
+      paceBp: request.paceBp,
+      areaId: target.areaId,
+      activityId: target.activityId,
+      world,
+      area,
+      evalContexts,
+      predicates,
+    }),
+  );
+  if ('threw' in check) return fail('start.simulatorError', `canStart threw: ${check.threw}`);
+  if (!isStartCheck(check.value)) return fail('start.simulatorError', 'canStart returned a malformed result');
+  if (!check.value.ok) return check.value;
+
+  const escrow = guarded(() => (simulator.escrow === undefined ? [] : simulator.escrow(config, actors)));
+  if ('threw' in escrow) return fail('start.invalidEscrow', `escrow threw: ${escrow.threw}`);
+  const escrowIssues = escrowProblems(escrow.value);
+  if (escrowIssues.length > 0) return fail('start.invalidEscrow', escrowIssues.join('; '));
+
+  const budget = guarded(() => simulator.budget(config, request.durationMin, request.paceBp, target));
+  if ('threw' in budget) return fail('start.invalidBudget', `budget threw: ${budget.threw}`);
+  if (!Number.isSafeInteger(budget.value) || budget.value <= 0) {
+    return fail('start.invalidBudget', `budget ${String(budget.value)} is not a positive safe integer`);
+  }
+  return { ok: true, config, budget: budget.value, escrow: escrow.value };
 }

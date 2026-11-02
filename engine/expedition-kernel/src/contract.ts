@@ -7,9 +7,11 @@
 import { assertLedgerDelta, assetKey, netHoldings } from '@engine/economy';
 import type { LedgerDelta } from '@engine/economy';
 import type { Seed } from '@engine/sim-core';
+import type { AreaId } from '@engine/world';
 
 import { escrowProblems, escrowReturns } from './escrow.ts';
-import { revisionSeed } from './placement.ts';
+import { placeSegments, revisionSeed } from './placement.ts';
+import { resolveSettlement } from './settlement.ts';
 import { stableStringify } from './stable-stringify.ts';
 import { defaultSettle, spliceTimeline, timelineProblems, totalWeight } from './timeline.ts';
 import { SETTLE_REASONS, SIMULATOR_ID_PATTERN } from './types.ts';
@@ -22,6 +24,9 @@ export interface ContractFixture<Config, Snapshot> {
   readonly actors: readonly Snapshot[];
   readonly budget: number;
   readonly seeds: readonly Seed[];
+  /** The expedition's target (v0.3), passed to every `simulate` call (needed by simulators whose model uses it). */
+  readonly areaId?: AreaId;
+  readonly activityId?: string;
 }
 
 /**
@@ -62,7 +67,8 @@ export type ContractRule =
   | 'settle-bound'
   | 'escrow'
   | 'summarize-determinism'
-  | 'resume';
+  | 'resume'
+  | 'cancel-after-end';
 
 export interface ContractViolation {
   /** Index of the fixture in the list (`-1` for simulator-level rules such as `identity`). */
@@ -117,6 +123,11 @@ function sampleCutoffs(length: number, max: number): number[] {
  *   {@link SettlementMode}); in both modes it conserves escrow: never takes more out of `escrow` than was escrowed per
  *   (actor, asset), never moves anything into it, so returns are non-negative (`escrow`);
  * - `summarize` is deterministic at cutoffs −1 and last;
+ * - cancel-after-end guard (v0.3, `cancel-after-end`): with the timeline placed at 1 ms per weight unit, a `cancel`
+ *   resolved at `endsAt` (`resolveSettlement`) is a `completed` settlement of the whole timeline, and settling it gives
+ *   exactly the deltas (and escrow returns) of `settle(t, last, 'completed')` — so a cancel after the end can never
+ *   bypass a natural-end penalty (e.g. the loss on a failed timeline); a cancel 1 ms before the end resolves to
+ *   `cancelled` with a cutoff before the last segment;
  * - resumption: where `stateAfter` of segment k−1 is present (k sampled at 1, middle, last), `simulate` with
  *   `from: { segment: k, state }`, `revisionSeed(seed, 1)` and the remaining budget is deterministic and returns a
  *   valid timeline starting at index k within the remaining budget.
@@ -190,12 +201,18 @@ export function checkSimulatorContract<Config, Snapshot, Event, SimState, Report
       }
     }
 
+    const target = {
+      ...(fixture.areaId === undefined ? {} : { areaId: fixture.areaId }),
+      ...(fixture.activityId === undefined ? {} : { activityId: fixture.activityId }),
+    };
+
     for (const seed of fixture.seeds) {
       const input: SimulateInput<Config, Snapshot, SimState> = {
         config: fixture.config,
         actors: fixture.actors,
         seed,
         budget: fixture.budget,
+        ...target,
       };
       const t1 = attempt('simulate', () => simulator.simulate(input), seed);
       if (tryStringify({ config: fixture.config, actors: fixture.actors }) !== inputJson) {
@@ -265,6 +282,41 @@ export function checkSimulatorContract<Config, Snapshot, Event, SimState, Report
         }
       }
 
+      // cancel-after-end guard
+      attempt(
+        'cancel-after-end',
+        () => {
+          const placed = placeSegments(t1, 0, fixture.budget, fixture.budget);
+          const after = resolveSettlement(placed, placed.endsAtMs, 'cancel');
+          if (!after.ok || after.reason !== 'completed' || after.cutoff !== last) {
+            report('cancel-after-end', `a cancel at the end resolved to ${JSON.stringify(after)}, expected completed at cutoff ${last}`, seed);
+            return;
+          }
+          const viaCancel = simulator.settle(t1, after.cutoff, after.reason);
+          const natural = simulator.settle(t1, last, 'completed');
+          if (tryStringify(viaCancel) !== tryStringify(natural)) {
+            report('cancel-after-end', 'settling a cancel after the end differs from the natural (completed) settlement', seed);
+          }
+          const returnsOf = (settled: LedgerDelta[]): string | undefined => {
+            try {
+              return escrow === undefined ? undefined : tryStringify(escrowReturns(escrow, settled));
+            } catch {
+              return undefined; // already reported by the `escrow` rule
+            }
+          };
+          if (returnsOf(viaCancel) !== returnsOf(natural)) {
+            report('cancel-after-end', 'escrow returns of a cancel after the end differ from the natural settlement', seed);
+          }
+          if (placed.endsAtMs > placed.startsAtMs) {
+            const before = resolveSettlement(placed, placed.endsAtMs - 1, 'cancel');
+            if (!before.ok || before.reason !== 'cancelled' || before.cutoff >= last) {
+              report('cancel-after-end', `a cancel before the end resolved to ${JSON.stringify(before)}, expected cancelled before cutoff ${last}`, seed);
+            }
+          }
+        },
+        seed,
+      );
+
       // summarize
       for (const cutoff of [...new Set([-1, last])]) {
         const r1 = attempt(`summarize(${cutoff})`, () => simulator.summarize(t1, cutoff), seed);
@@ -288,6 +340,7 @@ export function checkSimulatorContract<Config, Snapshot, Event, SimState, Report
           actors: fixture.actors,
           seed: revisionSeed(seed, 1),
           budget: remaining,
+          ...target,
           from: { segment: k, state: structuredClone(prev.stateAfter) },
         };
         const where = `simulate(from segment ${k})`;

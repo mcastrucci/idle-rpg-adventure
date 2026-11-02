@@ -87,8 +87,10 @@ export function revealCutoff(placed: PlacedTimeline<unknown, unknown>, nowMs: nu
 }
 
 /**
- * Cutoff for a cancellation at `nowMs`: the last revealed segment (docs/engine/expedition-kernel.md §2.4). What a
- * cancellation grants for those segments is the simulator's `settle(…, 'cancelled')` decision (open decision #6).
+ * Cutoff for a cancellation at `nowMs` **before the end**: the last revealed segment (docs/engine/expedition-kernel.md
+ * §2.4). What a cancellation grants for those segments is the simulator's `settle(…, 'cancelled')` decision (open
+ * decision #6). Servers must not pair it with `'cancelled'` themselves: use `resolveSettlement` / `settleAt`, which
+ * turn a cancel at or after `endsAt` into a `completed` settlement of the whole timeline (cancel-after-end guard).
  */
 export function cancelCutoff(placed: PlacedTimeline<unknown, unknown>, nowMs: number): number {
   return revealCutoff(placed, nowMs);
