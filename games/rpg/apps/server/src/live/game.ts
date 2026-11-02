@@ -27,7 +27,7 @@ import type { LiveLocation, LiveWorld } from './world.ts';
 
 export const RPG_LIVE_GAME_ID = 'rpg.live';
 /** Bumped with any change of rules or checkpoint shape: a node refuses to restore another version's checkpoint. */
-export const RPG_LIVE_VERSION = `rpg.live@0.2.0+${ENGINE_VERSION}`;
+export const RPG_LIVE_VERSION = `rpg.live@0.3.0+${ENGINE_VERSION}`;
 /** Open decision #1 (provisional). */
 export const RPG_LIVE_TICK_MS = 500;
 
@@ -241,7 +241,9 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       if (!hero.present || hero.world.discovered.includes(to)) continue;
       hero.world.discovered.push(to);
       discoverers.push(hero.actorId);
-      effects.push({ type: 'discovery', actorId: hero.actorId, areaId: location.area, locationId: to });
+      const completion = world.areas.get(location.area)?.completion;
+      effects.push({ type: 'discovery', actorId: hero.actorId, areaId: location.area, locationId: to,
+        ...(completion ? { completion } : {}) });
     }
     if (discoverers.length > 0) events.push({ type: 'discovered', locationId: to, actorIds: discoverers });
   }
@@ -488,10 +490,13 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
         if (group.boss) {
           // Boss credit goes to the participants who were in the fight, alive or dead (conquest-rules, provisional).
           const bosses = [...new Set(group.enemies.filter((enemy) => combatContent.enemies[enemy]?.rank === 'boss'))].sort();
+          const completion = world.areas.get(ended.area)?.completion;
           for (const fighter of result.state.actors.filter((a) => a.side === 'hero')) {
-            effects.push({ type: 'bossDefeated', actorId: fighter.id, areaId: ended.area, enemyIds: bosses });
             const hero = ended.heroes.find((h) => h.actorId === fighter.id);
-            for (const enemy of bosses) if (hero && !hero.world.objectives.includes(`defeated:${enemy}`)) hero.world.objectives.push(`defeated:${enemy}`);
+            if (!hero?.present) continue;
+            effects.push({ type: 'bossDefeated', actorId: fighter.id, areaId: ended.area, enemyIds: bosses,
+              ...(completion ? { completion } : {}) });
+            for (const enemy of bosses) if (!hero.world.objectives.includes(`defeated:${enemy}`)) hero.world.objectives.push(`defeated:${enemy}`);
           }
         }
       }

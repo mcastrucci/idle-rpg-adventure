@@ -8,12 +8,14 @@ import { describe, expect, it } from 'vitest';
 import { PROVISIONAL_STARTER_ATTRIBUTES, PROVISIONAL_STARTER_RULES, PROVISIONAL_STARTER_SKILLS, BASIC_ATTACK } from '../characters/validation.ts';
 import { createRpgLiveGame, RETREAT_HP_COST_BP } from './game.ts';
 import type { RpgLiveHeroSetup, RpgLiveSetup, RpgLiveState } from './game.ts';
+import type { RpgLiveEffect } from './effects.ts';
 
 const compiled = compileContentDirectory(fileURLToPath(new URL('../../../../content', import.meta.url)), plugin);
 if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
 const game = createRpgLiveGame(compiled.bundle);
 const HERO = '00000000-0000-4000-8000-000000000001';
 const ALLY = '00000000-0000-4000-8000-000000000002';
+const DEAD_HERO = '00000000-0000-4000-8000-000000000003';
 
 const GLADE = 'loc:test_grove.glade';
 const SLIMES = { id: 'group:slimes', enemies: ['enemy:test_grove.slime'] };
@@ -138,7 +140,7 @@ describe('RPG live plugin: exploration (#38)', () => {
     expect(state.outbox).toHaveLength(2);
     const first = ok(game.applyCommand(state, HERO, travel(EXIT('portal_clearing', 'overgrown_causeway'))));
     expect(first.checkpoint).toBe(true);
-    expect(first.effects).toEqual([
+    expect(first.effects).toMatchObject([
       { type: 'discovery', actorId: HERO, areaId: 'area:region_1', locationId: R1('portal_clearing') },
       { type: 'discovery', actorId: ALLY, areaId: 'area:region_1', locationId: R1('portal_clearing') },
       { type: 'discovery', actorId: HERO, areaId: 'area:region_1', locationId: R1('overgrown_causeway') },
@@ -152,7 +154,7 @@ describe('RPG live plugin: exploration (#38)', () => {
     if (!left) throw new Error('expected removal');
     const onward = ok(game.applyCommand(left.state, HERO, travel(EXIT('portal_clearing', 'overgrown_causeway'))));
     const old = ok(game.applyCommand(onward.state, HERO, travel(EXIT('overgrown_causeway', 'old_well'))));
-    expect(old.effects).toEqual([{ type: 'discovery', actorId: HERO, areaId: 'area:region_1', locationId: R1('old_well') }]);
+    expect(old.effects).toMatchObject([{ type: 'discovery', actorId: HERO, areaId: 'area:region_1', locationId: R1('old_well') }]);
   });
 
   it('rejects unknown, locked and secret exits server-side', () => {
@@ -214,7 +216,7 @@ describe('RPG live plugin: exploration (#38)', () => {
     expect(entered.state).toMatchObject({ phase: 'combat', location: R1('seed_vault_heart'), combatGroup: `${R1('seed_vault_heart')}/0` });
     expect(entered.state.visited[R1('seed_vault_heart')]?.groups).toEqual([{ id: `${R1('seed_vault_heart')}/0`,
       enemies: ['enemy:hollow_matriarch'], boss: true, defeated: false }]); // open decision #14: one roll in a boss room
-    expect(entered.effects).toEqual([{ type: 'discovery', actorId: HERO, areaId: 'area:region_1', locationId: R1('seed_vault_heart') }]);
+    expect(entered.effects).toMatchObject([{ type: 'discovery', actorId: HERO, areaId: 'area:region_1', locationId: R1('seed_vault_heart') }]);
     expect(game.applyCommand(entered.state, HERO, { type: 'retreat' })).toEqual({ rejected: 'retreat_not_allowed' });
     // A won boss fight credits the fighters and makes the cleared boss room a return point.
     const won = structuredClone(entered.state);
@@ -224,9 +226,40 @@ describe('RPG live plugin: exploration (#38)', () => {
     for (const actor of combat.actors) if (actor.side === 'enemy') { actor.hp = 1; }
     for (let i = 0; i < 2000 && game.isTicking(step.state); i += 1) step = game.tick(step.state);
     expect(step.state.phase).toBe('exploring');
-    expect(step.effects).toEqual([{ type: 'bossDefeated', actorId: HERO, areaId: 'area:region_1', enemyIds: ['enemy:hollow_matriarch'] }]);
+    expect(step.effects).toMatchObject([{ type: 'bossDefeated', actorId: HERO, areaId: 'area:region_1', enemyIds: ['enemy:hollow_matriarch'] }]);
     expect(step.state.heroes[0]?.world.objectives).toContain('defeated:enemy:hollow_matriarch');
     expect(ok(game.applyCommand(step.state, HERO, { type: 'returnToSanctuary' })).close?.outcome).toBe('returned');
+  });
+
+  it('credits only present heroes for a boss victory, including a present hero who died during combat', () => {
+    const state = start({ area: 'area:region_1', location: R1('seed_vault_heart'), groups: [
+      { id: 'group:matriarch', enemies: ['enemy:hollow_matriarch'] },
+    ], heroes: [hero(HERO), hero(ALLY), hero(DEAD_HERO)] }, 43, [HERO, ALLY, DEAD_HERO]);
+    const engaged = ok(game.applyCommand(state, HERO, { type: 'engage', groupId: 'group:matriarch' }));
+    const fighting = structuredClone(engaged.state);
+    const absent = fighting.heroes.find((candidate) => candidate.actorId === ALLY);
+    const deadButPresent = fighting.combat?.actors.find((actor) => actor.side === 'hero' && actor.id === DEAD_HERO);
+    const enemy = fighting.combat?.actors.find((actor) => actor.side === 'enemy');
+    if (!absent || !deadButPresent || !enemy) throw new Error('expected a party boss encounter');
+    // Grace removal is deferred during combat. Keep the actor in the fight but mark the participant absent to model
+    // a departure marker arriving while the combat checkpoint still carries the original combat actors.
+    expect(game.removeParticipant(fighting, ALLY)).toBeNull();
+    absent.present = false;
+    deadButPresent.hp = 0;
+    deadButPresent.alive = false;
+    enemy.hp = 1;
+
+    let step: LiveStep<RpgLiveState> = { state: fighting };
+    for (let tick = 0; tick < 2000 && game.isTicking(step.state); tick += 1) step = game.tick(step.state);
+    expect(step.state.phase).toBe('exploring');
+    expect(step.effects).toMatchObject([
+      { type: 'bossDefeated', actorId: HERO, enemyIds: ['enemy:hollow_matriarch'] },
+      { type: 'bossDefeated', actorId: DEAD_HERO, enemyIds: ['enemy:hollow_matriarch'] },
+    ]);
+    const effects = (step.effects ?? []) as unknown as RpgLiveEffect[];
+    expect(effects.some(effect => effect.type === 'bossDefeated' && effect.actorId === ALLY)).toBe(false);
+    expect(step.state.heroes.find((candidate) => candidate.actorId === DEAD_HERO)?.world.objectives)
+      .toContain('defeated:enemy:hollow_matriarch');
   });
 
   it('allows returning to the Sanctuary only out of combat from the start, a safe location or a cleared boss room', () => {
@@ -234,7 +267,7 @@ describe('RPG live plugin: exploration (#38)', () => {
     const returned = ok(game.applyCommand(portal, HERO, { type: 'returnToSanctuary' }));
     expect(returned.close?.outcome).toBe('returned');
     expect(returned.state.phase).toBe('closing');
-    expect(returned.effects).toEqual([{ type: 'discovery', actorId: HERO, areaId: 'area:region_1', locationId: R1('portal_clearing') }]);
+    expect(returned.effects).toMatchObject([{ type: 'discovery', actorId: HERO, areaId: 'area:region_1', locationId: R1('portal_clearing') }]);
     const causeway = run(portal, travel(EXIT('portal_clearing', 'overgrown_causeway')));
     expect(game.applyCommand(causeway, HERO, { type: 'returnToSanctuary' })).toEqual({ rejected: 'not_safe_location' });
     const antechamber = run(portal, ...TO_PUMP, travel(EXIT('pump_station', 'vault_antechamber')));
