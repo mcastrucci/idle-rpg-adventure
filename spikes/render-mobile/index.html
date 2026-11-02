@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#11131a" />
+    <title>Render spike</title>
+  </head>
+  <body class="index-page">
+    <main class="index">
+      <header>
+        <h1>Spike 2 · Render en móvil</h1>
+        <p class="lead">PixiJS vs Phaser con la misma escena. Issue <strong>#12</strong>.</p>
+      </header>
+
+      <section class="card">
+        <h2>Elegir variante</h2>
+        <div class="options">
+          <label>Formato de imagen
+            <select id="opt-format">
+              <option value="webp">WebP</option>
+              <option value="png">PNG</option>
+            </select>
+          </label>
+          <label>Resolución del canvas
+            <select id="opt-res">
+              <option value="">auto (DPR, máx. 2×)</option>
+              <option value="1">1×</option>
+              <option value="2">2×</option>
+              <option value="native">nativa (DPR completo)</option>
+            </select>
+          </label>
+        </div>
+        <div class="renderer-links">
+          <a id="link-pixi" class="big-link" href="./pixi.html">PixiJS <span id="ver-pixi"></span></a>
+          <a id="link-phaser" class="big-link" href="./phaser.html">Phaser <span id="ver-phaser"></span></a>
+        </div>
+        <p class="hint">KTX2/Basis no está cubierto en este kit (ver README).</p>
+      </section>
+
+      <section class="card">
+        <h2>Cómo probar (resumen)</h2>
+        <ol>
+          <li>Cerrar las demás apps. Batería &gt; 50 %, sin modo ahorro de energía, brillo normal.</li>
+          <li>Abrir <strong>PixiJS</strong>. Esperar a que aparezca la escena y abrir el <em>Panel</em> (arriba).</li>
+          <li>Pulsar <strong>Benchmark 30 s</strong> sin tocar la pantalla. Luego activar <strong>Stress</strong> y repetir el benchmark.</li>
+          <li>Pulsar <strong>Escena (fade)</strong> y <strong>Escena (slide)</strong> un par de veces. Tocar los círculos (hotspots) y los personajes.</li>
+          <li>Enviar la app a segundo plano ~10 s (ir al inicio del teléfono) y volver. Ver «reanudó: sí/NO».</li>
+          <li>Pulsar <strong>Simular pérdida de contexto</strong> y esperar el PASS/FAIL.</li>
+          <li>Pulsar <strong>Probar audio</strong> (¿se oye un pitido?).</li>
+          <li>Pulsar <strong>Copiar resultados</strong> y pegarlos como comentario en el issue #12.</li>
+          <li>Repetir todo con <strong>Phaser</strong>, y luego con formato <strong>PNG</strong>.</li>
+        </ol>
+        <p class="hint">Si el teléfono se calienta, esperar unos minutos entre corridas: el throttling térmico cambia los números.</p>
+      </section>
+
+      <section class="card" id="native-card" hidden>
+        <h2>Capacitor (solo app nativa)</h2>
+        <p class="hint">Requiere los plugins instalados en el proyecto Capacitor (ver README).</p>
+        <div class="row">
+          <button type="button" data-native="notify">Notificación local (+15 s)</button>
+          <button type="button" data-native="iap">Compra sandbox (RevenueCat)</button>
+        </div>
+        <textarea readonly rows="6"></textarea>
+      </section>
+
+      <section class="card">
+        <h2>Este dispositivo</h2>
+        <dl id="device" class="kv"></dl>
+      </section>
+
+      <section class="card">
+        <h2>Resultados guardados en este dispositivo</h2>
+        <p id="saved-summary" class="hint">—</p>
+        <div class="row">
+          <button type="button" id="copy-all" class="primary">Copiar todos</button>
+          <button type="button" id="clear-all">Borrar</button>
+        </div>
+        <p id="index-status" class="hint" role="status"></p>
+        <textarea id="all-results" readonly rows="6"></textarea>
+      </section>
+    </main>
+    <script type="module" src="./src/pages/index.ts"></script>
+  </body>
+</html>

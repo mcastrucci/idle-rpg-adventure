@@ -30,7 +30,7 @@ RPG composition; module names map to engine packages (`server-kit`, `economy`, `
 | Persistence + jobs | PostgreSQL only (pg-boss or graphile-worker in-process) | Accepted — [ADR-0006](../adr/0006-postgresql-single-source-of-truth.md) |
 | Data access | Drizzle (locks/idempotency as explicit SQL) | *Hypothesis* — [ADR-0015](../adr/0015-data-access-layer.md) |
 | Combat engine | Server-only deterministic step function | Accepted — [ADR-0003](../adr/0003-simulation-server-only.md), [ADR-0004](../adr/0004-deterministic-step-engine.md) |
-| Idle | Precompute at start, progressive reveal, idempotent settlement | Accepted — [ADR-0005](../adr/0005-idle-precompute-at-start.md) |
+| Idle | Precompute at start, progressive reveal, idempotent settlement; 500 ms live tick, encounter-per-segment model (provisional values) | Accepted — [ADR-0005](../adr/0005-idle-precompute-at-start.md), [ADR-0013](../adr/0013-tick-and-idle-encounter-model.md) ([spike 1](../spikes/spike-1-sim.md)) |
 | Economy | Idempotent ledger + character activity lock | Accepted — [ADR-0007](../adr/0007-ledger-and-activity-lock.md) |
 | Content | Canonical JSON + Zod + content compiler with hash; Tiled for scene layout | Accepted / *hypothesis* — [ADR-0008](../adr/0008-declarative-content-pipeline.md), [ADR-0014](../adr/0014-tiled-scene-editor.md) |
 | Mobile distribution | Capacitor | *Hypothesis* — [ADR-0011](../adr/0011-capacitor-mobile.md) |

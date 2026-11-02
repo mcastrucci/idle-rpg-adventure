@@ -1,0 +1,22 @@
+{
+  "name": "@spikes/render-mobile",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Spike 2 (#12) device test kit: the same mobile scene in PixiJS and Phaser with an on-screen metrics HUD.",
+  "scripts": {
+    "assets": "node scripts/gen-assets.ts",
+    "dev": "node scripts/gen-assets.ts && vite",
+    "build": "node scripts/gen-assets.ts && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "phaser": "4.2.1",
+    "pixi.js": "8.22.0"
+  },
+  "devDependencies": {
+    "@jsquash/webp": "1.5.0",
+    "vite": "8.3.5"
+  }
+}

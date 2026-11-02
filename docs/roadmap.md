@@ -44,7 +44,7 @@ content as inputs to simulation. Such draft data remains provisional and does no
 produce final scene art until spike 2 measures the renderer, texture budget, and scene format on real devices.
 
 - Monorepo bootstrap (pnpm, TS strict, lint incl. sim import ban, Vitest, CI)
-- **Spike 1** — combat engine + idle precompute + estimates (ADR-0013)
+- **Spike 1** — combat engine + idle precompute + estimates (ADR-0013) — **done**, ADR-0013 Accepted; 200-run estimate latency (5.2 s / 3.9 s vs 2 s) needs the cache of #53; report: [`docs/spikes/spike-1-sim.md`](spikes/spike-1-sim.md)
 - **Spike 2** — mobile rendering PixiJS vs Phaser + Capacitor on real devices (ADR-0010, ADR-0011)
 - **Spike 3** — live instance + economy integrity under adversarial tests (ADR-0012)
 - Region 1 paper design — [`docs/design/region-1.md`](design/region-1.md) (draft for product review)
