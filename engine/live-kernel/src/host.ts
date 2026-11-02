@@ -400,20 +400,22 @@ export class InstanceHost<S> {
   async #apply(hosted: Hosted<S>, step: LiveStep<S>): Promise<void> {
     hosted.state = step.state;
     for (const event of step.events ?? []) this.#emit(hosted, 'game', event);
-    if (step.close) { await this.#close(hosted, step.close.outcome, step.close.result); return; }
-    if (step.checkpoint) await this.#checkpoint(hosted);
+    const effects = step.effects ?? [];
+    if (step.close) { await this.#close(hosted, step.close.outcome, step.close.result, effects); return; }
+    if (step.checkpoint || effects.length > 0) await this.#checkpoint(hosted, effects);
     this.#schedule(hosted);
   }
 
-  async #checkpoint(hosted: Hosted<S>): Promise<void> {
-    const next = await this.#store.checkpoint(hosted.lease, this.#payload(hosted.state, hosted.seq, hosted.commands), this.#clock.nowMs());
+  async #checkpoint(hosted: Hosted<S>, effects: readonly JsonValue[]): Promise<void> {
+    const next = await this.#store.checkpoint(hosted.lease, this.#payload(hosted.state, hosted.seq, hosted.commands), this.#clock.nowMs(),
+      effects);
     if (next === null) this.#evict(hosted, 'lease_lost');
     else hosted.lease = next;
   }
 
-  async #close(hosted: Hosted<S>, outcome: string, result: JsonValue): Promise<void> {
+  async #close(hosted: Hosted<S>, outcome: string, result: JsonValue, effects: readonly JsonValue[] = []): Promise<void> {
     const closed = await this.#store.close(hosted.lease, { outcome, result,
-      checkpoint: this.#payload(hosted.state, hosted.seq, hosted.commands) }, this.#clock.nowMs());
+      checkpoint: this.#payload(hosted.state, hosted.seq, hosted.commands), ...(effects.length > 0 ? { effects } : {}) }, this.#clock.nowMs());
     if (!closed) { this.#evict(hosted, 'lease_lost'); return; }
     this.#broadcast(hosted, { type: 'live.closed', instanceId: hosted.lease.instanceId, outcome, result });
     this.#forget(hosted);
@@ -459,10 +461,10 @@ export class InstanceHost<S> {
       participant.status = 'left'; participant.connection = null;
       this.#emit(hosted, 'host', { type: 'participant', actorId, status: 'left' });
       const next = await this.#store.releaseParticipant(hosted.lease, actorId,
-        this.#payload(hosted.state, hosted.seq, hosted.commands), this.#clock.nowMs());
+        this.#payload(hosted.state, hosted.seq, hosted.commands), this.#clock.nowMs(), step.close ? [] : step.effects ?? []);
       if (next === null) { this.#evict(hosted, 'lease_lost'); return; }
       hosted.lease = next;
-      if (step.close) { await this.#close(hosted, step.close.outcome, step.close.result); return; }
+      if (step.close) { await this.#close(hosted, step.close.outcome, step.close.result, step.effects ?? []); return; }
       this.#schedule(hosted);
     }
     if (!hosted.gone && [...hosted.participants.values()].every((participant) => participant.status === 'left')) {

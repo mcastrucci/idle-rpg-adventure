@@ -34,7 +34,12 @@
     {
       "id": "cracked_panel",
       "type": "search",
-      "textKey": "hotspot.region_1.cracked_panel"
+      "textKey": "hotspot.region_1.cracked_panel",
+      "effects": [
+        {
+          "setFlag": "region_1.hatch_found"
+        }
+      ]
     }
   ],
   "encounters": "enc:region_1.lantern_ruins"

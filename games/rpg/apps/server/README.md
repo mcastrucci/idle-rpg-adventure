@@ -5,7 +5,8 @@ compiled RPG schemas and references, and composes content metadata, authenticati
 command maintenance. API processes serve auth/characters/expedition routes; live processes serve authenticated
 WebSocket commands; workers settle persisted expeditions and compact expired command responses. Expedition precompute
 runs in the authenticated command transaction and uses only the shared deterministic simulator; it does not start a
-live combat session.
+live combat session. Live instances (exploration state machine, commands and provisional rules) are documented in
+[`src/live/README.md`](src/live/README.md).
 
 From the repository root, with a running PostgreSQL database:
 

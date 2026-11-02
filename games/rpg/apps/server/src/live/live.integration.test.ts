@@ -30,7 +30,8 @@ import type { RpgLiveHost } from './index.ts';
 const adminUrl = process.env['TEST_DATABASE_URL'];
 if (process.env['CI'] && !adminUrl) throw new Error('CI must supply TEST_DATABASE_URL for live hosting integration tests');
 
-const LOCATION = 'loc:test_grove.glade';
+// The Test Grove start location: returning to the Sanctuary is allowed there (open decision #17, provisional).
+const LOCATION = 'loc:test_grove.entrance';
 const SLIMES = { id: 'group:slimes', enemies: ['enemy:test_grove.slime'] };
 const WARDENS = { id: 'group:wardens', enemies: ['enemy:test_grove.warden', 'enemy:test_grove.warden', 'enemy:test_grove.warden'] };
 const GROUPS = [SLIMES, WARDENS];
@@ -228,7 +229,7 @@ describe.skipIf(!adminUrl)('live instance hosting under adversarial conditions (
     expect(await ca2.command(instanceId, { type: 'engage', groupId: SLIMES.id }, engageId)).toMatchObject({ status: 'applied', duplicate: true });
     expect(host.inspect(instanceId)?.state.encounters).toBe(1);
     await advance(60_000, [nodeA], () => host.inspect(instanceId)?.ticking === false);
-    expect(host.inspect(instanceId)?.state.groups.find((g) => g.id === SLIMES.id)?.defeated).toBe(true);
+    expect(host.inspect(instanceId)?.state.visited[LOCATION]?.groups.find((g) => g.id === SLIMES.id)?.defeated).toBe(true);
     // Both clients converge on the same state through events.
     expect(cb.seq).toBe(host.inspect(instanceId)?.seq);
     expect(ca2.seq).toBe(cb.seq);
@@ -266,7 +267,7 @@ describe.skipIf(!adminUrl)('live instance hosting under adversarial conditions (
     await ca.command(instanceId, { type: 'engage', groupId: SLIMES.id });
     await advance(60_000, [nodeA], () => nodeA.live.host().inspect(instanceId)?.ticking === false);
     const beforeCrash = nodeA.live.host().inspect(instanceId)?.state;
-    expect(beforeCrash?.groups.find((g) => g.id === SLIMES.id)?.defeated).toBe(true);
+    expect(beforeCrash?.visited[LOCATION]?.groups.find((g) => g.id === SLIMES.id)?.defeated).toBe(true);
     const staleHost = nodeA.live.host();
     staleHost.abandonForTesting(); // kill -9: no checkpoint, no lease release
     await ca.drop();
@@ -306,7 +307,7 @@ describe.skipIf(!adminUrl)('live instance hosting under adversarial conditions (
     expect(restored?.state.encounters).toBe(1);
     // The disconnected hero keeps fighting on automation and wins on the new node.
     await advance(60_000, [nodeB], () => nodeB.live.host().inspect(instanceId)?.ticking === false);
-    expect(nodeB.live.host().inspect(instanceId)?.state.groups.find((g) => g.id === SLIMES.id)?.defeated).toBe(true);
+    expect(nodeB.live.host().inspect(instanceId)?.state.visited[LOCATION]?.groups.find((g) => g.id === SLIMES.id)?.defeated).toBe(true);
     expect((await row(instanceId)).leaseGeneration).toBe(2);
     const cb = await connect(nodeB, a);
     await cb.attach(instanceId);
@@ -393,4 +394,158 @@ describe.skipIf(!adminUrl)('live instance hosting under adversarial conditions (
     await cb.attach(live);
     await cb.command(live, { type: 'returnToSanctuary' });
   }, 30_000);
+
+  // -------------------------------------------------------------------------------------------------------------------
+  // Exploration state machine (#38) on the real Region 1 content
+  // -------------------------------------------------------------------------------------------------------------------
+
+  const R1 = (name: string) => `loc:region_1.${name}`;
+  const EXIT = (from: string, to: string) => `exit:region_1.${from}.${to}`;
+  const travel = (exitId: string) => ({ type: 'travel', exitId });
+  async function discoveries(actorIds: readonly string[]): Promise<{ actor_id: string; location_id: string }[]> {
+    const result = await database.pool.query<{ actor_id: string; location_id: string }>(`SELECT actor_id::text, location_id
+      FROM rpg_area_discoveries WHERE actor_id = ANY($1::uuid[]) ORDER BY actor_id, location_id`, [actorIds]);
+    return result.rows;
+  }
+  async function rejected(client: Client, instanceId: string, command: Record<string, unknown>, reason: string): Promise<void> {
+    expect(await client.command(instanceId, command)).toMatchObject({ type: 'live.ack', status: 'rejected', reason });
+  }
+  async function applied(client: Client, instanceId: string, command: Record<string, unknown>): Promise<void> {
+    expect(await client.command(instanceId, command)).toMatchObject({ type: 'live.ack', status: 'applied' });
+  }
+  const gameEvent = (type: string) => (m: Message) => m.type === 'live.event' && (m['event'] as { type?: unknown }).type === type;
+
+  it('exploration: rejects invalid commands and records each discovery once per participant present, with the checkpoint', async () => {
+    const n = await node('node-explore');
+    const [a, b] = [await player(), await player()];
+    const host = n.live.host();
+    const instanceId = await startRpgLiveInstance(host, database, { actorIds: [a.actorId, b.actorId], area: 'area:region_1' });
+    const ca = await connect(n, a); const cb = await connect(n, b);
+    await ca.attach(instanceId); await cb.attach(instanceId);
+    expect(await ca.waitFor((m) => m.type === 'live.snapshot')).toMatchObject({ view: { phase: 'exploring', location: R1('portal_clearing'),
+      exits: [{ id: EXIT('portal_clearing', 'overgrown_causeway'), open: true }] } });
+    await rejected(ca, instanceId, travel('exit:nowhere'), 'unknown_exit');
+    await rejected(ca, instanceId, travel(EXIT('old_well', 'glowcap_grotto')), 'unknown_exit');
+    await rejected(ca, instanceId, { type: 'travel' }, 'malformed');
+    await rejected(ca, instanceId, { type: 'retreat' }, 'not_in_combat');
+    // Nothing durable yet: the start-location discovery waits for the first checkpoint.
+    expect(await discoveries([a.actorId, b.actorId])).toEqual([]);
+
+    await applied(ca, instanceId, travel(EXIT('portal_clearing', 'overgrown_causeway')));
+    expect(await cb.waitFor(gameEvent('discovered'))).toMatchObject({ event: { locationId: R1('overgrown_causeway'),
+      actorIds: [a.actorId, b.actorId].sort() } });
+    const expected = (actorId: string) => [R1('overgrown_causeway'), R1('portal_clearing')].map((location_id) => ({ actor_id: actorId, location_id }));
+    const both = [...expected(a.actorId), ...expected(b.actorId)].sort((x, y) => (x.actor_id < y.actor_id ? -1 : x.actor_id > y.actor_id ? 1 : 0));
+    expect(await discoveries([a.actorId, b.actorId])).toEqual(both);
+    expect((await row(instanceId)).checkpointSeq).toBe(1); // committed with the travel checkpoint
+
+    // Going back and forth discovers nothing new.
+    await applied(cb, instanceId, travel(EXIT('overgrown_causeway', 'portal_clearing')));
+    await applied(cb, instanceId, travel(EXIT('portal_clearing', 'overgrown_causeway')));
+    expect(await discoveries([a.actorId, b.actorId])).toEqual(both);
+
+    // Combat locks exploration commands; returning is refused outside safe/start locations.
+    await rejected(ca, instanceId, { type: 'returnToSanctuary' }, 'not_safe_location');
+    const group = host.inspect(instanceId)?.state.visited[R1('overgrown_causeway')]?.groups[0]?.id ?? '';
+    await applied(ca, instanceId, { type: 'engage', groupId: group });
+    await rejected(cb, instanceId, travel(EXIT('overgrown_causeway', 'old_well')), 'in_combat');
+    await rejected(cb, instanceId, { type: 'returnToSanctuary' }, 'in_combat');
+    await rejected(cb, instanceId, { type: 'gather', nodeId: 'res:glowcap#0' }, 'in_combat');
+    // Retreat (provisional #18): back to the portal clearing, the group stays.
+    await applied(cb, instanceId, { type: 'retreat' });
+    expect(host.inspect(instanceId)?.state).toMatchObject({ phase: 'exploring', location: R1('portal_clearing') });
+    expect(host.inspect(instanceId)?.state.visited[R1('overgrown_causeway')]?.groups[0]?.defeated).toBe(false);
+    await applied(ca, instanceId, { type: 'returnToSanctuary' });
+    expect(await row(instanceId)).toMatchObject({ status: 'closed', outcome: 'returned' });
+    expect(await discoveries([a.actorId, b.actorId])).toEqual(both);
+
+    // A new instance starts from the recorded progress (no second discovery of the same location).
+    const next = await startRpgLiveInstance(host, database, { actorIds: [a.actorId], area: 'area:region_1' });
+    expect(host.inspect(next)?.state.heroes[0]?.world.discovered).toEqual([R1('overgrown_causeway'), R1('portal_clearing')]);
+    const ca2 = ca; // one live socket per account: the same connection attaches to the new instance
+    await ca2.attach(next);
+    await applied(ca2, next, travel(EXIT('portal_clearing', 'overgrown_causeway')));
+    expect(ca2.inbox.some((m) => gameEvent('discovered')(m) && m['instanceId'] === next)).toBe(false);
+    await applied(ca2, next, travel(EXIT('overgrown_causeway', 'portal_clearing')));
+    await applied(ca2, next, { type: 'returnToSanctuary' });
+    expect(await discoveries([a.actorId])).toEqual(expected(a.actorId));
+  }, 30_000);
+
+  it('exploration: engage → combat → victory → exploring, and return from a safe location', async () => {
+    const n = await node('node-victory');
+    const a = await player();
+    const instanceId = await startRpgLiveInstance(n.live.host(), database, { actorIds: [a.actorId], location: LOCATION, groups: [SLIMES] });
+    const ca = await connect(n, a);
+    await ca.attach(instanceId);
+    await applied(ca, instanceId, { type: 'engage', groupId: SLIMES.id });
+    expect(n.live.host().inspect(instanceId)?.state.phase).toBe('combat');
+    await advance(60_000, [n], () => n.live.host().inspect(instanceId)?.ticking === false);
+    expect(await ca.waitFor(gameEvent('combatEnded'))).toMatchObject({ event: { outcome: 'victory', groupId: SLIMES.id } });
+    expect(n.live.host().inspect(instanceId)?.state.phase).toBe('exploring');
+    await rejected(ca, instanceId, { type: 'engage', groupId: SLIMES.id }, 'unknown_group');
+    await applied(ca, instanceId, { type: 'returnToSanctuary' });
+    expect(await row(instanceId)).toMatchObject({ status: 'closed', outcome: 'returned' });
+
+    // The vault antechamber is `safe`: returning is allowed there.
+    const safe = await startRpgLiveInstance(n.live.host(), database, { actorIds: [a.actorId], location: R1('vault_antechamber') });
+    const cs = ca;
+    await cs.attach(safe);
+    await applied(cs, safe, { type: 'returnToSanctuary' });
+    expect(await row(safe)).toMatchObject({ status: 'closed', outcome: 'returned' });
+    expect((await discoveries([a.actorId])).map((d) => d.location_id)).toEqual([R1('vault_antechamber'), LOCATION]);
+  }, 30_000);
+
+  it('exploration: hotspot flag survives a node crash; boss room needs a risk summary and confirmation; the boss aggroes', async () => {
+    const nodeA = await node('node-boss-a'); const nodeB = await node('node-boss-b');
+    const a = await player();
+    const instanceId = await startRpgLiveInstance(nodeA.live.host(), database, { actorIds: [a.actorId], area: 'area:region_1' });
+    const ca = await connect(nodeA, a);
+    await ca.attach(instanceId);
+    for (const exitId of [EXIT('portal_clearing', 'overgrown_causeway'), EXIT('overgrown_causeway', 'tangle_orchard'),
+      EXIT('tangle_orchard', 'irrigation_terraces'), EXIT('irrigation_terraces', 'pump_station'), EXIT('pump_station', 'vault_antechamber')]) {
+      await applied(ca, instanceId, travel(exitId));
+    }
+    const bossExit = EXIT('vault_antechamber', 'seed_vault_heart');
+    // An unmet requirement keeps the route blocked.
+    await rejected(ca, instanceId, { type: 'enterBossRoom', exitId: bossExit, confirm: false }, 'exit_locked');
+    await rejected(ca, instanceId, travel(bossExit), 'exit_locked');
+    await applied(ca, instanceId, travel(EXIT('vault_antechamber', 'pump_station')));
+    await applied(ca, instanceId, { type: 'interact', hotspotId: 'bulkhead_lever' });
+    expect(await ca.waitFor(gameEvent('hotspotInteracted'))).toMatchObject({ event: { flagsSet: ['region_1.bulkhead_open'], repeat: false } });
+    await applied(ca, instanceId, { type: 'interact', hotspotId: 'bulkhead_lever' });
+    expect(await ca.waitFor(gameEvent('hotspotInteracted'))).toMatchObject({ event: { flagsSet: [], repeat: true } });
+    const before = nodeA.live.host().inspect(instanceId)?.state;
+
+    nodeA.live.host().abandonForTesting(); // kill -9 after the lever checkpoint
+    await ca.drop();
+    await advance(LEASE_MS, [nodeB]);
+    const cb = await connect(nodeB, a);
+    expect(await cb.attach(instanceId)).toMatchObject({ type: 'live.attached', mode: 'snapshot' });
+    expect(await cb.waitFor((m) => m.type === 'live.snapshot')).toMatchObject({ epoch: 2,
+      view: { phase: 'exploring', location: R1('pump_station'), flags: ['region_1.bulkhead_open'] } });
+    expect(nodeB.live.host().inspect(instanceId)?.state).toEqual(before);
+
+    await applied(cb, instanceId, travel(EXIT('pump_station', 'vault_antechamber')));
+    await rejected(cb, instanceId, travel(bossExit), 'boss_room_requires_confirmation');
+    await rejected(cb, instanceId, { type: 'enterBossRoom', exitId: bossExit, confirm: true }, 'confirmation_required');
+    await applied(cb, instanceId, { type: 'enterBossRoom', exitId: bossExit, confirm: false });
+    expect(await cb.waitFor(gameEvent('bossRoomWarning'))).toMatchObject({ event: { exitId: bossExit, risk: {
+      locationId: R1('seed_vault_heart'), enemies: [{ enemy: 'enemy:hollow_matriarch', rank: 'boss' }], retreatAllowed: false } } });
+    expect(nodeB.live.host().inspect(instanceId)?.state.location).toBe(R1('vault_antechamber'));
+    await applied(cb, instanceId, { type: 'enterBossRoom', exitId: bossExit, confirm: true });
+    expect(await cb.waitFor(gameEvent('combatStarted'))).toMatchObject({ event: { boss: true } });
+    await rejected(cb, instanceId, { type: 'retreat' }, 'retreat_not_allowed');
+    await rejected(cb, instanceId, { type: 'returnToSanctuary' }, 'in_combat');
+    // The boss-room discovery was committed with the pre-encounter checkpoint, before the outcome is known.
+    expect((await discoveries([a.actorId])).map((d) => d.location_id)).toContain(R1('seed_vault_heart'));
+    await advance(180_000, [nodeB], () => !nodeB.live.host().has(instanceId));
+    const closed = await row(instanceId);
+    expect(closed.status).toBe('closed');
+    // A level-1 starter hero cannot beat the level-6 Matriarch: `dead`, closed as defeated, lock released.
+    expect(closed.outcome).toBe('defeated');
+    expect(closed.checkpoint).toMatchObject({ state: { phase: 'dead', location: R1('seed_vault_heart') } });
+    expect(await activity(a.actorId)).toBe('none');
+    expect((await discoveries([a.actorId])).map((d) => d.location_id)).toEqual([R1('irrigation_terraces'), R1('overgrown_causeway'),
+      R1('portal_clearing'), R1('pump_station'), R1('seed_vault_heart'), R1('tangle_orchard'), R1('vault_antechamber')]);
+  }, 60_000);
 });

@@ -20,6 +20,8 @@ export class MemoryInstanceStore implements InstanceStore {
   readonly activities = new Map<string, string>();
   readonly rows = new Map<string, Row>();
   readonly closes: { instanceId: string; outcome: string; result: JsonValue }[] = [];
+  /** Durable game effects committed with checkpoints, participant releases and closes, in commit order. */
+  readonly effects: { instanceId: string; effect: JsonValue }[] = [];
 
   async create(input: CreateInstanceInput): Promise<InstanceLease> {
     const ids = [...new Set(input.participants.map((p) => p.actorId))].sort();
@@ -45,21 +47,23 @@ export class MemoryInstanceStore implements InstanceStore {
     return true;
   }
 
-  async checkpoint(lease: InstanceLease, checkpoint: JsonValue, nowMs: number): Promise<InstanceLease | null> {
+  async checkpoint(lease: InstanceLease, checkpoint: JsonValue, nowMs: number, effects: readonly JsonValue[] = []): Promise<InstanceLease | null> {
     const row = this.#fenced(lease, nowMs);
     if (!row) return null;
+    this.#commitEffects(lease.instanceId, effects);
     row.checkpointSeq += 1;
     row.record = { ...row.record, checkpoint: structuredClone(checkpoint) };
     return { ...lease, checkpointSeq: row.checkpointSeq };
   }
 
-  async releaseParticipant(lease: InstanceLease, actorId: string, checkpoint: JsonValue, nowMs: number): Promise<InstanceLease | null> {
+  async releaseParticipant(lease: InstanceLease, actorId: string, checkpoint: JsonValue, nowMs: number,
+    effects: readonly JsonValue[] = []): Promise<InstanceLease | null> {
     const row = this.#fenced(lease, nowMs);
     if (!row) return null;
     if (this.activities.get(actorId) !== lease.instanceId) throw new Error('activity lock invariant violated');
     this.activities.delete(actorId);
     row.record = { ...row.record, participants: row.record.participants.map((p): StoredParticipant => p.actorId === actorId ? { ...p, left: true } : p) };
-    return this.checkpoint(lease, checkpoint, nowMs);
+    return this.checkpoint(lease, checkpoint, nowMs, effects);
   }
 
   async close(lease: InstanceLease, input: CloseInstanceInput, nowMs: number): Promise<boolean> {
@@ -70,11 +74,16 @@ export class MemoryInstanceStore implements InstanceStore {
       if (this.activities.get(participant.actorId) !== lease.instanceId) throw new Error('activity lock invariant violated');
       this.activities.delete(participant.actorId);
     }
+    this.#commitEffects(lease.instanceId, input.effects ?? []);
     row.status = 'closed';
     row.record = { ...row.record, checkpoint: structuredClone(input.checkpoint) };
     row.outcome = { outcome: input.outcome, result: structuredClone(input.result) };
     this.closes.push({ instanceId: lease.instanceId, outcome: input.outcome, result: input.result });
     return true;
+  }
+
+  #commitEffects(instanceId: string, effects: readonly JsonValue[]): void {
+    for (const effect of effects) this.effects.push({ instanceId, effect: structuredClone(effect) });
   }
 
   async relinquish(lease: InstanceLease, nowMs: number): Promise<void> {

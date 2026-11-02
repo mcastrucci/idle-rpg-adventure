@@ -11,10 +11,16 @@ store and the WebSocket transport live in [`@engine/server-kit`](../server-kit/R
 | `id`, `version` | Stored with each instance; a node refuses to restore a checkpoint from another game version or content hash. |
 | `tickIntervalMs` | Tick period while ticking (RPG combat: 500 ms, open decision #1). |
 | `init({ instanceId, participants, seed, setup })` | Initial state. `seed` is a server-generated uint32; `setup` is prepared by the composition root. |
-| `applyCommand(state, actorId, command)` | Untrusted input → `{ rejected }` or a `LiveStep` (`state`, `events`, `checkpoint?`, `close?`). |
+| `applyCommand(state, actorId, command)` | Untrusted input → `{ rejected }` or a `LiveStep` (`state`, `events`, `checkpoint?`, `effects?`, `close?`). |
 | `tick(state)` / `isTicking(state)` | Ticks happen only while `isTicking`. Automation acts for every participant, connected or not. |
 | `removeParticipant(state, actorId)` | Called when a participant's grace expired; return `null` to defer (e.g. mid-encounter). |
 | `serialize` / `restore` / `view` | Checkpoint JSON, restore from it, client snapshot. |
+
+`LiveStep.effects` are durable game records (opaque JSON, e.g. "actor X discovered location Y") that the store commits
+in the same transaction as the write the step causes: its checkpoint (non-empty effects force one), the participant
+release or the close. A step whose write is fenced out commits neither its state nor its effects, so game records never
+run ahead of the checkpointed state. Applying an effect must be idempotent, because after a restore from an earlier
+checkpoint the game may legitimately emit the same record again. `MemoryInstanceStore.effects` lists committed effects.
 
 Plugins must be deterministic and must not mutate inputs. Request `checkpoint: true` only at meaningful boundaries
 (location change, encounter start/end, loot pickup, discovery). A checkpoint at an encounter start is the
