@@ -3,6 +3,7 @@ import type { ServerModule } from '@engine/server-kit';
 import { z } from 'zod';
 
 import { createCharacterService } from './service.ts';
+import { inventorySnapshot, merchantCatalog } from '../inventory/service.ts';
 import { executeCharacterCommand, parseGameCommand, publicCommandError } from '../character-commands.ts';
 
 const ActorParamsSchema = z.strictObject({ actorId: z.uuid().transform((id) => id.toLowerCase()) });
@@ -29,6 +30,24 @@ export const characterModule: ServerModule = {
       const { accountId } = await requireAccount(request, context);
       const { actorId } = ActorParamsSchema.parse(request.params);
       return context.database.db.transaction(tx => createCharacterService(tx, context.content).read(accountId, actorId));
+    });
+    app.get('/characters/:actorId/inventory', async request => {
+      const { accountId } = await requireAccount(request, context);
+      const { actorId } = ActorParamsSchema.parse(request.params);
+      return context.database.db.transaction(tx => inventorySnapshot(tx, accountId, actorId));
+    });
+    app.get('/merchant', async () => merchantCatalog(context.content));
+    app.post('/characters/:actorId/inventory/commands', { bodyLimit: 70 * 1024 }, async (request, reply) => {
+      const { accountId } = await requireAccount(request, context);
+      const { actorId } = ActorParamsSchema.parse(request.params);
+      const command = parseGameCommand(request.body);
+      if (!['inventory.equip', 'inventory.unequip', 'inventory.move', 'inventory.buy'].includes(command.operation)) {
+        return reply.code(400).send({ error: 'operation_route_mismatch' });
+      }
+      const payloadActor = command.payload.actorId;
+      if (typeof payloadActor !== 'string' || payloadActor.toLowerCase() !== actorId) return reply.code(400).send({ error: 'invalid_command' });
+      const response = await executeCharacterCommand(context, accountId, command);
+      return reply.code(response.status).send(response.body);
     });
     app.patch('/characters/:actorId/configuration', { bodyLimit: 70 * 1024 }, async (request, reply) => {
       const { accountId } = await requireAccount(request, context);

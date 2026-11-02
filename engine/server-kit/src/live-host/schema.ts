@@ -3,8 +3,9 @@ import { check, index, integer, jsonb, pgTable, text, timestamp, uuid } from 'dr
 import type { JsonValue, StoredParticipant } from '@engine/live-kernel';
 
 /**
- * Live instance ownership and recovery state (ADR-0012). Owned by its own migration set (`LIVE_HOST_MIGRATIONS`) so the
- * module stays optional. `participants` mirrors the generic `participants[]` model; activity locks stay on `actors`.
+ * Live instance ownership and recovery state (ADR-0012). The schema is part of the engine chain so worker and live
+ * roles verify the same database version. `participants` mirrors the generic `participants[]` model; activity locks
+ * stay on `actors`.
  * Writes after creation are fenced on (node_id, lease_generation, checkpoint_seq) and an unexpired lease.
  */
 export const liveInstances = pgTable('live_instances', {

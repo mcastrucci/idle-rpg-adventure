@@ -1,21 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
-
 import { HostError, InstanceHost } from '@engine/live-kernel';
 import type { JsonValue, LiveGame } from '@engine/live-kernel';
 
 import type { LiveSocketConnection } from '../auth/live.ts';
 import { UUID_PATTERN } from '../commands/run.ts';
-import type { MigrationSet } from '../database.ts';
 import type { ModuleContext, ServerModule } from '../server.ts';
+import type { MigrationSet } from '../database.ts';
 import { PostgresInstanceStore } from './store.ts';
 import type { PostgresInstanceStoreHooks } from './store.ts';
 
 export * from './schema.ts';
 export * from './store.ts';
 
-/** Separate, optional migration set owned by the live host; compositions list it after the engine set. */
+/** @deprecated `live_instances` is included in ENGINE_MIGRATIONS; do not pass this set to database compositions. */
 export const LIVE_HOST_MIGRATIONS: MigrationSet = {
   id: 'live_host', schema: 'live_host_migrations', directory: fileURLToPath(new URL('../../migrations-live', import.meta.url)),
 };

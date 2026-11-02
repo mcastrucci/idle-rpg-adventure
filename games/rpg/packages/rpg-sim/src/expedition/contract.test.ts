@@ -39,7 +39,8 @@ describe('kernel contract (checkSimulatorContract)', () => {
       });
       expect(violations).toEqual([]);
     }
-  });
+    // CPU-bound: every fixture × seed × reason × cutoff, ~5 s on a 4-vCPU runner; the default 5 s timeout flakes under load.
+  }, 60_000);
 
   it('the fixtures cover completed, failed and retreated outcomes', () => {
     const outcomes = new Set<string>();

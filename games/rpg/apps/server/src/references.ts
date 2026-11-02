@@ -5,6 +5,8 @@ import type { World } from '@engine/world';
 const REFERENCES = [
   ['lootTables', 'entries.*.item', 'items'],
   ['lootTables', 'guaranteed.*.item', 'items'],
+  ['merchants', 'offers.*.item', 'items'],
+  ['merchants', 'offers.*.requiresCompletedArea', 'areas'],
   ['encounterTables', 'entries.*.enemies.*.enemy', 'enemies'],
   ['enemies', 'skills.*', 'skills'],
   ['enemies', 'ai.*.when.skillReady', 'skills'],

@@ -11,6 +11,8 @@ export function rpgReferences(content: CompiledContent): ReferenceCheck[] {
     // Tables.
     ...referencesAt(content, 'lootTables', 'entries.*.item', 'items'),
     ...referencesAt(content, 'lootTables', 'guaranteed.*.item', 'items'),
+    ...referencesAt(content, 'merchants', 'offers.*.item', 'items'),
+    ...referencesAt(content, 'merchants', 'offers.*.requiresCompletedArea', 'areas'),
     ...referencesAt(content, 'encounterTables', 'entries.*.enemies.*.enemy', 'enemies'),
 
     // Enemies: skill list (AI rules, rotations and telegraphs are a subset of it, checked by the schema), the AI's

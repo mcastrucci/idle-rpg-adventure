@@ -1,4 +1,4 @@
 import { defineConfig } from 'drizzle-kit';
 
-/** The live host owns a separate migration set (`LIVE_HOST_MIGRATIONS`), applied after the engine set. */
+/** Historical config retained for reference only; new migrations belong to drizzle.config.ts's engine chain. */
 export default defineConfig({ dialect: 'postgresql', schema: './src/live-host/schema.ts', out: './migrations-live' });

@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { createCharacterService } from './characters/service.ts';
 import { CharacterError, ConfigureCharacterSchema, CreateCharacterSchema } from './characters/validation.ts';
 import { createExpeditionService, ExpeditionError } from './expeditions/service.ts';
+import { createInventoryService, InventoryError, EquipPayloadSchema, UnequipPayloadSchema, MovePayloadSchema, BuyPayloadSchema } from './inventory/service.ts';
 import { expeditions } from './expeditions/schema.ts';
 import { supportedSettlementPolicies } from './expeditions/policy.ts';
 import type { SettlementPolicy } from './expeditions/policy.ts';
@@ -39,6 +40,25 @@ export async function executeCharacterCommand(context: ModuleContext, accountId:
     return runCommand(context.database, context.clock, accountId, { ...command, payload: json(payload) }, async tx => ({
       status: 201, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).start(accountId, payload)),
     }));
+  }
+  if (command.operation === 'inventory.equip' || command.operation === 'inventory.unequip' || command.operation === 'inventory.move' || command.operation === 'inventory.buy') {
+    let payload: ReturnType<typeof EquipPayloadSchema.parse> | ReturnType<typeof UnequipPayloadSchema.parse> |
+      ReturnType<typeof MovePayloadSchema.parse> | ReturnType<typeof BuyPayloadSchema.parse>;
+    try {
+      payload = command.operation === 'inventory.equip' ? EquipPayloadSchema.parse(command.payload)
+        : command.operation === 'inventory.unequip' ? UnequipPayloadSchema.parse(command.payload)
+          : command.operation === 'inventory.move' ? MovePayloadSchema.parse(command.payload) : BuyPayloadSchema.parse(command.payload);
+    } catch { throw new InvalidCommandError('invalid_command'); }
+    await context.database.db.transaction(tx => requireOwnedActor(tx, payload.actorId, accountId, 'rpg'));
+    const canonical = { ...command, payload: json(payload) };
+    return runCommand(context.database, context.clock, accountId, canonical, async tx => {
+      const service = createInventoryService(tx, context.content);
+      const result = command.operation === 'inventory.equip' ? await service.equip(accountId, command.commandId, payload as ReturnType<typeof EquipPayloadSchema.parse>)
+        : command.operation === 'inventory.unequip' ? await service.unequip(accountId, command.commandId, payload as ReturnType<typeof UnequipPayloadSchema.parse>)
+          : command.operation === 'inventory.move' ? await service.move(accountId, command.commandId, payload as ReturnType<typeof MovePayloadSchema.parse>)
+            : await service.buy(accountId, command.commandId, payload as ReturnType<typeof BuyPayloadSchema.parse>);
+      return { status: 200, body: json(result) };
+    });
   }
   if ((command.operation as string) === 'expedition.cancel') {
     let parsedWire: ReturnType<typeof parseExpeditionCancelPayload>;
@@ -83,7 +103,7 @@ export async function executeCharacterCommand(context: ModuleContext, accountId:
 
 export function publicCommandError(error: unknown): CommandResponse | null {
   if (error instanceof z.ZodError || error instanceof InvalidCommandError) return { status: 400, body: { error: 'invalid_command' } };
-  if (error instanceof ActorError || error instanceof CharacterError || error instanceof ExpeditionError) return { status: error.statusCode, body: { error: error.code } };
+  if (error instanceof ActorError || error instanceof CharacterError || error instanceof ExpeditionError || error instanceof InventoryError) return { status: error.statusCode, body: { error: error.code } };
   if (error instanceof LedgerError) {
     const status = error.code === 'invalid_source' ? 400 : 409;
     return { status, body: { error: error.code } };
