@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import type { CSSProperties } from 'react';
 
 import type { ExpeditionDto, ExpeditionOptionsDto, ExpeditionStartPayload } from '@rpg/protocol';
-import { cancelExpeditionCommand, CommandUnconfirmedError, startExpeditionCommand } from '../api/commands.ts';
+import { cancelExpeditionCommand, CommandUnconfirmedError, recoverUnavailableExpeditionCommand, startExpeditionCommand } from '../api/commands.ts';
 import type { CommandRequest } from '../api/commands.ts';
 import type { ApiClient } from '../api/http.ts';
 import type { CharacterDto } from '../api/types.ts';
@@ -74,7 +74,7 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
   useEffect(() => { void loadOptions(); }, [loadOptions]);
   useEffect(() => { void loadExpedition(); }, [loadExpedition]);
   useEffect(() => { if (activeId && unconfirmed?.envelope.operation === 'expedition.start') setUnconfirmed(null); }, [activeId, unconfirmed]);
-  useEffect(() => { if (expedition?.state !== 'running' && unconfirmed?.envelope.operation === 'expedition.cancel') setUnconfirmed(null); }, [expedition, unconfirmed]);
+  useEffect(() => { if (expedition?.state !== 'running' && (unconfirmed?.envelope.operation === 'expedition.cancel' || unconfirmed?.envelope.operation === 'expedition.recoverUnavailable')) setUnconfirmed(null); }, [expedition, unconfirmed]);
   useEffect(() => {
     if (!trackingId) return;
     const timer = window.setInterval(() => { void loadExpedition(); }, POLL_MS);
@@ -101,7 +101,7 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
     (!consumableItem || (availableItem && consumableQty > 0 && consumableQty <= availableItem.availableQty)) && !activeId && canCommand);
   const canStart = startEligible && !pending && (!unconfirmed || unconfirmed.envelope.operation === 'expedition.start');
 
-  async function send(request: CommandRequest<ExpeditionDto>, action: 'start' | 'cancel') {
+  async function send(request: CommandRequest<ExpeditionDto>, action: 'start' | 'cancel' | 'recover') {
     setPending(true); setError(null);
     try {
       const result = await runCommand(request);
@@ -114,7 +114,7 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
       if (failure instanceof CommandUnconfirmedError) {
         setUnconfirmed(request);
         try { await refreshCharacter(); } catch { /* Keep the same idempotent request available for retry. */ }
-        if (action === 'cancel') void loadExpedition();
+        if (action !== 'start') void loadExpedition();
       }
       else setUnconfirmed(null);
       setError(describeError(failure));
@@ -143,7 +143,10 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
       {!character && <p className="muted">Create a character before starting an expedition.</p>}
       {optionsError && <p className="form__error" role="alert">Could not load available expeditions ({optionsError}).</p>}
       {options && availableAreas.length === 0 && <p className="muted">No conquered expedition activities are available yet. Clear an area first to unlock activities here.</p>}
-      {currentExpedition?.state === 'running' && <RunningExpedition expedition={currentExpedition} progress={elapsed} style={ringStyle} onCancel={() => setCancelOpen(true)} canCancel={canCommand && !pending && !unconfirmed} loading={loading} />}
+      {currentExpedition?.state === 'running' && <RunningExpedition expedition={currentExpedition} progress={elapsed} style={ringStyle} onCancel={() => setCancelOpen(true)}
+        onRecover={() => currentExpedition.recoveryAvailable && void send(unconfirmed?.envelope.operation === 'expedition.recoverUnavailable' ? unconfirmed : recoverUnavailableExpeditionCommand(currentExpedition.id), 'recover')}
+        canCancel={canCommand && !pending && (!unconfirmed || (currentExpedition.recoveryAvailable === true && unconfirmed.envelope.operation === 'expedition.recoverUnavailable'))}
+        retryRecovery={unconfirmed?.envelope.operation === 'expedition.recoverUnavailable'} loading={loading} />}
       {currentExpedition && currentExpedition.state !== 'running' && <CompletedExpedition expedition={currentExpedition} />}
       {readError && <p className="form__error" role="alert">Could not refresh expedition status ({readError}).</p>}
       {trackingId && <button type="button" className="button button--secondary" disabled={loading} onClick={() => void loadExpedition()}>{loading ? 'Refreshing…' : 'Refresh status'}</button>}
@@ -184,18 +187,21 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
           <button className="button" type="submit" disabled={!canStart}>{pending ? 'Starting…' : unconfirmed ? 'Retry start' : 'Start expedition'}</button>
         </>}
       </form>}
-      {error && currentExpedition?.state === 'running' && <p className="form__error" role="alert">Could not cancel expedition ({error}).</p>}
+      {error && currentExpedition?.state === 'running' && <p className="form__error" role="alert">Could not {currentExpedition.recoveryAvailable ? 'return consumables and end the expedition' : 'cancel the expedition'} ({error}).</p>}
       {cancelOpen && currentExpedition?.state === 'running' && <CancelDialog expedition={currentExpedition} pending={pending} canCommand={canCommand} onClose={() => setCancelOpen(false)} onConfirm={() => void send(unconfirmed ?? cancelExpeditionCommand(currentExpedition.id), 'cancel')} />}
     </section>
   );
 }
 
-function RunningExpedition({ expedition, progress, style, canCancel, loading, onCancel }: { expedition: ExpeditionDto; progress: number; style: CSSProperties; canCancel: boolean; loading: boolean; onCancel: () => void }) {
+function RunningExpedition({ expedition, progress, style, canCancel, retryRecovery, loading, onCancel, onRecover }: { expedition: ExpeditionDto; progress: number; style: CSSProperties; canCancel: boolean; retryRecovery: boolean; loading: boolean; onCancel: () => void; onRecover: () => void }) {
   return <section className="expedition-card" aria-labelledby="expedition-running-title">
     <div className="expedition-card__top"><div className="progress-ring" style={style} role="img" aria-label={`${Math.floor(progress * 100)} percent of planned time elapsed`}><span>{Math.floor(progress * 100)}%</span></div>
       <div><h2 id="expedition-running-title" className="screen__subtitle">{label(expedition.activityId)}</h2><p className="muted">{label(expedition.areaId)} · Running</p><p className="muted">{expedition.progress.revealed} revealed segments</p></div></div>
     <div className="expedition-feed"><h3>Revealed events</h3>{expedition.segments.length === 0 ? <p className="muted">No events revealed yet.</p> : <ol>{expedition.segments.flatMap((segment) => segment.events.map((event, index) => <li key={`${segment.index}-${index}`}>{eventText(event)}</li>))}</ol>}</div>
-    <button className="button button--secondary" type="button" disabled={!canCancel || loading} onClick={onCancel}>Cancel expedition</button>
+    {expedition.recoveryAvailable
+      ? <><p className="muted" role="status">This expedition's saved rules are no longer available. Returning its escrow will end it without rewards or XP.</p>
+        <button className="button" type="button" disabled={!canCancel || loading} onClick={onRecover}>{retryRecovery ? 'Retry return and end expedition' : 'Return consumables and end expedition'}</button></>
+      : <button className="button button--secondary" type="button" disabled={!canCancel || loading} onClick={onCancel}>Cancel expedition</button>}
   </section>;
 }
 
@@ -214,10 +220,17 @@ function CancelDialog({ expedition, pending, canCommand, onClose, onConfirm }: {
 }
 
 function CompletedExpedition({ expedition }: { expedition: ExpeditionDto }) {
+  const escrowReturned = isEscrowReturnedReport(expedition.terminalReport);
+  if (escrowReturned) return <section className="expedition-card" aria-labelledby="expedition-result-title"><h2 id="expedition-result-title" className="screen__subtitle">Expedition ended</h2>
+    <p>{label(expedition.activityId)} · {label(expedition.areaId)}</p><p>Consumables returned. No rewards or XP were awarded.</p></section>;
   return <section className="expedition-card" aria-labelledby="expedition-result-title"><h2 id="expedition-result-title" className="screen__subtitle">{expedition.state === 'completed' ? 'Expedition completed' : 'Expedition cancelled'}</h2>
     <p>{label(expedition.activityId)} · {label(expedition.areaId)}</p><p className="muted">Outcome: {typeof expedition.outcome === 'string' ? label(expedition.outcome) : eventText(expedition.outcome ?? null)}</p>
     {expedition.summary && <div className="expedition-feed"><h3>Summary</h3><ul>{summaryFacts(expedition.summary, expedition.actorId).map((fact) => <li key={fact}>{fact}</li>)}</ul></div>}
     <p className="muted">{expedition.progress.revealed} revealed segments</p></section>;
+}
+
+function isEscrowReturnedReport(value: unknown): boolean {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && (value as Record<string, unknown>)['kind'] === 'escrow_returned';
 }
 
 function label(id: string): string {

@@ -17,3 +17,10 @@ and effects on mid/low-end mobile.
 ## Consequences
 - Swapping renderer costs weeks, not months.
 - Spike 2 decides with measured FPS/memory on real devices.
+
+## How to produce evidence
+The device test kit lives in [`spikes/render-mobile/`](../../spikes/render-mobile/README.md): the same scene in PixiJS
+and Phaser behind one `SceneRenderer` seam, an on-screen metrics HUD (FPS, frame times, load/transition time, texture
+memory, context-loss recovery, background/foreground) and a "copy results" button whose output is pasted into
+issue #12. Only results from real phones count; desktop/headless runs are smoke tests. KTX2/Basis is not covered by
+the kit yet (see its README).

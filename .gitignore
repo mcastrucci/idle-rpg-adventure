@@ -4,3 +4,4 @@ coverage/
 *.tsbuildinfo
 .eslintcache
 .DS_Store
+.screenshots/

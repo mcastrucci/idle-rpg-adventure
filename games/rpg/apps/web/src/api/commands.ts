@@ -52,6 +52,11 @@ export function cancelExpeditionCommand(expeditionId: string, newId?: () => stri
   return { method: 'POST', path: `/expeditions/${encodeURIComponent(expeditionId)}/cancel`, envelope: buildEnvelope('expedition.cancel', { expeditionId }, newId) };
 }
 
+export function recoverUnavailableExpeditionCommand(expeditionId: string, newId?: () => string): CommandRequest<ExpeditionDto> {
+  return { method: 'POST', path: `/expeditions/${encodeURIComponent(expeditionId)}/recover-unavailable`,
+    envelope: buildEnvelope('expedition.recoverUnavailable', { expeditionId }, newId) };
+}
+
 /** Terminal outcome: the server decided (domain error, 409 `command_id_conflict`, 410 `command_expired`…). */
 export class CommandRejectedError extends Error {
   readonly commandId: string;

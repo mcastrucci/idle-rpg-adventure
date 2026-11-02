@@ -9,6 +9,8 @@ import { createCharacterService } from './characters/service.ts';
 import { CharacterError, ConfigureCharacterSchema, CreateCharacterSchema } from './characters/validation.ts';
 import { createExpeditionService, ExpeditionError } from './expeditions/service.ts';
 import { expeditions } from './expeditions/schema.ts';
+import { supportedSettlementPolicies } from './expeditions/policy.ts';
+import type { SettlementPolicy } from './expeditions/policy.ts';
 
 const TargetConfiguration = z.strictObject({ actorId: z.uuid().transform((id) => id.toLowerCase()), configuration: ConfigureCharacterSchema });
 const ExpeditionStart = z.strictObject({ actorId: z.uuid().transform((id) => id.toLowerCase()),
@@ -27,7 +29,7 @@ function json(value: unknown): JsonValue { return JSON.parse(JSON.stringify(valu
 
 /** Both HTTP and WS dispatch here. Authorization runs even on replays; busy checks only run for new mutations. */
 export async function executeCharacterCommand(context: ModuleContext, accountId: string, command: CommandEnvelope,
-  seedSource?: () => number): Promise<CommandResponse> {
+  seedSource?: () => number, settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies): Promise<CommandResponse> {
   if ((command.operation as string) === 'expedition.start') {
     let parsedWire: ReturnType<typeof parseExpeditionStartPayload>;
     try { parsedWire = parseExpeditionStartPayload(command.payload); }
@@ -35,7 +37,7 @@ export async function executeCharacterCommand(context: ModuleContext, accountId:
     const payload = ExpeditionStart.parse(parsedWire);
     await context.database.db.transaction(tx => requireOwnedActor(tx, payload.actorId, accountId, 'rpg'));
     return runCommand(context.database, context.clock, accountId, { ...command, payload: json(payload) }, async tx => ({
-      status: 201, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource).start(accountId, payload)),
+      status: 201, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).start(accountId, payload)),
     }));
   }
   if ((command.operation as string) === 'expedition.cancel') {
@@ -47,7 +49,19 @@ export async function executeCharacterCommand(context: ModuleContext, accountId:
     if (!expedition || expedition.accountId !== accountId) throw new ActorError('not_found', 404);
     await context.database.db.transaction(tx => requireOwnedActor(tx, expedition.actorId, accountId, 'rpg'));
     return runCommand(context.database, context.clock, accountId, { ...command, payload: json(payload) }, async tx => ({
-      status: 200, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource).cancel(accountId, payload.expeditionId)),
+      status: 200, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).cancel(accountId, payload.expeditionId)),
+    }));
+  }
+  if ((command.operation as string) === 'expedition.recoverUnavailable') {
+    let parsedWire: ReturnType<typeof parseExpeditionCancelPayload>;
+    try { parsedWire = parseExpeditionCancelPayload(command.payload); }
+    catch { throw new InvalidCommandError('invalid_command'); }
+    const payload = ExpeditionCancel.parse(parsedWire);
+    const [expedition] = await context.database.db.select().from(expeditions).where(eq(expeditions.id, payload.expeditionId));
+    if (!expedition || expedition.accountId !== accountId) throw new ActorError('not_found', 404);
+    await context.database.db.transaction(tx => requireOwnedActor(tx, expedition.actorId, accountId, 'rpg'));
+    return runCommand(context.database, context.clock, accountId, { ...command, payload: json(payload) }, async tx => ({
+      status: 200, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).recoverUnavailable(accountId, payload.expeditionId)),
     }));
   }
   if (command.operation === 'character.create') {
@@ -78,12 +92,13 @@ export function publicCommandError(error: unknown): CommandResponse | null {
 }
 
 /** Credentials never enter a frame, fingerprint or retained command result. */
-export async function executeCharacterSocketCommand(context: ModuleContext, accountId: string, wire: unknown, seedSource?: () => number) {
+export async function executeCharacterSocketCommand(context: ModuleContext, accountId: string, wire: unknown, seedSource?: () => number,
+  settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies) {
   let command: CommandEnvelope;
   try { command = parseCommandEnvelope(wire); }
   catch { return { type: 'error', error: 'invalid_command' }; }
   let response: CommandResponse;
-  try { response = await executeCharacterCommand(context, accountId, command, seedSource); }
+  try { response = await executeCharacterCommand(context, accountId, command, seedSource, settlementPolicies); }
   catch (error) {
     const known = publicCommandError(error);
     if (!known) throw error;

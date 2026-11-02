@@ -65,8 +65,9 @@ The engine never imports a game schema. Never modify already applied migrations.
 ## Expedition lifecycle
 
 The API exposes authenticated `GET /characters/:actorId/expedition-options`, `GET /characters/:actorId/expeditions`,
-`GET /expeditions/:expeditionId`, `POST /expeditions`, and `POST /expeditions/:expeditionId/cancel`. Start and cancel
-POSTs use the shared command envelope and `expedition.start` / `expedition.cancel` operations; HTTP and WebSocket
+`GET /expeditions/:expeditionId`, `POST /expeditions`, `POST /expeditions/:expeditionId/cancel`, and
+`POST /expeditions/:expeditionId/recover-unavailable`. Start, cancel and recovery POSTs use the shared command envelope
+and `expedition.start`, `expedition.cancel` or `expedition.recoverUnavailable` operations; HTTP and WebSocket
 commands share ownership checks, idempotency, and the same transaction dispatcher. Start payloads contain one owned
 `actorId`, a kernel request (`areaId`, `activityId`, `durationMin`, `paceBp`), and RPG config (`consumables`, `retreat`).
 Supported durations are 15, 30, 60, and 180 minutes; pace is fixed at 10,000 bp until other pace values are accepted.
@@ -82,9 +83,24 @@ systems; there is no client endpoint for setting completion. Until the conquest 
 areas with completion rules remain locked for new characters; areas without a completion rule follow the kernel's
 open-area behavior.
 
-Persisted runs record kernel/simulator versions, content hash, seed, parsed config, participant snapshot, and compressed
-timeline. The worker checks those versions before settlement and returns a retryable `expedition_version_unavailable`
-error rather than applying rewards with changed rules. This release does not retain old simulator code/content bundles;
-deployment must keep compatible code and content available for unsettled runs or drain them before an incompatible
-upgrade. The XP curve is included in the snapshot. Equipped items are resolved from server ledger definitions; non-empty
-instance roll data is rejected until RPG stat-roll semantics are defined.
+Persisted runs record kernel/simulator versions, content hash, seed, parsed config, participant snapshot, escrow and
+compressed timeline. Settlement policy is selected from the server-owned, append-only registry by the persisted kernel
+version, simulator ID and simulator version. The retained `0.3.0` / `rpg-idle@2.0.0+rpg-sim@1.1.0` adapter uses frozen
+settlement, summary and progression rules plus the persisted escrow; reads and settlement do not depend on the current
+content hash or whether the activity still exists in the current bundle. Add a new policy entry when behavior changes;
+never replace an old tuple. The XP curve is included in the snapshot.
+
+If a running expedition has no registered policy, reads and history remain available as a minimal metadata view
+(`segments: []`, no outcome, and `recoveryAvailable: true`); lazy settlement waits for an operator/player recovery
+instead of decoding an unknown timeline or applying current/default rules. The owner can call
+`POST /expeditions/:expeditionId/recover-unavailable` with
+`{ "command_id": "<uuid>", "operation": "expedition.recoverUnavailable", "payload": { "expeditionId": "<uuid>" } }`.
+That idempotent operation only accepts an unregistered tuple, returns the exact persisted escrow to its recorded source,
+releases the activity lock, awards no loot or XP, and persists a terminal `escrow_returned` report in the same transaction.
+Use a fresh command UUID for a new recovery attempt; replays return the original response. New expedition starts require a
+registered policy before escrow or activity changes. Terminal reports preserve the revealed prefix, summary, settled
+ledger deltas and XP accounting; terminal legacy rows without a report are returned with `terminalReport: null` and a
+timeline projection without a reconstructed settlement claim when the old timeline remains readable; otherwise history
+returns an empty safe prefix with `terminalReport: null`. History is limited to the 20 newest rows, ordered by creation
+time and ID. Equipped items are resolved from server ledger definitions; non-empty instance roll data is rejected until
+RPG stat-roll semantics are defined.

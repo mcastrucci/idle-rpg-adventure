@@ -25,3 +25,7 @@ record the outcome here (and in an ADR if architectural).
 | 17 | Return-to-Sanctuary rules in live | Only from `safe`/start locations, out of combat | M4 | Open |
 | 18 | Live retreat from combat | Allowed vs non-boss groups at a cost | M4 | Open |
 | 19 | Game name | — | Product | Open |
+
+Until #13 is resolved, changes in level from earned XP or death penalties neither grant nor revoke unspent points or
+attributes. The level-up settlement hook must not change point allocation before an explicit decision; the existing
+four active skill slots are a separate provisional loadout limit.

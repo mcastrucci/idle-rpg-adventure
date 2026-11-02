@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  buildEnvelope, cancelExpeditionCommand, CommandRejectedError, CommandUnconfirmedError, configureCharacterCommand, createCharacterCommand, sendCommand, startExpeditionCommand,
+  buildEnvelope, cancelExpeditionCommand, CommandRejectedError, CommandUnconfirmedError, configureCharacterCommand, createCharacterCommand,
+  recoverUnavailableExpeditionCommand, sendCommand, startExpeditionCommand,
 } from './commands.ts';
 import { ApiClient } from './http.ts';
 import type { FetchLike } from './http.ts';
@@ -80,6 +81,9 @@ describe('command envelopes', () => {
     const cancel = cancelExpeditionCommand(payload.actorId, () => '33333333-3333-4333-8333-333333333333');
     expect(cancel.path).toBe(`/expeditions/${payload.actorId}/cancel`);
     expect(cancel.envelope.operation).toBe('expedition.cancel');
+    const recover = recoverUnavailableExpeditionCommand(payload.actorId, () => '44444444-4444-4444-8444-444444444444');
+    expect(recover.path).toBe(`/expeditions/${payload.actorId}/recover-unavailable`);
+    expect(recover.envelope.operation).toBe('expedition.recoverUnavailable');
   });
 
   it('rejects envelopes the shared protocol parser would reject, before sending', () => {

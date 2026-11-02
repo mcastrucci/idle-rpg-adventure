@@ -51,6 +51,9 @@ export interface ExpeditionDto {
   readonly segments: readonly { readonly index: number; readonly revealAtMs: number; readonly events: readonly CommandJson[] }[];
   readonly revealedDeltas: CommandJson;
   readonly summary?: CommandJson;
+  /** Final immutable response and accounting; null identifies a legacy terminal row predating this report. */
+  readonly terminalReport?: CommandJson | null;
+  readonly recoveryAvailable?: boolean;
   readonly cancelPreview?: ExpeditionCancelPreviewDto;
   readonly endsAtMs?: number;
   readonly outcome?: CommandJson;
@@ -88,25 +91,27 @@ export function parseExpeditionCancelPayload(input: unknown): ExpeditionCancelPa
 
 /** Rejects extra response keys as well as hidden/unrevealed timeline fields at the top level. */
 export function parseExpeditionDto(input: unknown): ExpeditionDto {
-  const root = record(input, ['id', 'actorId', 'state', 'areaId', 'activityId', 'startsAtMs', 'plannedEndsAtMs', 'progress', 'segments', 'revealedDeltas', 'summary', 'cancelPreview', 'endsAtMs', 'outcome']);
+  const root = record(input, ['id', 'actorId', 'state', 'areaId', 'activityId', 'startsAtMs', 'plannedEndsAtMs', 'progress', 'segments', 'revealedDeltas', 'summary', 'terminalReport', 'recoveryAvailable', 'cancelPreview', 'endsAtMs', 'outcome']);
   const progress = record(root['progress'], ['revealed']);
   if (typeof root['id'] !== 'string' || !uuid.test(root['id']) || typeof root['actorId'] !== 'string' || !uuid.test(root['actorId']) ||
       !['running', 'completed', 'cancelled'].includes(String(root['state'])) || typeof root['areaId'] !== 'string' || typeof root['activityId'] !== 'string' ||
       !finite(root['startsAtMs']) || !finite(root['plannedEndsAtMs']) || !nonnegativeInt(progress['revealed']) || !Array.isArray(root['segments']) ||
-      !isJson(root['revealedDeltas'])) throw new TypeError('invalid expedition DTO');
+      !isJson(root['revealedDeltas']) || (root['recoveryAvailable'] !== undefined && typeof root['recoveryAvailable'] !== 'boolean')) throw new TypeError('invalid expedition DTO');
   const segments = root['segments'].map((raw) => {
     const segment = record(raw, ['index', 'revealAtMs', 'events']);
     if (!nonnegativeInt(segment['index']) || !finite(segment['revealAtMs']) || !Array.isArray(segment['events']) || !segment['events'].every(isJson)) throw new TypeError('invalid expedition segment');
     return Object.freeze({ index: segment['index'] as number, revealAtMs: segment['revealAtMs'] as number, events: Object.freeze(segment['events'] as CommandJson[]) });
   });
   if (root['state'] === 'running' && (root['endsAtMs'] !== undefined || root['outcome'] !== undefined)) throw new TypeError('running expedition exposes terminal outcome');
-  if (root['state'] === 'running' && root['cancelPreview'] === undefined) throw new TypeError('running expedition is missing its cancellation preview');
+  if (root['state'] === 'running' && root['cancelPreview'] === undefined && root['recoveryAvailable'] !== true) throw new TypeError('running expedition is missing its cancellation preview');
   if (root['state'] !== 'running' && (!finite(root['endsAtMs']) || !isJson(root['outcome']))) throw new TypeError('terminal expedition is missing final outcome');
   const result: ExpeditionDto = {
     id: root['id'], actorId: root['actorId'], state: root['state'] as ExpeditionDto['state'], areaId: root['areaId'], activityId: root['activityId'],
     startsAtMs: root['startsAtMs'] as number, plannedEndsAtMs: root['plannedEndsAtMs'] as number,
     progress: Object.freeze({ revealed: progress['revealed'] as number }), segments: Object.freeze(segments), revealedDeltas: root['revealedDeltas'] as CommandJson,
     ...(root['summary'] === undefined ? {} : { summary: jsonValue(root['summary']) }),
+    ...(root['terminalReport'] === undefined ? {} : { terminalReport: root['terminalReport'] === null ? null : jsonValue(root['terminalReport']) }),
+    ...(root['recoveryAvailable'] === undefined ? {} : { recoveryAvailable: root['recoveryAvailable'] as boolean }),
     ...(root['cancelPreview'] === undefined ? {} : { cancelPreview: parseCancelPreview(root['cancelPreview']) }),
     ...(root['endsAtMs'] === undefined ? {} : { endsAtMs: root['endsAtMs'] as number }),
     ...(root['outcome'] === undefined ? {} : { outcome: jsonValue(root['outcome']) }),

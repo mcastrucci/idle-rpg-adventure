@@ -41,6 +41,9 @@ active slots are accepted, without duplicates. `basic_attack` is always availabl
 `CreateCharacterSchema` accepts only a name. Configuration accepts name, additive `allocate` deltas, loadout, and
 automation rules. It never accepts level, XP, account ID, game ID, actor ID, total attributes or unspent-point grants.
 Allocation can spend only persisted earned unspent points; no public grant, respec or progression endpoint exists.
+Until open decision #13 is resolved, expedition settlement does not grant or revoke unspent points or attributes when XP
+changes a character's level (including a death penalty). The level/XP update hook is the place to add that rule after it
+is approved; current four-slot loadout limit remains a separate provisional rule.
 Actual closed RPG schemas validate IDs/rules. Automation action and `skillReady` references must name an equipped
 skill or basic attack, and consumable references must identify real consumable item definitions. This validates
 references; it does not claim inventory ownership or award consumables. Target selectors must suit the skill target.

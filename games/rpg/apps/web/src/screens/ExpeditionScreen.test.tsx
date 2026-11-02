@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ExpeditionDto, ExpeditionOptionsDto } from '@rpg/protocol';
+import { CommandUnconfirmedError } from '../api/commands.ts';
 import type { CommandRequest } from '../api/commands.ts';
 import type { ApiClient } from '../api/http.ts';
 import type { CharacterDto } from '../api/types.ts';
@@ -79,5 +80,28 @@ describe('ExpeditionScreen', () => {
     expect(screen.getByText('Character: 20 gross XP before penalties')).toBeDefined();
     expect(screen.getByText('Gross loot found: Iron Shard ×2')).toBeDefined();
     expect(screen.getByText(/50% of the expedition bag is lost \(loss rounded down\)/)).toBeDefined();
+  });
+
+  it('offers exact escrow recovery for an unavailable policy and retries the same command id', async () => {
+    const unavailable: ExpeditionDto = { ...running, recoveryAvailable: true };
+    const recovered: ExpeditionDto = { id, actorId: id, state: 'cancelled', areaId: 'area:ruins', activityId: 'activity:ruins', startsAtMs: 0,
+      plannedEndsAtMs: 1, progress: { revealed: 0 }, segments: [], revealedDeltas: [], endsAtMs: Date.now(), outcome: 'version_unavailable',
+      terminalReport: { version: 1, kind: 'escrow_returned', summary: null, segments: [], revealedDeltas: {}, settledDeltas: [], xp: [], reason: 'version_unavailable', cutoff: null } };
+    const requests: CommandRequest<ExpeditionDto>[] = [];
+    const runCommand = async <T,>(request: CommandRequest<T>): Promise<T> => {
+      requests.push(request as CommandRequest<ExpeditionDto>);
+      if (requests.length === 1) throw new CommandUnconfirmedError(request, new Error('response lost'));
+      return recovered as T;
+    };
+    const deps = props({ expedition: vi.fn(async () => unavailable) }, runCommand as (request: unknown) => Promise<unknown>);
+    render(<ExpeditionScreen {...deps} character={{ ...character, activityState: 'expedition', activityId: id }} />);
+    expect(await screen.findByText(/saved rules are no longer available/i)).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Return consumables and end expedition' }));
+    expect(await screen.findByRole('alert')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry return and end expedition' }));
+    expect(await screen.findByText('Consumables returned. No rewards or XP were awarded.')).toBeDefined();
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.envelope.operation).toBe('expedition.recoverUnavailable');
+    expect(requests[1]?.envelope.command_id).toBe(requests[0]?.envelope.command_id);
   });
 });

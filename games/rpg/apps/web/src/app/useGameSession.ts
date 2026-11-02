@@ -58,8 +58,10 @@ export function useGameSession({ api, live, storage }: AppServices) {
         if (cancelled || expedition.state === 'running') return;
         const character = await api.character(monitoredActorId);
         if (cancelled) return;
+        const recovered = isEscrowReturnedReport(expedition.terminalReport);
         setState((current) => current.phase === 'ready' && current.character?.activityId === monitoredExpeditionId
-          ? { ...current, character, expeditionNotice: expedition.state === 'completed' ? 'Expedition completed' : 'Expedition cancelled' }
+          ? { ...current, character, expeditionNotice: recovered ? 'Expedition ended; consumables returned, no rewards or XP awarded.'
+            : expedition.state === 'completed' ? 'Expedition completed' : 'Expedition cancelled' }
           : current);
       } catch { /* Keep the active chip and retry on the next poll or focus. */ }
       finally { inFlight = false; }
@@ -88,7 +90,10 @@ export function useGameSession({ api, live, storage }: AppServices) {
     const result = await sendCommand(api, request, { waitUntilConnected: () => live.waitUntilOpen() });
     if (result !== null && typeof result === 'object' && 'state' in result && ['completed', 'cancelled'].includes(String(result['state']))) {
       const status = String(result['state']);
-      setState((current) => current.phase === 'ready' ? { ...current, expeditionNotice: status === 'completed' ? 'Expedition completed' : 'Expedition cancelled' } : current);
+      const report = 'terminalReport' in result ? result['terminalReport'] : null;
+      const recovered = isEscrowReturnedReport(report);
+      setState((current) => current.phase === 'ready' ? { ...current, expeditionNotice: recovered ? 'Expedition ended; consumables returned, no rewards or XP awarded.'
+        : status === 'completed' ? 'Expedition completed' : 'Expedition cancelled' } : current);
     }
     return result;
   }, [api, live]);
@@ -105,4 +110,8 @@ export function useGameSession({ api, live, storage }: AppServices) {
   }, []);
 
   return { state, retry, runCharacterCommand, runExpeditionCommand, refreshCharacter, dismissExpeditionNotice };
+}
+
+function isEscrowReturnedReport(value: unknown): boolean {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && (value as Record<string, unknown>)['kind'] === 'escrow_returned';
 }
