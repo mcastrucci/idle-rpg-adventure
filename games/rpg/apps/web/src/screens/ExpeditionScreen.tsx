@@ -76,6 +76,12 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
   useEffect(() => { if (activeId && unconfirmed?.envelope.operation === 'expedition.start') setUnconfirmed(null); }, [activeId, unconfirmed]);
   useEffect(() => { if (expedition?.state !== 'running' && (unconfirmed?.envelope.operation === 'expedition.cancel' || unconfirmed?.envelope.operation === 'expedition.recoverUnavailable')) setUnconfirmed(null); }, [expedition, unconfirmed]);
   useEffect(() => {
+    if (!expedition?.recoveryAvailable) return;
+    setCancelOpen(false);
+    setError(null);
+    if (unconfirmed?.envelope.operation === 'expedition.cancel') setUnconfirmed(null);
+  }, [expedition, unconfirmed]);
+  useEffect(() => {
     if (!trackingId) return;
     const timer = window.setInterval(() => { void loadExpedition(); }, POLL_MS);
     const onFocus = () => { void loadExpedition(); };

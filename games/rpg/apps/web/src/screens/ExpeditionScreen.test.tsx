@@ -104,4 +104,30 @@ describe('ExpeditionScreen', () => {
     expect(requests[0]?.envelope.operation).toBe('expedition.recoverUnavailable');
     expect(requests[1]?.envelope.command_id).toBe(requests[0]?.envelope.command_id);
   });
+
+  it('switches an unconfirmed cancel to a new recovery command after status reports unavailable policy', async () => {
+    const unavailable: ExpeditionDto = { ...running, recoveryAvailable: true };
+    const recovered: ExpeditionDto = { id, actorId: id, state: 'cancelled', areaId: 'area:ruins', activityId: 'activity:ruins', startsAtMs: 0,
+      plannedEndsAtMs: 1, progress: { revealed: 0 }, segments: [], revealedDeltas: [], endsAtMs: Date.now(), outcome: 'version_unavailable',
+      terminalReport: { version: 1, kind: 'escrow_returned', summary: null, segments: [], revealedDeltas: {}, settledDeltas: [], xp: [], reason: 'version_unavailable', cutoff: null } };
+    const requests: CommandRequest<ExpeditionDto>[] = [];
+    const runCommand = async <T,>(request: CommandRequest<T>): Promise<T> => {
+      requests.push(request as CommandRequest<ExpeditionDto>);
+      if (requests.length === 1) throw new CommandUnconfirmedError(request, new Error('response lost'));
+      return recovered as T;
+    };
+    const api = { expedition: vi.fn().mockResolvedValueOnce(running).mockResolvedValue(unavailable) };
+    const deps = props(api, runCommand as (request: unknown) => Promise<unknown>);
+    render(<ExpeditionScreen {...deps} character={{ ...character, activityState: 'expedition', activityId: id }} />);
+    expect(await screen.findByRole('button', { name: 'Cancel expedition' })).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel expedition' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
+    expect(await screen.findByText(/saved rules are no longer available/i)).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Return consumables and end expedition' }));
+    expect(await screen.findByText('Consumables returned. No rewards or XP were awarded.')).toBeDefined();
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.envelope.operation).toBe('expedition.cancel');
+    expect(requests[1]?.envelope.operation).toBe('expedition.recoverUnavailable');
+    expect(requests[1]?.envelope.command_id).not.toBe(requests[0]?.envelope.command_id);
+  });
 });
