@@ -18,6 +18,12 @@ export interface PostgresInstanceStoreHooks {
   readonly onClose?: (tx: ActorTransaction, instance: InstanceRecord, input: CloseInstanceInput) => Promise<void>;
   /** Same contract for a single participant leaving (grace expired) while the instance continues. */
   readonly onParticipantReleased?: (tx: ActorTransaction, instance: InstanceRecord, actorId: string) => Promise<void>;
+  /**
+   * Applies a step's durable game effects (`LiveStep.effects`) inside the fenced transaction of the checkpoint,
+   * participant release or close they belong to (before `onClose`/`onParticipantReleased`). Must be idempotent. Without
+   * this hook, effects are dropped (the checkpoint is still written).
+   */
+  readonly onEffects?: (tx: ActorTransaction, instance: InstanceRecord, effects: readonly JsonValue[], nowMs: number) => Promise<void>;
 }
 
 /** Thrown inside a transaction to roll it back when a fenced write lost ownership. */
@@ -64,14 +70,26 @@ export class PostgresInstanceStore implements InstanceStore {
     return updated.length === 1;
   }
 
-  async checkpoint(lease: InstanceLease, checkpoint: JsonValue, nowMs: number): Promise<InstanceLease | null> {
-    const updated = await this.#database.db.update(liveInstances).set({ checkpoint, checkpointSeq: sql`${liveInstances.checkpointSeq} + 1`,
-      updatedAt: new Date(nowMs) }).where(this.#fence(lease, nowMs)).returning({ seq: liveInstances.checkpointSeq });
-    const row = updated[0];
-    return row ? { ...lease, checkpointSeq: row.seq } : null;
+  async checkpoint(lease: InstanceLease, checkpoint: JsonValue, nowMs: number, effects: readonly JsonValue[] = []): Promise<InstanceLease | null> {
+    const onEffects = this.#hooks.onEffects;
+    if (effects.length === 0 || !onEffects) {
+      const updated = await this.#database.db.update(liveInstances).set({ checkpoint, checkpointSeq: sql`${liveInstances.checkpointSeq} + 1`,
+        updatedAt: new Date(nowMs) }).where(this.#fence(lease, nowMs)).returning({ seq: liveInstances.checkpointSeq });
+      const row = updated[0];
+      return row ? { ...lease, checkpointSeq: row.seq } : null;
+    }
+    // Effects commit with the checkpoint or not at all: the fenced update and the game's writes share one transaction.
+    return this.#database.db.transaction(async (tx) => {
+      const [updated] = await tx.update(liveInstances).set({ checkpoint, checkpointSeq: sql`${liveInstances.checkpointSeq} + 1`,
+        updatedAt: new Date(nowMs) }).where(this.#fence(lease, nowMs)).returning();
+      if (!updated) return null;
+      await onEffects(tx, record(updated), effects, nowMs);
+      return { ...lease, checkpointSeq: updated.checkpointSeq };
+    });
   }
 
-  async releaseParticipant(lease: InstanceLease, actorId: string, checkpoint: JsonValue, nowMs: number): Promise<InstanceLease | null> {
+  async releaseParticipant(lease: InstanceLease, actorId: string, checkpoint: JsonValue, nowMs: number,
+    effects: readonly JsonValue[] = []): Promise<InstanceLease | null> {
     try {
       return await this.#database.db.transaction(async (tx) => {
         const [row] = await tx.select().from(liveInstances).where(this.#fence(lease, nowMs)).for('update');
@@ -82,6 +100,7 @@ export class PostgresInstanceStore implements InstanceStore {
         const [updated] = await tx.update(liveInstances).set({ participants, checkpoint, checkpointSeq: row.checkpointSeq + 1,
           updatedAt: new Date(nowMs) }).where(eq(liveInstances.instanceId, lease.instanceId)).returning();
         if (!updated) throw new Fenced();
+        if (effects.length > 0) await this.#hooks.onEffects?.(tx, record(updated), effects, nowMs);
         await this.#hooks.onParticipantReleased?.(tx, record(updated), actorId);
         return { ...lease, checkpointSeq: updated.checkpointSeq };
       });
@@ -104,6 +123,7 @@ export class PostgresInstanceStore implements InstanceStore {
           checkpointSeq: row.checkpointSeq + 1, outcome: input.outcome, result: input.result, updatedAt: new Date(nowMs),
           closedAt: new Date(nowMs) }).where(eq(liveInstances.instanceId, lease.instanceId)).returning();
         if (!closed) throw new Fenced();
+        if (input.effects && input.effects.length > 0) await this.#hooks.onEffects?.(tx, record(closed), input.effects, nowMs);
         await this.#hooks.onClose?.(tx, record(closed), input);
         return true;
       });

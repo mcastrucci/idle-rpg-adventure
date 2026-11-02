@@ -55,11 +55,30 @@ export const LocationResourceSchema = z.strictObject({ node: ResourceNodeIdSchem
 
 /** Hotspot kinds. Provisional set; geometry lives in the Tiled scene (object name = hotspot ID). */
 export const HOTSPOT_TYPES = ['lore', 'search', 'interact'] as const;
-export const HotspotSchema = z.strictObject({
-  id: LocalIdSchema,
-  type: z.enum(HOTSPOT_TYPES),
-  textKey: TextKeySchema,
-});
+
+/** World flag name (dot-separated snake_case segments), as referenced by `{ "flag": … }` requirements. */
+export const FlagNameSchema = z.string().regex(/^[a-z0-9_]+(\.[a-z0-9_]+)*$/, 'must be dot-separated snake_case segments');
+
+/**
+ * Declarative effect of a successful hotspot interaction, applied server-side by the live exploration plugin (#38).
+ * `setFlag` sets a world flag; flags set this way are **instance-scoped** (open decision #20, provisional): they hold
+ * for every participant of the live instance and are not persisted to the actor.
+ */
+export const HotspotEffectSchema = z.strictObject({ setFlag: FlagNameSchema });
+export type HotspotEffect = z.output<typeof HotspotEffectSchema>;
+
+export const HotspotSchema = z
+  .strictObject({
+    id: LocalIdSchema,
+    type: z.enum(HOTSPOT_TYPES),
+    textKey: TextKeySchema,
+    /** Applied once per instance on the first successful interaction. Not allowed on `lore` hotspots (read-only). */
+    effects: z.array(HotspotEffectSchema).min(1).optional(),
+  })
+  .refine((hotspot) => hotspot.type !== 'lore' || hotspot.effects === undefined, {
+    message: 'lore hotspots are read-only and cannot have effects',
+    path: ['effects'],
+  });
 export type Hotspot = z.output<typeof HotspotSchema>;
 
 export const rpgLocationFields = {

@@ -3,7 +3,8 @@
  * reference resolved, so referenced entities exist. Error codes are namespaced `rpg.*`.
  */
 import type { CompiledContent, ContentEntity, PluginIssue } from '@engine/content-compiler';
-import type { Enemy, Item, Merchant, Skill } from '@rpg/rpg-schema';
+import { walkRequirement } from '@engine/world';
+import type { Enemy, Hotspot, Item, Merchant, Skill } from '@rpg/rpg-schema';
 
 import { XP_CURVE_ID } from './collections.ts';
 import { completionDefeatedEnemies } from './references.ts';
@@ -15,6 +16,7 @@ export const RPG_ISSUE_CODES = {
   xpCurveMissing: 'rpg.xpCurveMissing',
   xpCurveUnexpected: 'rpg.xpCurveUnexpected',
   aiSkillNotKnown: 'rpg.aiSkillNotKnown',
+  exitFlagNeverSet: 'rpg.exitFlagNeverSet',
   merchantOfferIdDuplicate: 'rpg.merchantOfferIdDuplicate',
   merchantOfferInvalidItem: 'rpg.merchantOfferInvalidItem',
 } as const;
@@ -31,6 +33,7 @@ export function validateRpgContent(content: CompiledContent): PluginIssue[] {
     ...checkActivityAreas(content),
     ...checkXpCurve(content),
     ...checkAiSkillReady(content),
+    ...checkExitFlags(content),
     ...checkMerchantOfferIds(content),
     ...checkMerchantOfferItems(content),
   ];
@@ -159,6 +162,37 @@ function checkAiSkillReady(content: CompiledContent): PluginIssue[] {
           message: `AI condition skillReady "${skill}" is not in the enemy's "skills"`,
         });
       }
+    });
+  }
+  return issues;
+}
+
+/**
+ * A `{ "flag": … }` in an exit requirement must be settable by a hotspot effect (`setFlag`) of a location in the same
+ * area: hotspot flags are instance-scoped (open decision #20, provisional), so nothing else can ever open that exit.
+ */
+function checkExitFlags(content: CompiledContent): PluginIssue[] {
+  const areaOf = new Map<string, string>();
+  for (const area of content.world.areas) for (const location of area.locations) areaOf.set(location, area.id);
+  const settable = new Set<string>();
+  for (const location of content.world.locations) {
+    const hotspots = ((location as { hotspots?: readonly Hotspot[] }).hotspots ?? []);
+    for (const hotspot of hotspots) for (const effect of hotspot.effects ?? []) settable.add(`${areaOf.get(location.id) ?? ''}|${effect.setFlag}`);
+  }
+  const issues: PluginIssue[] = [];
+  for (const location of content.world.locations) {
+    location.exits.forEach((exit, i) => {
+      if (!exit.requires) return;
+      walkRequirement(exit.requires, (node, path) => {
+        if (!('flag' in node) || settable.has(`${areaOf.get(location.id) ?? ''}|${node.flag}`)) return;
+        issues.push({
+          code: RPG_ISSUE_CODES.exitFlagNeverSet,
+          collection: 'locations',
+          id: location.id,
+          path: ['exits', i, 'requires', ...path],
+          message: `Exit "${exit.id}" requires flag "${node.flag}", but no hotspot effect in its area sets it`,
+        });
+      });
     });
   }
   return issues;

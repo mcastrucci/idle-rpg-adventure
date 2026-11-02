@@ -28,7 +28,12 @@
     {
       "id": "bulkhead_lever",
       "type": "interact",
-      "textKey": "hotspot.region_1.bulkhead_lever"
+      "textKey": "hotspot.region_1.bulkhead_lever",
+      "effects": [
+        {
+          "setFlag": "region_1.bulkhead_open"
+        }
+      ]
     }
   ],
   "encounters": "enc:region_1.pump_station"
