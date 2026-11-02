@@ -63,6 +63,8 @@ function serverMessage(code: string): string {
   }
 }
 
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
 /** Ensures `value` is offered by a picker even if it is not in the usual options (e.g. a server-saved 35.5%). */
 function withCurrent<T>(options: readonly T[], current: T | undefined): readonly T[] {
   return current === undefined || options.includes(current) ? options : [...options, current];
@@ -295,7 +297,7 @@ function RuleCard({ draft, index, count, expanded, locked, context, labels, issu
       <div className="rule-card__chips" aria-hidden="true">
         {chips.length === 0 ? <span className="rule-chip">Always</span> : chips.map((chip) => <span key={chip.key} className="rule-chip">{chip.label}</span>)}
         <span className="rule-card__arrow">→</span>
-        <span className="rule-chip rule-chip--action">{describeAction(rule.do, labels)}</span>
+        <span className="rule-chip rule-chip--action">{capitalize(describeAction(rule.do, labels))}</span>
       </div>
       {issues.map((issue) => <p key={issue.message} className="form__error">⚠ {issue.message}</p>)}
       <div className="rule-card__toolbar">
