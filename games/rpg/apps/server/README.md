@@ -79,7 +79,8 @@ same kernel settlement rules used by cancellation.
 
 World completion input comes only from server-recorded `rpg_area_discoveries`, `rpg_completed_areas`, and
 `rpg_actor_objectives`. `expeditions/progress.ts` exposes internal transaction seams for trusted exploration/conquest
-systems; there is no client endpoint for setting completion. Until the conquest system (#47) writes those records,
+systems; there is no client endpoint for setting completion outside the non-production
+[debug tools](#debugadmin-tools-non-production-only). Until the conquest system (#47) writes those records,
 areas with completion rules remain locked for new characters; areas without a completion rule follow the kernel's
 open-area behavior.
 
@@ -104,3 +105,74 @@ timeline projection without a reconstructed settlement claim when the old timeli
 returns an empty safe prefix with `terminalReport: null`. History is limited to the 20 newest rows, ordered by creation
 time and ID. Equipped items are resolved from server ledger definitions; non-empty instance roll data is rejected until
 RPG stat-roll semantics are defined.
+
+## Debug/admin tools (non-production only)
+
+QA and development builds can enable authenticated debug endpoints (issue #31) to grant assets, set level/XP, record
+or reset world progress, and fast-forward time. They are **off by default** and refuse production configuration.
+
+### Enabling
+
+```sh
+export RPG_DEBUG_TOOLS=1   # or true; 0/false/unset disables
+export APP_ENV=qa          # must be one of development, test, qa, staging
+pnpm --filter @rpg/server start
+```
+
+Compositions pass `createRpgServer(config, { debug: parseRpgDebugToolsConfig(process.env) })` (as `main.ts` does) or a
+literal `{ enabled, environment, nodeEnv? }`. Safety guard:
+
+- Disabled (the default): the `debug` module and time-travel clock are not composed; every `/debug/*` route is 404.
+- Enabled with `APP_ENV=production`/`prod`, `NODE_ENV=production`, or an `APP_ENV` outside the allowlist (including
+  unset): `parseRpgDebugToolsConfig`/`createRpgServer` throw `DebugToolsRefusedError` and the server does not boot.
+  Module registration re-checks the guard. A malformed `RPG_DEBUG_TOOLS` value also fails the boot.
+- Every route requires the normal session (`requireAccount`) and same-origin rules. Character routes act only on an
+  actor owned by the caller (others are 404) and, like other Sanctuary edits, refuse a busy actor (`409 busy`).
+- Mutations use the shared command envelope and `runCommand`, so each `command_id` applies once and retries replay the
+  stored response. They are HTTP-only (no WebSocket operation).
+
+### Endpoints
+
+| Method and path | `operation` | Payload |
+|---|---|---|
+| `GET /debug/clock` | none | returns `{ nowMs, offsetMs, maxAdvanceMs, maxOffsetMs }` |
+| `POST /debug/clock/advance` | `debug.clock.advance` | `{ durationMs }` (1 ms to 24 h) |
+| `POST /debug/characters/:actorId/grants` | `debug.grant` | `{ actorId, gold?, items?: [{ item, qty }] }` |
+| `POST /debug/characters/:actorId/progression` | `debug.setProgression` | `{ actorId, level, xp? }` (`xp` is XP within the level) |
+| `POST /debug/characters/:actorId/world-progress` | `debug.recordWorldProgress` | `{ actorId, completedAreas?, discoveries?: [{ areaId, locationId }], objectives? }` |
+| `POST /debug/characters/:actorId/world-progress/reset` | `debug.resetWorldProgress` | `{ actorId, areaId? }` |
+
+- **Grants** go only through `applyLedgerDeltas` with `source_type = debug_grant` and source ID
+  `<accountId>:<command_id>` (a second idempotency layer). Item IDs are validated against content: equipment
+  definitions mint unique instances (`unique_mint`, at most 10 per grant), everything else is a stack in `inventory`;
+  `gold` is the `gold` currency. The response includes the actor's holdings.
+- **Set level/XP** validates against the content XP curve (level at most the cap, `xp` below the level's requirement
+  except at the cap) and requires activity `none`. It changes only `level`/`xp`: attributes and unspent points are
+  untouched (open decision #13).
+- **World progress** validates area/location/enemy IDs and writes through the trusted `expeditions/progress.ts` seams
+  (`recordAreaCompletion`, `recordDiscovery`, `recordObjective`). Recording `area:region_1` completion unlocks Region 1
+  idle activities for that character. It records facts only; conquest rules are not evaluated (#47). Reset with
+  `areaId` removes that area's discoveries and completion; without it, all discoveries, completions and objectives.
+
+### Time travel
+
+The app clock becomes `TimeTravelClock` = base clock + an **environment-wide**, forward-only offset persisted in
+`rpg_debug_clock` (RPG migration `0004_debug_clock`, one row). Every process with the tools enabled (API, live and
+worker roles) re-reads the offset every second; the API process that advances applies it immediately. Each advance is
+1 ms to 24 h; the accumulated offset is capped at 30 days. The offset cannot go back: use a fresh database to rewind.
+
+QA flow for a 180-minute expedition: record `area:region_1` completion, optionally grant consumables, start the run,
+then `POST /debug/clock/advance` with `{ "durationMs": 10800000 }`. Within about two seconds (offset refresh plus the
+worker poll interval) the settlement job is promoted by app time and settles the run; any authenticated expedition
+read also settles it lazily. Rewards are applied once (the settlement ledger source is idempotent).
+
+The offset is per environment rather than per account on purpose: jobs, leases, sessions and command retention all
+compare against one app clock, and per-account time would break those shared invariants (a job or lease cannot be
+due for one account and not another). Consequences:
+
+- Everyone on the environment travels together; other testers' expeditions also reach their end.
+- Auth sessions (12 h TTL) and retained command responses (24 h) expire by app time; after large jumps, sign in again.
+- Live instance leases and grace periods use the same clock, so an advance can expire running live instances' leases
+  and hand them to recovery.
+- pg-boss retry delays and PostgreSQL `NOW()` are not shifted; only app-clock deadlines are.
+- Processes started without the tools enabled ignore the offset; enable the flag on every role of the environment.
