@@ -83,3 +83,32 @@ export function selectorFits(selector: TargetSelector, targeting: SkillTargeting
   if (selector === 'lowestHpAlly') return targeting === 'ally';
   return targeting === 'enemy';
 }
+
+/** One active hero skill as the loadout editor shows it. */
+export interface HeroSkillInfo {
+  readonly id: SkillId;
+  readonly cooldownTicks: number;
+  /** Short plain-language effect summary. */
+  readonly summary: string;
+}
+
+/**
+ * GAP (no client content endpoint): the Region 1 hero skills that can go in an active slot, mirrored from
+ * `games/rpg/content/skills/region_1.json` (`docs/design/region-1.md` §4.1). `basic_attack` is not listed: it is
+ * always available outside the four slots. A test pins ids, cooldowns and targeting to the content file.
+ */
+export const HERO_SKILLS: readonly HeroSkillInfo[] = [
+  { id: 'skill:shield_bash', cooldownTicks: 10, summary: 'Hits one enemy (90%), taunts it and raises your armor for 3 hits.' },
+  { id: 'skill:guard', cooldownTicks: 12, summary: 'Absorbs the next hit with +150 armor and resist; also prevents stuns.' },
+  { id: 'skill:cleave', cooldownTicks: 8, summary: 'Hits every enemy for 60% damage.' },
+  { id: 'skill:mend', cooldownTicks: 15, summary: 'Heals you or an ally (250% of heal power).' },
+  { id: 'skill:precise_strike', cooldownTicks: 10, summary: 'One heavy hit on one enemy (180% damage).' },
+  { id: 'skill:rend', cooldownTicks: 12, summary: 'Hits, bleeds over time and lowers the target’s armor by 30%.' },
+  { id: 'skill:second_wind', cooldownTicks: 20, summary: 'Removes harmful effects and heals you over time.' },
+];
+
+/**
+ * GAP (no unlock endpoint): the server's provisional unlocked set (`PROVISIONAL_STARTER_SKILLS`, see the server's
+ * characters README). Skills in the character's saved loadout count as unlocked too; the server re-validates.
+ */
+export const PROVISIONAL_UNLOCKED_SKILLS: readonly SkillId[] = ['skill:shield_bash', 'skill:guard', 'skill:cleave', 'skill:mend'];
