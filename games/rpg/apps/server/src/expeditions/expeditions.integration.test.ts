@@ -362,7 +362,7 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
     expect(cancelled.endsAtMs).toBe(nextReveal - 1);
     expect(clock.nowMs()).toBe(nextReveal);
     expect(cancelled.segments.map(segment => segment.index)).toEqual(beforeCancel.segments.map(segment => segment.index));
-    clock.advance(24 * 60 * 60_000);
+    clock.advance(2 * 60 * 60_000); // Past the planned end, still inside the 12-hour guest-session lifetime.
     const later = (await get(session, running.id)).json<ExpeditionDto>();
     expect(later).toEqual(cancelled);
     const listed = (await list(session, character.actorId)).json<ExpeditionDto[]>();

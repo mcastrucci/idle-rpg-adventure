@@ -29,14 +29,20 @@ function json(value: unknown): JsonValue { return JSON.parse(JSON.stringify(valu
 export async function executeCharacterCommand(context: ModuleContext, accountId: string, command: CommandEnvelope,
   seedSource?: () => number): Promise<CommandResponse> {
   if ((command.operation as string) === 'expedition.start') {
-    const payload = ExpeditionStart.parse(parseExpeditionStartPayload(command.payload));
+    let parsedWire: ReturnType<typeof parseExpeditionStartPayload>;
+    try { parsedWire = parseExpeditionStartPayload(command.payload); }
+    catch { throw new InvalidCommandError('invalid_command'); }
+    const payload = ExpeditionStart.parse(parsedWire);
     await context.database.db.transaction(tx => requireOwnedActor(tx, payload.actorId, accountId, 'rpg'));
     return runCommand(context.database, context.clock, accountId, { ...command, payload: json(payload) }, async tx => ({
       status: 201, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource).start(accountId, payload)),
     }));
   }
   if ((command.operation as string) === 'expedition.cancel') {
-    const payload = ExpeditionCancel.parse(parseExpeditionCancelPayload(command.payload));
+    let parsedWire: ReturnType<typeof parseExpeditionCancelPayload>;
+    try { parsedWire = parseExpeditionCancelPayload(command.payload); }
+    catch { throw new InvalidCommandError('invalid_command'); }
+    const payload = ExpeditionCancel.parse(parsedWire);
     const [expedition] = await context.database.db.select().from(expeditions).where(eq(expeditions.id, payload.expeditionId));
     if (!expedition || expedition.accountId !== accountId) throw new ActorError('not_found', 404);
     await context.database.db.transaction(tx => requireOwnedActor(tx, expedition.actorId, accountId, 'rpg'));

@@ -4,18 +4,19 @@ A mobile-first fantasy RPG that combines **Live Adventure** (exploring illustrat
 bosses) with **Idle Expeditions** (server-side automatic expeditions in regions you have conquered). One character, one
 shared progression and economy.
 
-> **Status:** pre-production. The repository has working engine and content-tool foundations, but no playable RPG loop yet. Architecture principles are recorded; several implementation choices still need spike evidence.
+> **Status:** pre-production. The repository has working engine and content-tool foundations, but the complete new-player RPG loop is not playable yet. Architecture principles are recorded; several implementation choices still need spike evidence.
 
 The implemented foundations include the reusable world/expedition kernels, content pipeline, RPG schemas/stats,
 deterministic combat and idle simulators, and [balance tooling with a provisional Region 1 baseline](docs/design/balance/region-1-baseline.md).
 Region 1 has authored structural content; scene assets, interaction effects and balance tuning remain unfinished.
 The [Fastify/PostgreSQL server](games/rpg/apps/server/README.md) now composes guest/email authentication, fenced live
-sessions, persisted RPG characters, activity locks and replay-safe HTTP/WS commands. The generic ledger transaction
-core is implemented, but authenticated inventory commands and a periodic invariant job remain outstanding. Idle
-expedition API and client setup/progress work are in flight, but they are not yet an accepted end-to-end loop. Persistent
-live exploration has not yet populated conquest records, so a real character cannot unlock idle through gameplay yet;
-PostgreSQL lifecycle acceptance and estimate caching also remain outstanding. See the [roadmap](docs/roadmap.md) for
-dependencies and validation gaps.
+sessions, persisted RPG characters, activity locks and replay-safe HTTP/WS commands. The solo expedition lifecycle is
+implemented for characters with a persisted area completion, including transactional escrow, durable settlement,
+progress/reveal, cancellation and a client flow. The live exploration path does not yet write conquest records, so a
+new character cannot unlock expeditions through ordinary gameplay; the completion write seam is internal and has no
+public bypass. The generic ledger transaction core is implemented, while authenticated inventory commands and a
+periodic invariant job remain separate work. Estimate caching and follow-on expedition UI/report scope remain tracked
+separately (#53/#54). See the [roadmap](docs/roadmap.md) for dependencies and remaining scope.
 
 ## Documentation
 
