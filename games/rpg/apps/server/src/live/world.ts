@@ -3,9 +3,11 @@
  * resource nodes, encounter table) and the RPG requirement predicates. Built once per plugin from the verified bundle.
  */
 import { validateWorld } from '@engine/world';
-import type { PredicateRegistry } from '@engine/world';
+import type { Area, Location, PredicateRegistry } from '@engine/world';
 import { createRpgPredicateRegistry, RpgLocationSchema } from '@rpg/rpg-schema';
 import type { Hotspot, RpgGameContext, RpgLocation } from '@rpg/rpg-schema';
+
+import type { RpgCompletionSnapshot } from '../conquest/types.ts';
 
 export interface LiveResourceNode {
   /** Instance-local node ID: `<resource id>#<ordinal among the same resource in this location>`, e.g. `res:glowcap#1`. */
@@ -28,6 +30,7 @@ export interface LiveArea {
   readonly id: string;
   readonly startLocation: string;
   readonly locations: readonly string[];
+  readonly completion?: RpgCompletionSnapshot;
 }
 
 export interface LiveWorld {
@@ -66,6 +69,17 @@ export function buildLiveWorld(world: unknown): LiveWorld {
     });
     locations.set(location.id, { id: location.id, area, tags: new Set(location.tags), exits: location.exits,
       hotspots: location.hotspots, resources, encounters: location.encounters });
+  }
+  for (const area of result.world.areas) {
+    if (!areas.has(area.id) || area.completion === undefined) continue;
+    const poolTag = area.completion.pool.tag;
+    const areaLocations = result.world.locations.filter((location) => area.locations.includes(location.id));
+    const completionLocations = areaLocations.map((location) => ({ ...location,
+      // Secret-tagged locations are excluded even if malformed content also assigns the ordinary pool tag.
+      tags: location.tags.filter((tag) => tag === poolTag && !location.tags.includes(SECRET_TAG)) })) as Location[];
+    const snapshot: RpgCompletionSnapshot = { area: area as Area, locations: completionLocations };
+    const found = areas.get(area.id);
+    if (found) areas.set(area.id, { ...found, completion: snapshot });
   }
   return { areas, locations, predicates };
 }

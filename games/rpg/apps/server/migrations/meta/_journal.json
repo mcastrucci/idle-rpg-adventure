@@ -36,6 +36,13 @@
       "when": 1793649739158,
       "tag": "0004_debug_clock",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793660364249,
+      "tag": "0005_region_conquest_events",
+      "breakpoints": true
     }
   ]
 }

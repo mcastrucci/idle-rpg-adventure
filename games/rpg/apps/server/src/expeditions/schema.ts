@@ -58,6 +58,12 @@ export const rpgCompletedAreas = pgTable('rpg_completed_areas', {
   areaId: text('area_id').notNull(), completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }).notNull(),
 }, table => [unique('rpg_completed_areas_pk').on(table.actorId, table.areaId)]);
 
+/** Transactional durable outbox event for newly earned personal area completion. */
+export const rpgRegionConqueredEvents = pgTable('rpg_region_conquered_events', {
+  actorId: uuid('actor_id').notNull().references(() => characters.actorId, { onDelete: 'cascade' }),
+  areaId: text('area_id').notNull(), occurredAt: timestamp('occurred_at', { withTimezone: true, mode: 'date' }).notNull(),
+}, table => [unique('rpg_region_conquered_events_pk').on(table.actorId, table.areaId)]);
+
 export const rpgActorObjectives = pgTable('rpg_actor_objectives', {
   actorId: uuid('actor_id').notNull().references(() => characters.actorId, { onDelete: 'cascade' }),
   objectiveKey: text('objective_key').notNull(), recordedAt: timestamp('recorded_at', { withTimezone: true, mode: 'date' }).notNull(),

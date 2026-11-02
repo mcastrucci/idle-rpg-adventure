@@ -8,7 +8,7 @@ provisionally and recorded in [open-decisions](../../../../../docs/open-decision
 
 ## Files
 
-- `game.ts` — `createRpgLiveGame(content)`, the `LiveGame` plugin `rpg.live` (version `rpg.live@0.2.0+<rpg-sim>`).
+- `game.ts` — `createRpgLiveGame(content)`, the `LiveGame` plugin `rpg.live` (version `rpg.live@0.3.0+<rpg-sim>`).
   Deterministic: randomness only from the host seed through `@engine/sim-core` streams, integer/bp math, no clock/I/O.
 - `world.ts` — content index: explorable areas, RPG locations (exits, hotspots, resource nodes, encounter tables).
 - `effects.ts` — durable effects (`discovery`, `bossDefeated`) and the store `onEffects` hook that records them.
@@ -48,10 +48,11 @@ locked secrets hidden), hotspots, resource nodes, flags, `canReturn` and the com
 ## Persistence
 
 Checkpoints at location change, encounter start/end, retreat, first hotspot interaction, gathering, consumable use and
-participant change (never per tick). Discoveries leave the plugin as `LiveStep.effects` and are written by
-`applyRpgLiveEffects` through `recordDiscovery` **in the fenced checkpoint transaction** (exactly-once with the state
-that contains them; idempotent on replay after a restore). The start-location discovery waits in the state's outbox
-until the first durable write.
+participant change (never per tick). Discoveries and boss defeats leave the plugin as `LiveStep.effects`; the RPG effect
+hook records them and evaluates the engine completion rule **in the fenced checkpoint transaction**. Newly earned
+conquest writes the permanent `rpg_completed_areas` row and a unique durable `RegionConquered` event row in that same
+transaction. The start-location discovery waits in the state's outbox until the first durable write. Replaying an effect
+or racing duplicate delivery cannot duplicate progress or the conquest event.
 
 Hooks left for later issues (search the code for the issue numbers):
 
@@ -60,7 +61,6 @@ Hooks left for later issues (search the code for the issue numbers):
   `onClose` hook (same fenced transaction).
 - **#43** death: `dead` closes as `defeated` with the death location in the final checkpoint; corpses become
   interactable hotspots in `interact`.
-- **#47** conquest: the `bossDefeated` effect reaches `applyRpgLiveEffects`, which leaves it unrecorded on purpose.
 
 ## Wire protocol
 

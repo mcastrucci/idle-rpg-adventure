@@ -1,0 +1,668 @@
+{
+  "id": "339aa305-82dc-4fdc-a2fe-c699ff8d5759",
+  "prevId": "ca2a6603-b10f-4b86-adb5-af68a14dd689",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.rpg_characters": {
+      "name": "rpg_characters",
+      "schema": "",
+      "columns": {
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "game_id": {
+          "name": "game_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'rpg'"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "level": {
+          "name": "level",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "xp": {
+          "name": "xp",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "attributes": {
+          "name": "attributes",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unspent_points": {
+          "name": "unspent_points",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "skill_loadout": {
+          "name": "skill_loadout",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "automation_rules": {
+          "name": "automation_rules",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rpg_characters_actor_owner_game": {
+          "name": "rpg_characters_actor_owner_game",
+          "tableFrom": "rpg_characters",
+          "tableTo": "actors",
+          "columnsFrom": [
+            "actor_id",
+            "account_id",
+            "game_id"
+          ],
+          "columnsTo": [
+            "actor_id",
+            "account_id",
+            "game_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "rpg_characters_one_per_account_game": {
+          "name": "rpg_characters_one_per_account_game",
+          "nullsNotDistinct": false,
+          "columns": [
+            "account_id",
+            "game_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "rpg_characters_game": {
+          "name": "rpg_characters_game",
+          "value": "\"rpg_characters\".\"game_id\" = 'rpg'"
+        },
+        "rpg_characters_name": {
+          "name": "rpg_characters_name",
+          "value": "length(trim(\"rpg_characters\".\"name\")) BETWEEN 1 AND 32"
+        },
+        "rpg_characters_progress": {
+          "name": "rpg_characters_progress",
+          "value": "\"rpg_characters\".\"level\" >= 1 AND \"rpg_characters\".\"xp\" >= 0 AND \"rpg_characters\".\"unspent_points\" >= 0"
+        },
+        "rpg_characters_loadout": {
+          "name": "rpg_characters_loadout",
+          "value": "jsonb_typeof(\"rpg_characters\".\"skill_loadout\") = 'array' AND jsonb_array_length(\"rpg_characters\".\"skill_loadout\") <= 4"
+        },
+        "rpg_characters_rules": {
+          "name": "rpg_characters_rules",
+          "value": "jsonb_typeof(\"rpg_characters\".\"automation_rules\") = 'array' AND jsonb_array_length(\"rpg_characters\".\"automation_rules\") <= 6"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.rpg_expeditions": {
+      "name": "rpg_expeditions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "area_id": {
+          "name": "area_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "activity_id": {
+          "name": "activity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "starts_at_ms": {
+          "name": "starts_at_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "planned_ends_at_ms": {
+          "name": "planned_ends_at_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at_ms": {
+          "name": "ends_at_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "duration_min": {
+          "name": "duration_min",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pace_bp": {
+          "name": "pace_bp",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seed": {
+          "name": "seed",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "kernel_version": {
+          "name": "kernel_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "simulator_id": {
+          "name": "simulator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "simulator_version": {
+          "name": "simulator_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_hash": {
+          "name": "content_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "budget": {
+          "name": "budget",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config": {
+          "name": "config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snapshot": {
+          "name": "snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "escrow": {
+          "name": "escrow",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timeline_compressed": {
+          "name": "timeline_compressed",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timeline_hash": {
+          "name": "timeline_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "settled_at": {
+          "name": "settled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settled_reason": {
+          "name": "settled_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settled_cutoff": {
+          "name": "settled_cutoff",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "terminal_report": {
+          "name": "terminal_report",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "rpg_expeditions_actor_created": {
+          "name": "rpg_expeditions_actor_created",
+          "columns": [
+            {
+              "expression": "actor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "rpg_expeditions_running_end": {
+          "name": "rpg_expeditions_running_end",
+          "columns": [
+            {
+              "expression": "ends_at_ms",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"rpg_expeditions\".\"status\" = 'running'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "rpg_expeditions_actor_id_rpg_characters_actor_id_fk": {
+          "name": "rpg_expeditions_actor_id_rpg_characters_actor_id_fk",
+          "tableFrom": "rpg_expeditions",
+          "tableTo": "rpg_characters",
+          "columnsFrom": [
+            "actor_id"
+          ],
+          "columnsTo": [
+            "actor_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "rpg_expeditions_status": {
+          "name": "rpg_expeditions_status",
+          "value": "\"rpg_expeditions\".\"status\" IN ('running', 'completed', 'cancelled')"
+        },
+        "rpg_expeditions_times": {
+          "name": "rpg_expeditions_times",
+          "value": "\"rpg_expeditions\".\"starts_at_ms\" >= 0 AND \"rpg_expeditions\".\"planned_ends_at_ms\" >= \"rpg_expeditions\".\"starts_at_ms\" AND \"rpg_expeditions\".\"ends_at_ms\" >= \"rpg_expeditions\".\"starts_at_ms\" AND \"rpg_expeditions\".\"ends_at_ms\" <= \"rpg_expeditions\".\"planned_ends_at_ms\""
+        },
+        "rpg_expeditions_parameters": {
+          "name": "rpg_expeditions_parameters",
+          "value": "\"rpg_expeditions\".\"duration_min\" > 0 AND \"rpg_expeditions\".\"pace_bp\" > 0 AND \"rpg_expeditions\".\"budget\" > 0 AND \"rpg_expeditions\".\"revision\" >= 0"
+        },
+        "rpg_expeditions_snapshot": {
+          "name": "rpg_expeditions_snapshot",
+          "value": "jsonb_typeof(\"rpg_expeditions\".\"config\") = 'object' AND jsonb_typeof(\"rpg_expeditions\".\"snapshot\") = 'object' AND jsonb_typeof(\"rpg_expeditions\".\"escrow\") = 'array'"
+        },
+        "rpg_expeditions_settled_state": {
+          "name": "rpg_expeditions_settled_state",
+          "value": "(\"rpg_expeditions\".\"status\" = 'running' AND \"rpg_expeditions\".\"settled_at\" IS NULL AND \"rpg_expeditions\".\"settled_reason\" IS NULL AND \"rpg_expeditions\".\"settled_cutoff\" IS NULL AND \"rpg_expeditions\".\"outcome\" IS NULL AND \"rpg_expeditions\".\"terminal_report\" IS NULL) OR (\"rpg_expeditions\".\"status\" = 'cancelled' AND \"rpg_expeditions\".\"settled_at\" IS NOT NULL AND ((\"rpg_expeditions\".\"settled_reason\" = 'cancelled' AND \"rpg_expeditions\".\"settled_cutoff\" IS NOT NULL) OR (\"rpg_expeditions\".\"settled_reason\" = 'version_unavailable' AND \"rpg_expeditions\".\"settled_cutoff\" IS NULL)) AND \"rpg_expeditions\".\"outcome\" IS NULL) OR (\"rpg_expeditions\".\"status\" = 'completed' AND \"rpg_expeditions\".\"settled_at\" IS NOT NULL AND \"rpg_expeditions\".\"settled_reason\" = 'completed' AND \"rpg_expeditions\".\"settled_cutoff\" IS NOT NULL AND \"rpg_expeditions\".\"outcome\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.rpg_actor_objectives": {
+      "name": "rpg_actor_objectives",
+      "schema": "",
+      "columns": {
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "objective_key": {
+          "name": "objective_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rpg_actor_objectives_actor_id_rpg_characters_actor_id_fk": {
+          "name": "rpg_actor_objectives_actor_id_rpg_characters_actor_id_fk",
+          "tableFrom": "rpg_actor_objectives",
+          "tableTo": "rpg_characters",
+          "columnsFrom": [
+            "actor_id"
+          ],
+          "columnsTo": [
+            "actor_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "rpg_actor_objectives_pk": {
+          "name": "rpg_actor_objectives_pk",
+          "nullsNotDistinct": false,
+          "columns": [
+            "actor_id",
+            "objective_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rpg_area_discoveries": {
+      "name": "rpg_area_discoveries",
+      "schema": "",
+      "columns": {
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "area_id": {
+          "name": "area_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "discovered_at": {
+          "name": "discovered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rpg_area_discoveries_actor_id_rpg_characters_actor_id_fk": {
+          "name": "rpg_area_discoveries_actor_id_rpg_characters_actor_id_fk",
+          "tableFrom": "rpg_area_discoveries",
+          "tableTo": "rpg_characters",
+          "columnsFrom": [
+            "actor_id"
+          ],
+          "columnsTo": [
+            "actor_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "rpg_area_discoveries_pk": {
+          "name": "rpg_area_discoveries_pk",
+          "nullsNotDistinct": false,
+          "columns": [
+            "actor_id",
+            "area_id",
+            "location_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rpg_completed_areas": {
+      "name": "rpg_completed_areas",
+      "schema": "",
+      "columns": {
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "area_id": {
+          "name": "area_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rpg_completed_areas_actor_id_rpg_characters_actor_id_fk": {
+          "name": "rpg_completed_areas_actor_id_rpg_characters_actor_id_fk",
+          "tableFrom": "rpg_completed_areas",
+          "tableTo": "rpg_characters",
+          "columnsFrom": [
+            "actor_id"
+          ],
+          "columnsTo": [
+            "actor_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "rpg_completed_areas_pk": {
+          "name": "rpg_completed_areas_pk",
+          "nullsNotDistinct": false,
+          "columns": [
+            "actor_id",
+            "area_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rpg_region_conquered_events": {
+      "name": "rpg_region_conquered_events",
+      "schema": "",
+      "columns": {
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "area_id": {
+          "name": "area_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rpg_region_conquered_events_actor_id_rpg_characters_actor_id_fk": {
+          "name": "rpg_region_conquered_events_actor_id_rpg_characters_actor_id_fk",
+          "tableFrom": "rpg_region_conquered_events",
+          "tableTo": "rpg_characters",
+          "columnsFrom": [
+            "actor_id"
+          ],
+          "columnsTo": [
+            "actor_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "rpg_region_conquered_events_pk": {
+          "name": "rpg_region_conquered_events_pk",
+          "nullsNotDistinct": false,
+          "columns": [
+            "actor_id",
+            "area_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rpg_debug_clock": {
+      "name": "rpg_debug_clock",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "offset_ms": {
+          "name": "offset_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "rpg_debug_clock_singleton": {
+          "name": "rpg_debug_clock_singleton",
+          "value": "\"rpg_debug_clock\".\"id\" = 'environment'"
+        },
+        "rpg_debug_clock_offset": {
+          "name": "rpg_debug_clock_offset",
+          "value": "\"rpg_debug_clock\".\"offset_ms\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
