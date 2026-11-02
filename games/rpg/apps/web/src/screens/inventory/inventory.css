@@ -1,0 +1,59 @@
+/* Inventory: compact, thumb-friendly lists that reuse the Sanctuary palette. */
+.inventory-screen { min-width: 0; }
+.inventory-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.inventory-tabs__item { min-width: 0; min-height: 44px; padding: 4px 3px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font: inherit; font-size: 0.76rem; overflow-wrap: anywhere; }
+.inventory-tabs__item[aria-selected='true'] { border-color: var(--accent); background: var(--surface-2); color: var(--accent); font-weight: 700; }
+.inventory-tabs__item:focus-visible, .inventory-card:focus-visible, .equipment-slot:focus-visible, .inventory-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.inventory-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.inventory-tools { display: grid; grid-template-columns: minmax(0, 1fr) minmax(110px, 42%); gap: 8px; min-width: 0; }
+.inventory-search, .inventory-kind { min-width: 0; }
+.inventory-tools .form__input { width: 100%; }
+.inventory-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.inventory-grid > li { min-width: 0; }
+.inventory-card { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 7px; width: 100%; min-height: 100px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); text-align: left; font: inherit; overflow: hidden; }
+.inventory-card:hover { border-color: var(--accent); }
+.inventory-card__mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--surface-2); color: var(--accent); font-size: 1.15rem; }
+.inventory-card__name { width: 100%; font-size: 0.82rem; font-weight: 600; overflow-wrap: anywhere; }
+.inventory-card__qty { position: absolute; top: 8px; right: 8px; min-width: 26px; text-align: right; font-size: 0.76rem; font-variant-numeric: tabular-nums; color: var(--muted); }
+.inventory-card__meta { color: var(--muted); font-size: 0.7rem; }
+.equipment-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.equipment-slot { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; min-width: 0; min-height: 60px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); text-align: left; font: inherit; }
+.equipment-slot span { color: var(--muted); font-size: 0.72rem; }
+.equipment-slot strong { max-width: 100%; overflow-wrap: anywhere; font-size: 0.86rem; }
+.equipment-slot--empty { border-style: dashed; opacity: 0.85; }
+.inventory-wallet { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); font-variant-numeric: tabular-nums; }
+.inventory-wallet span { color: var(--muted); }
+.inventory-message { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px dashed var(--warn); border-radius: var(--radius); background: #3a2a1d; overflow-wrap: anywhere; }
+.inventory-message .button { min-height: 44px; }
+.inventory-success { color: var(--ok); }
+.merchant-list { display: flex; flex-direction: column; gap: 10px; }
+.merchant-offer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); min-width: 0; }
+.merchant-offer h2 { font-size: 0.98rem; overflow-wrap: anywhere; }
+.merchant-offer .muted { font-size: 0.8rem; }
+.merchant-offer__price { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.merchant-offer .form__label, .merchant-offer .form__input, .merchant-offer .button, .merchant-offer > .muted { grid-column: 1 / -1; }
+.merchant-offer .form__input { width: 100%; }
+.inventory-detail { width: 100%; max-width: 440px; max-height: min(86dvh, 760px); overflow: auto; margin: auto auto 0; padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); border: 1px solid var(--border); border-bottom: 0; border-radius: 16px 16px 0 0; background: var(--surface); color: var(--text); box-shadow: 0 18px 60px #0008; }
+.inventory-detail::backdrop { background: #09070dbb; }
+.inventory-detail:not([open]) { display: none; }
+.inventory-detail[open] { display: flex; flex-direction: column; gap: 12px; }
+.inventory-detail__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.inventory-detail__head h2 { font-size: 1.2rem; overflow-wrap: anywhere; }
+.inventory-detail__eyebrow { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.inventory-close { flex: none; min-width: 58px; min-height: 44px; padding: 0 9px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); color: var(--text); font: inherit; }
+.item-stats, .item-comparison ul { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.item-stats li, .item-comparison li { display: flex; justify-content: space-between; gap: 10px; min-height: 32px; padding: 5px 8px; border-radius: 8px; background: var(--surface-2); font-variant-numeric: tabular-nums; }
+.item-comparison { display: flex; flex-direction: column; gap: 6px; }
+.item-comparison h3 { font-size: 0.9rem; }
+.item-comparison li strong { white-space: nowrap; }
+.item-rolls summary { min-height: 44px; display: flex; align-items: center; color: var(--muted); cursor: pointer; }
+.inventory-detail__actions { display: flex; flex-direction: column; gap: 8px; }
+.inventory-detail__note { font-size: 0.78rem; }
+@media (min-width: 420px) {
+  .inventory-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .inventory-tabs__item { font-size: 0.82rem; }
+}
+@media (min-width: 600px) {
+  .inventory-detail { width: min(calc(100% - 24px), 440px); margin: auto; padding: 18px; border-bottom: 1px solid var(--border); border-radius: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .inventory-card { scroll-behavior: auto; } }

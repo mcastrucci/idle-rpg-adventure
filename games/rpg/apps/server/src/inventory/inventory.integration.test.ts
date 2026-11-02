@@ -11,6 +11,7 @@ import { applyLedgerDeltas, assetBalances, checkLedgerInvariants, createDatabase
 import type { Database, ServerConfig } from '@engine/server-kit';
 import { eq } from 'drizzle-orm';
 import plugin from '@rpg/content-plugin';
+import type { InventorySnapshotDto } from '@rpg/protocol';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
@@ -167,18 +168,36 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
       expect.objectContaining({ id: 'offer:sap_tonic', buyPrice: { currency: 'gold', amount: 18 } }),
       expect.objectContaining({ id: 'offer:healing_potion', buyPrice: { currency: 'gold', amount: 40 }, requiresCompletedArea: 'area:region_1' }),
     ]) })] });
-    expect((await inventory(session, character.actorId)).json()).toMatchObject({ actorId: character.actorId,
+    const snapshot = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    expect(snapshot).toMatchObject({ actorId: character.actorId, actorVersion: 0, activityState: 'none', level: 1,
+      attributes: { STR: expect.any(Number), AGI: expect.any(Number), INT: expect.any(Number), VIT: expect.any(Number), SPI: expect.any(Number) },
+      completedAreas: [], catalog: { contentHash: content.contentHash, items: expect.arrayContaining([
+        expect.objectContaining({ id: 'item:rusty_sword', kind: 'equipment', slot: 'weapon', stackable: false }),
+        expect.objectContaining({ id: 'item:minor_healing_potion', kind: 'consumable', stackable: true }),
+      ]) },
       holdings: expect.arrayContaining([
         expect.objectContaining({ asset: { kind: 'currency', currency: 'gold' }, qty: 60 }),
         expect.objectContaining({ asset: { kind: 'stack', item: 'item:minor_healing_potion' }, qty: 2 }),
       ]) });
+    const swordDefinition = snapshot.catalog.items.find(item => item.id === 'item:rusty_sword');
+    expect(swordDefinition).toBeDefined();
+    expect(Object.keys(swordDefinition ?? {}).every(key => ['id', 'kind', 'nameKey', 'slot', 'levelRequired', 'stats', 'stackable'].includes(key))).toBe(true);
+    expect(swordDefinition).not.toHaveProperty('value');
+    expect(swordDefinition).not.toHaveProperty('tags');
+    expect(swordDefinition).not.toHaveProperty('use');
     const stranger = await guest();
     expect((await inventory(stranger, character.actorId)).statusCode).toBe(404);
   });
 
   it('returns an empty inventory for a fresh character without granting defaults', async () => {
     const { session, character } = await fixture();
-    expect((await inventory(session, character.actorId)).json()).toEqual({ actorId: character.actorId, holdings: [] });
+    expect((await inventory(session, character.actorId)).json()).toMatchObject({ actorId: character.actorId, holdings: [],
+      actorVersion: 0, activityState: 'none', level: 1, completedAreas: [], catalog: { contentHash: content.contentHash } });
+  });
+
+  it('returns only persisted completion records for merchant gating', async () => {
+    const { session, character } = await fixture({ areaComplete: true });
+    expect((await inventory(session, character.actorId)).json()).toMatchObject({ completedAreas: ['area:region_1'] });
   });
 
   it('validates merchant content schemas and rejects broken item references', () => {

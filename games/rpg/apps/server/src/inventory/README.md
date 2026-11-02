@@ -16,7 +16,7 @@ inside the purchase transaction from persisted actor progress and the RPG world'
 
 ## HTTP contract
 
-- `GET /characters/:actorId/inventory` requires the owning account and returns `{ actorId, holdings }`.
+- `GET /characters/:actorId/inventory` requires the owning account and returns one repeatable-read snapshot of `{ actorId, holdings, actorVersion, activityState, level, attributes, completedAreas, catalog }`. The catalog includes only client-safe item fields (`id`, `kind`, `nameKey`, equipment slot/requirements/stats, and `stackable`), plus the active `contentHash`; it never returns full authored item definitions. `completedAreas` contains only persisted server progress and supports merchant gate display. Mutations remain authoritative and recheck the gates.
 - `GET /merchant` returns `{ merchants: [{ id, offers: [{ id, item, buyPrice, stock, requiresCompletedArea? }] }] }`.
 - `POST /characters/:actorId/inventory/commands` takes the shared `{ command_id, operation, payload }` envelope.
 

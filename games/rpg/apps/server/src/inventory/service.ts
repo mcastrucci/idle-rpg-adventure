@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { LedgerDelta } from '@engine/economy';
-import { applyLedgerDeltas, getHoldings, itemInstances, requireOwnedActor, requireSanctuaryMutation, actors } from '@engine/server-kit';
+import { ActorError, applyLedgerDeltas, getHoldings, itemInstances, requireSanctuaryMutation, actors } from '@engine/server-kit';
 import type { ApplyLedgerOptions } from '@engine/server-kit';
 import type { ActorTransaction, LoadedContent } from '@engine/server-kit';
 import type { MerchantOffer, Item } from '@rpg/rpg-schema';
@@ -48,10 +48,24 @@ export function buildPurchaseDeltas(actorId: string, itemId: string, quantity: n
   return deltas;
 }
 
-export async function inventorySnapshot(tx: ActorTransaction, accountId: string, actorId: string) {
-  const actor = await requireOwnedActor(tx, actorId, accountId, RPG_GAME_ID);
+export async function inventorySnapshot(tx: ActorTransaction, accountId: string, actorId: string, content: LoadedContent) {
+  // Read-only snapshot: ownership is enforced in SQL without the mutation lock used by requireOwnedActor.
+  const [actor] = await tx.select({ actorId: actors.actorId, version: actors.version, activityState: actors.activityState })
+    .from(actors).where(and(eq(actors.actorId, actorId.toLowerCase()), eq(actors.accountId, accountId), eq(actors.gameId, RPG_GAME_ID)));
+  if (!actor) throw new ActorError('not_found', 404);
   const holdings = await getHoldings(tx, actor.actorId);
-  return { actorId: actor.actorId, holdings };
+  const [character] = await tx.select().from(characters).where(eq(characters.actorId, actor.actorId));
+  if (!character) throw new InventoryError('not_found', 404);
+  const progress = await readRpgEvalContext(tx, actor.actorId, character.level, holdings);
+  const catalogItems = items(content);
+  return { actorId: actor.actorId, holdings, actorVersion: actor.version, activityState: actor.activityState,
+    level: character.level, attributes: character.attributes, completedAreas: [...progress.actor.completedAreas],
+    catalog: { contentHash: content.contentHash, items: catalogItems.map(item => ({ id: item.id, kind: item.kind,
+      ...(item.nameKey === undefined ? {} : { nameKey: item.nameKey }),
+      ...(item.kind === 'equipment' ? { slot: item.slot } : {}),
+      ...('levelRequired' in item && item.levelRequired !== undefined ? { levelRequired: item.levelRequired } : {}),
+      ...(item.kind === 'equipment' && item.stats && Object.keys(item.stats).length ? { stats: item.stats } : {}),
+      stackable: item.stackable })) } };
 }
 
 /** Public offer catalog is an explicit content allowlist; purchase gates are re-evaluated from persisted progress. */

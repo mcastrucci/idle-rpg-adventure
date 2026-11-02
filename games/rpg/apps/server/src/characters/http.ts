@@ -34,7 +34,9 @@ export const characterModule: ServerModule = {
     app.get('/characters/:actorId/inventory', async request => {
       const { accountId } = await requireAccount(request, context);
       const { actorId } = ActorParamsSchema.parse(request.params);
-      return context.database.db.transaction(tx => inventorySnapshot(tx, accountId, actorId));
+      // One immutable view across actor, character, holdings and recorded progress, even during concurrent rewards.
+      return context.database.db.transaction(tx => inventorySnapshot(tx, accountId, actorId, context.content),
+        { isolationLevel: 'repeatable read', accessMode: 'read only' });
     });
     app.get('/merchant', async () => merchantCatalog(context.content));
     app.post('/characters/:actorId/inventory/commands', { bodyLimit: 70 * 1024 }, async (request, reply) => {
