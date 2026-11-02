@@ -19,6 +19,7 @@ import { parseExpeditionDto, parseExpeditionOptionsDto } from '@rpg/protocol';
 
 import { characters } from '../characters/schema.ts';
 import { RPG_GAME_ID } from '../characters/service.ts';
+import { BASIC_ATTACK } from '../characters/validation.ts';
 import type { CharacterAttributes } from '../characters/validation.ts';
 import { expeditions } from './schema.ts';
 import { readRpgEvalContext } from './progress.ts';
@@ -55,7 +56,8 @@ function timelineOf(row: typeof expeditions.$inferSelect): ExpeditionTimeline {
 function placedOf(row: typeof expeditions.$inferSelect, timeline: ExpeditionTimeline): PlacedTimeline<RpgIdleEvent, RpgIdleState> {
   return placeSegments(timeline, row.startsAtMs, row.plannedEndsAtMs - row.startsAtMs, row.budget);
 }
-function asRpgSnapshot(character: typeof characters.$inferSelect, holdings: Awaited<ReturnType<typeof getHoldings>>, content: LoadedContent): RpgActorSnapshot {
+export function snapshotRpgActor(character: typeof characters.$inferSelect,
+  holdings: Awaited<ReturnType<typeof getHoldings>>, content: LoadedContent): RpgActorSnapshot {
   const items = rpgIdleContentFromBundle(content).combat.items;
   const equipment = holdings.filter(h => h.container === 'equipped' && h.asset.kind === 'unique').map(holding => {
     const definition = typeof holding.definition === 'string' ? items[holding.definition] : undefined;
@@ -69,7 +71,8 @@ function asRpgSnapshot(character: typeof characters.$inferSelect, holdings: Awai
   return {
     actorId: character.actorId,
     build: { level: character.level, attributes: character.attributes as CharacterAttributes, equipment },
-    skills: character.skillLoadout,
+    // Character rules treat basic attack as always equipped without consuming an active skill slot.
+    skills: [...new Set([BASIC_ATTACK, ...character.skillLoadout])],
     rules: character.automationRules,
   };
 }
@@ -144,7 +147,7 @@ export function createExpeditionService(tx: ActorTransaction, clock: Clock, cont
     async options(accountId: string, actorId: string) {
       const character = await loadCharacter(tx, actorId, accountId);
       const holdings = await getHoldings(tx, actorId);
-      const snapshot = asRpgSnapshot(character, holdings, content);
+      const snapshot = snapshotRpgActor(character, holdings, content);
       const context = await readRpgEvalContext(tx, actorId, character.level, holdings);
       const areas = world.areas.flatMap(area => {
         const activities = (area.activities ?? []).flatMap(activityId => {
@@ -172,7 +175,7 @@ export function createExpeditionService(tx: ActorTransaction, clock: Clock, cont
       const [character] = await tx.select().from(characters).where(eq(characters.actorId, payload.actorId)).for('update');
       if (!character) throw new ExpeditionError('not_found', 404);
       const holdings = await getHoldings(tx, payload.actorId);
-      const snapshot = asRpgSnapshot(character, holdings, content);
+      const snapshot = snapshotRpgActor(character, holdings, content);
       const context = await readRpgEvalContext(tx, payload.actorId, character.level, holdings);
       const simulator = registry.get(payload.request.activityId);
       if (!simulator) throw new ExpeditionError('start.unknownActivity', 400);

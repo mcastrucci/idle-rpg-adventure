@@ -25,7 +25,7 @@ import { createRpgDatabase, createRpgServer } from '../index.ts';
 import { characters } from '../characters/schema.ts';
 import { recordAreaCompletion } from './progress.ts';
 import { expeditions } from './schema.ts';
-import { createExpeditionService } from './service.ts';
+import { createExpeditionService, snapshotRpgActor } from './service.ts';
 
 const adminUrl = process.env['TEST_DATABASE_URL'];
 if (process.env['CI'] && !adminUrl) throw new Error('CI must supply TEST_DATABASE_URL for real PostgreSQL expedition acceptance tests');
@@ -530,8 +530,7 @@ function findSeed(bundle: unknown, character: CharacterDto, rawConfig: unknown,
   const registry = createRpgActivityRegistry(content);
   const simulator = registry.get(HUNT);
   if (!simulator) throw new Error(`missing simulator ${HUNT}`);
-  const actors = [{ actorId: character.actorId, build: { level: character.level, attributes: character.attributes, equipment: [] },
-    skills: character.skillLoadout, rules: character.automationRules }];
+  const actors = [snapshotRpgActor(character as never, [], bundle as never)];
   const evalContext = { actor: createActorWorldState({ completedAreas: [REGION] }), game: { defeatedEnemies: new Set<string>(), level: character.level } };
   const gate = checkStart({ world: (bundle as { world: unknown }).world as never,
     request: { areaId: REGION, activityId: HUNT, durationMin: 60, paceBp: 10_000 }, activities: registry,
