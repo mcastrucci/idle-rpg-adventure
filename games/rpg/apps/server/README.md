@@ -113,6 +113,55 @@ returns an empty safe prefix with `terminalReport: null`. History is limited to 
 time and ID. Equipped items are resolved from server ledger definitions; non-empty instance roll data is rejected until
 RPG stat-roll semantics are defined.
 
+## Expedition estimates (#53)
+
+`POST /characters/:actorId/expedition-estimate` with body `{ request: { areaId, activityId, durationMin, paceBp },
+config: { consumables, retreat } }` (parsed by `@rpg/protocol` `parseExpeditionEstimateRequest`; no actor, stats or
+seed fields are accepted) returns `ExpeditionEstimateDto`: `{ estimate: true, actorId, areaId, activityId, durationMin,
+paceBp, n, xp, gold, consumablesUsed[], outcomeRatesBp: { completed, retreated, died }, cached }`, where `xp`, `gold` and
+each consumable row are nearest-rank `{ p10, p50, p90 }` over `n` runs. XP is gross (before a death penalty); gold is
+what the natural end grants (after the death bag loss); rates are floored basis points. It is not a command and is
+read-only: a short transaction checks ownership and reads the snapshot through the same `readStartSnapshot` and
+`gateStart` as `start` (so the same `start.*`/`rpg.*`/`invalid_pace` errors apply), plus `insufficient_consumables`
+(409) when the inventory cannot cover the requested consumables. It writes no ledger, activity, expedition or job rows.
+`503 estimate_busy` is returned when 8 distinct estimates are already computing.
+
+- **Sampling** (`estimate-samples.ts`): the kernel `estimate` with the RPG metrics extractor, split into 4 fixed chunks
+  (chunk `k` uses root seed `deriveSeed(rootSeed, 'estimate-chunk', k)`), so the result never depends on the worker count.
+  `rootSeed` is derived from the cache key (SHA-256), never from a start seed; real starts draw theirs from
+  `crypto.randomBytes`, so estimates cannot predict a start.
+- **Run count** (`estimate-key.ts`): `n = clamp(⌊5000 / budget⌋, 60, 200)` (provisional). Region 1 hunt: 15 min → 200,
+  30 min → 200, 60 min → 166, 180 min (90 segments) → 60. Cost is about 0.3 ms per segment, so a cold estimate stays
+  under the spike-1 budget of 2 s even on one core.
+- **Worker pool** (`estimate-runner.ts`, `estimate-worker.ts`): `node:worker_threads`, `clamp(cores − 1, 1, 4)` workers
+  started lazily, each loading the content bundle once. The event loop never runs the simulation.
+- **Cache** (`estimate-cache.ts`): in-process LRU of 512 results plus single-flight de-duplication of identical in-flight
+  requests; no time-based expiry, since the key covers every input of a deterministic result. Key = SHA-256 of the
+  canonical JSON `{ model, kernelVersion, simulatorId, simulatorVersion, contentHash, areaId, activityId, durationMin,
+  paceBp, runs, buildHash, rulesHash, configHash }` (build = snapshot without rules; consumables sorted by item). Bump
+  `ESTIMATE_MODEL_VERSION` when sampling or aggregation changes. A Postgres table was not added: results are cheap to
+  recompute, need no cross-process consistency, and a per-process cache needs no migration; revisit if several API
+  processes make cold misses common.
+
+Measured (dev container, 4 vCPU Xeon @ 2.10 GHz, Node 22.23.4; `RPG_ESTIMATE_BENCH=1 pnpm exec vitest run --project
+@rpg/server expeditions/estimate.bench --silent=false`, Bulwark L4 Region 1 hunt with potions, no deaths so every run
+costs the full budget):
+
+| Duration | Budget | n | Inline (1 thread) | Pool, threads not started | First miss after boot warm-up | Pool warm | Cache hit |
+|---|---|---|---|---|---|---|---|
+| 15 min | 7 | 200 | 544 ms | 724 ms | 362 ms | 310 ms | 0.03 ms |
+| 30 min | 15 | 200 | 975 ms | 1 020 ms | 649 ms | 460 ms | 0.02 ms |
+| 60 min | 30 | 166 | 1 486 ms | 1 259 ms | 1 040 ms | 734 ms | 0.02 ms |
+| 180 min | 90 | 60 | 1 737 ms | 1 295 ms | 1 061 ms | 796 ms | 0.03 ms |
+
+The server starts the worker threads at boot (`warmUp`), so the "first miss after boot" column is what a player sees on
+the first cache miss. Under contention from other processes (load average about 4 on 4 cores) the same bench
+measured up to 1.75 s for a first miss and 2.3 s when threads had not been started yet; numbers vary by about 1.5x on
+this shared hardware. Through HTTP on the same machine, a cached estimate answered in about 15 ms (snapshot read
+included). The validation test
+(`estimate.test.ts`) compares 200 independent runs with fresh seeds against the estimate: 84.5 % of actual XP and
+81.5 % of actual gold fall within [p10, p90], and the death rate matches within 3 points.
+
 ## Debug/admin tools (non-production only)
 
 QA and development builds can enable authenticated debug endpoints (issue #31) to grant assets, set level/XP, record

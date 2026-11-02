@@ -1,6 +1,35 @@
 import { describe, expect, it } from 'vitest';
 
-import { COMMAND_OPERATIONS, parseCommandEnvelope, parseExpeditionDto, parseExpeditionOptionsDto, parseExpeditionStartPayload, PROTOCOL_PACKAGE } from './index.ts';
+import {
+  COMMAND_OPERATIONS, parseCommandEnvelope, parseExpeditionDto, parseExpeditionEstimateDto, parseExpeditionEstimateRequest, parseExpeditionOptionsDto,
+  parseExpeditionStartPayload, PROTOCOL_PACKAGE,
+} from './index.ts';
+
+describe('@rpg/protocol expedition estimates', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const request = { request: { areaId: 'area:ruins', activityId: 'activity:ruins', durationMin: 30, paceBp: 10_000 },
+    config: { consumables: [{ item: 'item:potion', qty: 2 }], retreat: { belowHpBp: 2_000, onlyWhenNoHealing: true } } };
+  const dto = { estimate: true, actorId: id, areaId: 'area:ruins', activityId: 'activity:ruins', durationMin: 30, paceBp: 10_000, n: 200,
+    xp: { p10: 10, p50: 20, p90: 30 }, gold: { p10: 0, p50: 4, p90: 9 }, consumablesUsed: [{ item: 'item:potion', p10: 0, p50: 1, p90: 2 }],
+    outcomeRatesBp: { completed: 9_000, retreated: 500, died: 500 }, cached: false };
+
+  it('accepts only a request and config (no actor, no stats)', () => {
+    expect(parseExpeditionEstimateRequest(request)).toEqual(request);
+    expect(() => parseExpeditionEstimateRequest({ ...request, actorId: id })).toThrow(TypeError);
+    expect(() => parseExpeditionEstimateRequest({ ...request, snapshot: {} })).toThrow(TypeError);
+    expect(() => parseExpeditionEstimateRequest({ ...request, config: { ...request.config, retreat: { belowHpBp: 10_001, onlyWhenNoHealing: false } } })).toThrow(TypeError);
+  });
+
+  it('parses an estimate labelled as such, with ordered integer ranges and bounded rates', () => {
+    expect(parseExpeditionEstimateDto(dto)).toEqual(dto);
+    expect(() => parseExpeditionEstimateDto({ ...dto, estimate: false })).toThrow(TypeError);
+    expect(() => parseExpeditionEstimateDto({ ...dto, xp: { p10: 30, p50: 20, p90: 10 } })).toThrow(TypeError);
+    expect(() => parseExpeditionEstimateDto({ ...dto, gold: { p10: 0.5, p50: 1, p90: 2 } })).toThrow(TypeError);
+    expect(() => parseExpeditionEstimateDto({ ...dto, outcomeRatesBp: { completed: 10_001, retreated: 0, died: 0 } })).toThrow(TypeError);
+    expect(() => parseExpeditionEstimateDto({ ...dto, seed: 1 })).toThrow(TypeError);
+    expect(() => parseExpeditionEstimateDto({ ...dto, n: 0 })).toThrow(TypeError);
+  });
+});
 
 const id = 'cd7228dc-0ea5-4f41-b88f-963d791a34ed';
 const envelope = (payload: unknown = {}) => ({ command_id: id, operation: 'character.create', payload });

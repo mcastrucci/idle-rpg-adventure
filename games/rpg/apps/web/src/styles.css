@@ -132,6 +132,26 @@ h1, h2, p, dl, ol { margin: 0; }
 .expedition-dialog h2 { margin: 0; font-size: 1.15rem; }
 .expedition-dialog__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
+/* Expedition setup (#53): duration chips, rules preview, estimate card, repeat-last shortcut. */
+.duration-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.duration-chips legend { width: 100%; padding: 0; }
+.duration-chip { min-width: 64px; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-variant-numeric: tabular-nums; }
+.duration-chip--active { border-color: var(--accent); color: var(--accent); font-weight: 700; box-shadow: inset 0 0 0 1px var(--accent); }
+.rules-preview, .estimate-card, .repeat-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.rules-preview h3, .estimate-card h3, .repeat-card h3 { margin: 0; font-size: 0.9rem; color: var(--muted); }
+.rules-preview ol { margin: 0; padding-left: 20px; }
+.rules-preview li { margin-top: 4px; overflow-wrap: anywhere; }
+.repeat-card p { margin: 0; overflow-wrap: anywhere; }
+.estimate-card__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.estimate-card__badge { padding: 2px 8px; border: 1px dashed var(--muted); border-radius: 999px; font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.estimate-card__body { display: flex; flex-direction: column; gap: 10px; }
+.estimate-card__body--stale { opacity: 0.55; }
+.estimate-card__grid { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 0; }
+.estimate-card__grid > div { display: flex; justify-content: space-between; gap: 12px; }
+.estimate-card__grid dt { color: var(--muted); }
+.estimate-card__grid dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.estimate-card__note { margin: 0; font-size: 0.8rem; }
+
 /* Bottom tab bar in the thumb zone; 44px+ targets. */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 2;

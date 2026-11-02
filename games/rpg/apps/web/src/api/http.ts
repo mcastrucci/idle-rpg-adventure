@@ -1,6 +1,6 @@
 import type { CharacterDto, ContentInfoDto, IssuedSessionDto, SessionDto } from './types.ts';
-import type { ExpeditionDto, ExpeditionOptionsDto } from '@rpg/protocol';
-import { parseExpeditionDto, parseExpeditionOptionsDto } from '@rpg/protocol';
+import type { ExpeditionDto, ExpeditionEstimateDto, ExpeditionEstimateRequest, ExpeditionOptionsDto } from '@rpg/protocol';
+import { parseExpeditionDto, parseExpeditionEstimateDto, parseExpeditionOptionsDto } from '@rpg/protocol';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 export type HttpMethod = 'GET' | 'POST' | 'PATCH';
@@ -86,6 +86,10 @@ export class ApiClient {
   }
   expeditionOptions(actorId: string): Promise<ExpeditionOptionsDto> {
     return this.request<unknown>('GET', `/characters/${encodeURIComponent(actorId)}/expedition-options`).then(parseExpeditionOptionsDto);
+  }
+  /** Read-only server Monte Carlo estimate of a candidate start (not a command: nothing changes server-side). */
+  expeditionEstimate(actorId: string, body: ExpeditionEstimateRequest): Promise<ExpeditionEstimateDto> {
+    return this.request<unknown>('POST', `/characters/${encodeURIComponent(actorId)}/expedition-estimate`, body).then(parseExpeditionEstimateDto);
   }
 }
 

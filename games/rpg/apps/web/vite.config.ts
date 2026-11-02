@@ -18,6 +18,7 @@ export default defineConfig({
       // `/auth/live` is the authenticated WebSocket; the rest of `/auth` is plain HTTP.
       '/auth': { ...proxied, ws: true },
       '/characters': proxied,
+      '/expeditions': proxied,
       '/content': proxied,
       '/health': proxied,
     },

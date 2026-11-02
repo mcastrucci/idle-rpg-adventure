@@ -18,6 +18,40 @@ export interface ExpeditionStartPayload {
 
 export interface ExpeditionCancelPayload { readonly expeditionId: string }
 
+export interface ExpeditionEstimateRequest {
+  readonly request: ExpeditionStartPayload['request'];
+  readonly config: ExpeditionConfig;
+}
+
+/** Nearest-rank percentiles over the Monte Carlo runs (integers). */
+export interface EstimateRangeDto {
+  readonly p10: number;
+  readonly p50: number;
+  readonly p90: number;
+}
+
+/**
+ * Monte Carlo estimate of a candidate expedition (idle-simulation §8, concept §6.3). `estimate: true` marks it as an
+ * estimate, never a guarantee: a real start rolls its own seed. XP is gross (before a death penalty); gold is what the
+ * natural end would grant (after the death bag loss); outcome rates are basis points of `n` runs (floored).
+ */
+export interface ExpeditionEstimateDto {
+  readonly estimate: true;
+  readonly actorId: string;
+  readonly areaId: string;
+  readonly activityId: string;
+  readonly durationMin: number;
+  readonly paceBp: number;
+  /** Number of simulated runs behind the percentiles. */
+  readonly n: number;
+  readonly xp: EstimateRangeDto;
+  readonly gold: EstimateRangeDto;
+  readonly consumablesUsed: readonly (EstimateRangeDto & { readonly item: string })[];
+  readonly outcomeRatesBp: { readonly completed: number; readonly retreated: number; readonly died: number };
+  /** True when the server answered from its estimate cache. */
+  readonly cached: boolean;
+}
+
 export interface ExpeditionOptionsDto {
   readonly actorId: string;
   readonly areas: readonly {
@@ -61,26 +95,44 @@ export interface ExpeditionDto {
 
 export function parseExpeditionStartPayload(input: unknown): ExpeditionStartPayload {
   const root = record(input, ['actorId', 'request', 'config']);
-  const request = record(root['request'], ['areaId', 'activityId', 'durationMin', 'paceBp']);
-  const config = record(root['config'], ['consumables', 'retreat']);
-  const retreat = record(config['retreat'], ['belowHpBp', 'onlyWhenNoHealing']);
-  if (typeof root['actorId'] !== 'string' || !uuid.test(root['actorId']) ||
-      typeof request['areaId'] !== 'string' || request['areaId'].length === 0 ||
+  const message = 'invalid expedition.start payload';
+  const request = parseStartRequest(root['request'], message);
+  const config = parseConfig(root['config'], message);
+  if (typeof root['actorId'] !== 'string' || !uuid.test(root['actorId'])) throw new TypeError(message);
+  return Object.freeze({ actorId: root['actorId'].toLowerCase(), request, config });
+}
+
+/**
+ * Body of `POST /characters/:actorId/expedition-estimate`: the candidate start request and configuration only. The
+ * actor is the route target; build, rules and inventory are always read by the server (the client sends no stats).
+ */
+export function parseExpeditionEstimateRequest(input: unknown): ExpeditionEstimateRequest {
+  const root = record(input, ['request', 'config']);
+  const message = 'invalid expedition estimate request';
+  return Object.freeze({ request: parseStartRequest(root['request'], message), config: parseConfig(root['config'], message) });
+}
+
+function parseStartRequest(input: unknown, message: string): ExpeditionStartPayload['request'] {
+  const request = record(input, ['areaId', 'activityId', 'durationMin', 'paceBp']);
+  if (typeof request['areaId'] !== 'string' || request['areaId'].length === 0 ||
       typeof request['activityId'] !== 'string' || request['activityId'].length === 0 ||
-      !positiveInt(request['durationMin']) || !positiveInt(request['paceBp']) ||
-      !Array.isArray(config['consumables']) || !Number.isInteger(retreat['belowHpBp']) ||
+      !positiveInt(request['durationMin']) || !positiveInt(request['paceBp'])) throw new TypeError(message);
+  return Object.freeze({ areaId: request['areaId'], activityId: request['activityId'], durationMin: request['durationMin'], paceBp: request['paceBp'] });
+}
+
+function parseConfig(input: unknown, message: string): ExpeditionConfig {
+  const config = record(input, ['consumables', 'retreat']);
+  const retreat = record(config['retreat'], ['belowHpBp', 'onlyWhenNoHealing']);
+  if (!Array.isArray(config['consumables']) || !Number.isInteger(retreat['belowHpBp']) ||
       (retreat['belowHpBp'] as number) < 0 || (retreat['belowHpBp'] as number) > 10_000 ||
-      typeof retreat['onlyWhenNoHealing'] !== 'boolean') throw new TypeError('invalid expedition.start payload');
+      typeof retreat['onlyWhenNoHealing'] !== 'boolean') throw new TypeError(message);
   const consumables = config['consumables'].map((raw) => {
     const item = record(raw, ['item', 'qty']);
     if (typeof item['item'] !== 'string' || item['item'].length === 0 || !positiveInt(item['qty'])) throw new TypeError('invalid expedition consumable');
     return Object.freeze({ item: item['item'], qty: item['qty'] as number });
   });
-  return Object.freeze({
-    actorId: root['actorId'].toLowerCase(),
-    request: Object.freeze({ areaId: request['areaId'], activityId: request['activityId'], durationMin: request['durationMin'] as number, paceBp: request['paceBp'] as number }),
-    config: Object.freeze({ consumables: Object.freeze(consumables), retreat: Object.freeze({ belowHpBp: retreat['belowHpBp'] as number, onlyWhenNoHealing: retreat['onlyWhenNoHealing'] }) }),
-  });
+  return Object.freeze({ consumables: Object.freeze(consumables),
+    retreat: Object.freeze({ belowHpBp: retreat['belowHpBp'] as number, onlyWhenNoHealing: retreat['onlyWhenNoHealing'] }) });
 }
 
 export function parseExpeditionCancelPayload(input: unknown): ExpeditionCancelPayload {
@@ -143,6 +195,34 @@ export function parseExpeditionOptionsDto(input: unknown): ExpeditionOptionsDto 
   });
   return Object.freeze({ actorId: root['actorId'].toLowerCase(), areas: Object.freeze(areas), durationsMin: Object.freeze(root['durationsMin'] as number[]),
     paceBp: Object.freeze({ min: pace['min'] as number, max: pace['max'] as number, default: pace['default'] as number }), consumables: Object.freeze(consumables) });
+}
+
+export function parseExpeditionEstimateDto(input: unknown): ExpeditionEstimateDto {
+  const root = record(input, ['estimate', 'actorId', 'areaId', 'activityId', 'durationMin', 'paceBp', 'n', 'xp', 'gold', 'consumablesUsed', 'outcomeRatesBp', 'cached']);
+  const rates = record(root['outcomeRatesBp'], ['completed', 'retreated', 'died']);
+  if (root['estimate'] !== true || typeof root['actorId'] !== 'string' || !uuid.test(root['actorId']) || typeof root['areaId'] !== 'string' ||
+      typeof root['activityId'] !== 'string' || !positiveInt(root['durationMin']) || !positiveInt(root['paceBp']) || !positiveInt(root['n']) ||
+      !Array.isArray(root['consumablesUsed']) || typeof root['cached'] !== 'boolean' ||
+      !['completed', 'retreated', 'died'].every((key) => nonnegativeInt(rates[key]) && (rates[key] as number) <= 10_000)) throw new TypeError('invalid expedition estimate DTO');
+  const consumablesUsed = root['consumablesUsed'].map((raw) => {
+    const row = record(raw, ['item', 'p10', 'p50', 'p90']);
+    if (typeof row['item'] !== 'string' || row['item'].length === 0) throw new TypeError('invalid estimate consumable row');
+    return Object.freeze({ item: row['item'], ...parseRange({ p10: row['p10'], p50: row['p50'], p90: row['p90'] }) });
+  });
+  return Object.freeze({
+    estimate: true, actorId: root['actorId'].toLowerCase(), areaId: root['areaId'], activityId: root['activityId'],
+    durationMin: root['durationMin'] as number, paceBp: root['paceBp'] as number, n: root['n'] as number,
+    xp: parseRange(root['xp']), gold: parseRange(root['gold']), consumablesUsed: Object.freeze(consumablesUsed),
+    outcomeRatesBp: Object.freeze({ completed: rates['completed'] as number, retreated: rates['retreated'] as number, died: rates['died'] as number }),
+    cached: root['cached'],
+  });
+}
+
+function parseRange(input: unknown): EstimateRangeDto {
+  const range = record(input, ['p10', 'p50', 'p90']);
+  if (!nonnegativeInt(range['p10']) || !nonnegativeInt(range['p50']) || !nonnegativeInt(range['p90']) ||
+      range['p10'] > range['p50'] || range['p50'] > range['p90']) throw new TypeError('invalid estimate range');
+  return Object.freeze({ p10: range['p10'], p50: range['p50'], p90: range['p90'] });
 }
 
 function parseCancelPreview(input: unknown): ExpeditionCancelPreviewDto {

@@ -59,6 +59,15 @@ Other scripts: `pnpm --filter @rpg/web build` (production bundle in `dist/`), `p
   buttons are disabled.
 - **Expeditions.** The Expeditions tab reads server options and expedition DTOs, starts and cancels through commands,
   and refreshes the character after settlement. The header chip reflects the character's server-provided activity.
+- **Expedition setup (#53).** Area → activity → duration chips → consumable → retreat → automation rules preview (link
+  to `#/character/rules`) → estimate card → Start. The estimate card shows the server's Monte Carlo figures
+  (`POST /characters/:actorId/expedition-estimate`, `ExpeditionEstimateDto` from `@rpg/protocol`): XP and gold as
+  "median (p10–p90)", consumables used, death and retreat chance, the run count, and an "Estimate" badge; the client
+  computes nothing from game rules. Requests are debounced (400 ms after the last change), stale answers are dropped,
+  and errors offer a retry; the estimate refreshes when the character version changes (e.g. edited rules). "Repeat last
+  expedition" starts the last *started* request/config with one tap; it is a per-device convenience stored in
+  localStorage per character (guarded; the screen works without storage) and is disabled with a reason when the area,
+  duration or consumables are no longer available.
 - **Live socket.** The client waits for `{ type: 'authenticated' }` before treating the connection as open (frames
   sent earlier would be closed with 1008 by the server). It pings every 15 s (the server answers `pong` and renews the
   lease) and drops the socket after 10 s without an inbound frame. Reconnects use exponential backoff with jitter

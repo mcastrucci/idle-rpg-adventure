@@ -25,11 +25,12 @@ const failed: ExpeditionDto = { ...running, state: 'completed', endsAtMs: Date.n
 } };
 
 function props(apiOverrides: Partial<ApiClient> = {}, onCommand: (request: unknown) => Promise<unknown> = async () => running) {
-  const api = { expeditionOptions: vi.fn(async () => options), expedition: vi.fn(async () => running), ...apiOverrides } as unknown as ApiClient;
+  const api = { expeditionOptions: vi.fn(async () => options), expedition: vi.fn(async () => running),
+    expeditionEstimate: vi.fn(() => new Promise(() => {})), ...apiOverrides } as unknown as ApiClient;
   return { api, character, canCommand: true, runCommand: onCommand as <T,>(request: { path: string }) => Promise<T>, refreshCharacter: vi.fn(async () => {}) };
 }
 
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); window.localStorage.clear(); });
 
 describe('ExpeditionScreen', () => {
   it('keeps start locked when the server has no conquered activities', async () => {

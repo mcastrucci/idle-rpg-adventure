@@ -158,6 +158,38 @@ function terminalDto(row: typeof expeditions.$inferSelect, nowMs: number, policy
   catch { return safeDto(row, null, nowMs, policyRegistry); }
 }
 
+/**
+ * Server-derived simulator inputs shared by `start` and estimates: the character row (locked for the surrounding
+ * transaction), its ledger holdings, the build/rules snapshot and the world evaluation context. Clients never send
+ * stats; the caller has already checked ownership with `requireOwnedActor`.
+ */
+export async function readStartSnapshot(tx: ActorTransaction, actorId: string, content: LoadedContent) {
+  const [character] = await tx.select().from(characters).where(eq(characters.actorId, actorId)).for('update');
+  if (!character) throw new ExpeditionError('not_found', 404);
+  const holdings = await getHoldings(tx, actorId);
+  const snapshot = snapshotRpgActor(character, holdings, content);
+  const context = await readRpgEvalContext(tx, actorId, character.level, holdings);
+  return { character, holdings, snapshot, context };
+}
+
+/**
+ * Kernel start gate shared by `start` and estimates: resolves the activity's simulator, runs `beforeCheck` (e.g. the
+ * settlement-policy guard of a real start) and `checkStart`, and returns the parsed config, budget and escrow.
+ */
+export function gateStart(content: LoadedContent, request: { areaId: string; activityId: string; durationMin: number; paceBp: number },
+  rawConfig: unknown, snapshot: RpgActorSnapshot, context: Awaited<ReturnType<typeof readRpgEvalContext>>,
+  beforeCheck: (simulator: { id: string; version: string }) => void = () => {}) {
+  const world = parseWorld(content);
+  const registry = simulators(content);
+  const simulator = registry.get(request.activityId);
+  if (!simulator) throw new ExpeditionError('start.unknownActivity', 400);
+  beforeCheck(simulator);
+  const gate = checkStart({ world, request: { ...request, areaId: request.areaId as AreaId }, activities: registry, simulator,
+    rawConfig, actors: [snapshot], evalContexts: [context], predicates: createRpgPredicateRegistry() });
+  if (!gate.ok) throw new ExpeditionError(gate.code, 400);
+  return { simulator, gate };
+}
+
 async function loadCharacter(tx: ActorTransaction, actorId: string, accountId: string) {
   await requireOwnedActor(tx, actorId, accountId, RPG_GAME_ID);
   const [character] = await tx.select().from(characters).where(and(eq(characters.actorId, actorId), eq(characters.accountId, accountId))).for('update');
@@ -199,26 +231,15 @@ export function createExpeditionService(tx: ActorTransaction, clock: Clock, cont
         paceBp: { min: 10_000, max: 10_000, default: 10_000 }, consumables });
     },
     async start(accountId: string, payload: { actorId: string; request: { areaId: string; activityId: string; durationMin: number; paceBp: number }; config: unknown }) {
-      const world = parseWorld(content);
-      const registry = simulators(content);
-      const predicates = createRpgPredicateRegistry();
       if (payload.request.paceBp !== 10_000) throw new ExpeditionError('invalid_pace', 400);
       const actor = await requireOwnedActor(tx, payload.actorId, accountId, RPG_GAME_ID);
       if (actor.activityState !== 'none') throw new ExpeditionError('busy', 409);
-      const [character] = await tx.select().from(characters).where(eq(characters.actorId, payload.actorId)).for('update');
-      if (!character) throw new ExpeditionError('not_found', 404);
-      const holdings = await getHoldings(tx, payload.actorId);
-      const snapshot = snapshotRpgActor(character, holdings, content);
-      const context = await readRpgEvalContext(tx, payload.actorId, character.level, holdings);
-      const simulator = registry.get(payload.request.activityId);
-      if (!simulator) throw new ExpeditionError('start.unknownActivity', 400);
-      if (!findSettlementPolicy(settlementPolicies, KERNEL_VERSION, simulator.id, simulator.version)) {
-        throw new ExpeditionError('expedition_settlement_policy_unavailable', 503);
-      }
-      const request = { ...payload.request, areaId: payload.request.areaId as AreaId };
-      const gate = checkStart({ world, request, activities: registry, simulator,
-        rawConfig: payload.config, actors: [snapshot], evalContexts: [context], predicates });
-      if (!gate.ok) throw new ExpeditionError(gate.code, 400);
+      const { snapshot, context } = await readStartSnapshot(tx, payload.actorId, content);
+      const { simulator, gate } = gateStart(content, payload.request, payload.config, snapshot, context, sim => {
+        if (!findSettlementPolicy(settlementPolicies, KERNEL_VERSION, sim.id, sim.version)) {
+          throw new ExpeditionError('expedition_settlement_policy_unavailable', 503);
+        }
+      });
 
       const nowMs = clock.nowMs();
       if (!Number.isSafeInteger(nowMs) || nowMs < 0) throw new Error('invalid expedition clock');

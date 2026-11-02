@@ -3,7 +3,11 @@ import type { ServerModule } from '@engine/server-kit';
 import { z } from 'zod';
 
 import { parseGameCommand, publicCommandError, executeCharacterCommand } from '../character-commands.ts';
+import { parseExpeditionEstimateRequest } from '@rpg/protocol';
+
 import { createExpeditionService } from './service.ts';
+import { createEstimateService } from './estimates.ts';
+import type { EstimateServiceOptions } from './estimates.ts';
 import { supportedSettlementPolicies } from './policy.ts';
 import type { SettlementPolicy } from './policy.ts';
 
@@ -11,13 +15,32 @@ const ActorParams = z.strictObject({ actorId: z.uuid().transform(id => id.toLowe
 const ExpeditionParams = z.strictObject({ expeditionId: z.uuid().transform(id => id.toLowerCase()) });
 
 /** HTTP and WS command operations share the command dispatcher and idempotency ledger. */
-export function createExpeditionModule(seedSource?: () => number, settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies): ServerModule {
+export function createExpeditionModule(seedSource?: () => number, settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies,
+  estimateOptions: EstimateServiceOptions = {}): ServerModule {
 return {
   name: 'expeditions', roles: ['api'],
   async register(app, context) {
     app.addHook('onRequest', async (request, reply) => {
       reply.header('cache-control', 'no-store');
       checkOrigin(request);
+    });
+    const estimates = createEstimateService(context.content, estimateOptions);
+    app.addHook('onClose', async () => { await estimates.close(); });
+    // Read-only Monte Carlo estimate of a candidate start (#53). Not a command: it changes nothing, so it needs no
+    // command id; the body carries only the request and config (no stats), parsed by the shared protocol.
+    app.post('/characters/:actorId/expedition-estimate', { bodyLimit: 16 * 1024 }, async (request, reply) => {
+      const { accountId } = await requireAccount(request, context);
+      const { actorId } = ActorParams.parse(request.params);
+      let body;
+      try { body = parseExpeditionEstimateRequest(request.body); }
+      catch { return reply.code(400).send({ error: 'invalid_request' }); }
+      try {
+        return await estimates.estimate(context.database, accountId, actorId, body);
+      } catch (error) {
+        const known = publicCommandError(error);
+        if (known) return reply.code(known.status).send(known.body);
+        throw error;
+      }
     });
     app.get('/expeditions/:expeditionId', async (request, reply) => {
       const { accountId } = await requireAccount(request, context);
