@@ -260,6 +260,10 @@ Live: each node can be gathered once per instance.
 
 ### 5.2 Items (vendor value in gold)
 
+The Sanctuary merchant's buy prices below are **provisional** and authored in `games/rpg/content/merchants/region_1.json`.
+The merchant has infinite stock for this POC. `value` remains the sell value; purchases use each offer's explicit `buyPrice`.
+The `healing_potion` offer is unavailable until the server has recorded completion of `area:region_1`. Equipment with value 0 is not sold by the merchant.
+
 | Item | Kind | Value | Notes |
 |---|---|---|---|
 | `minor_healing_potion` | consumable, stack 20 | buy 12 / sell 3 | `heal 3000 to self` (30% maxHp) |

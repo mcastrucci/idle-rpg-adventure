@@ -8,6 +8,7 @@ import {
   EncounterTableSchema,
   IdleActivitySchema,
   ItemSchema,
+  MerchantSchema,
   LootTableSchema,
   MAX_AUTOMATION_RULES,
   ResourceNodeSchema,
@@ -33,6 +34,19 @@ import {
 } from './testing/examples.ts';
 
 describe('valid examples', () => {
+  it('parses explicit merchant buy prices and infinite stock', () => {
+    const merchant = MerchantSchema.parse({ id: 'merchant:region_1', offers: [
+      { id: 'offer:minor_healing_potion', item: 'item:minor_healing_potion', buyPrice: { currency: 'gold', amount: 12 } },
+    ] });
+    expect(merchant.offers[0]).toMatchObject({ buyPrice: { currency: 'gold', amount: 12 }, stock: 'infinite' });
+    expect(MerchantSchema.safeParse({ id: 'merchant:region_1', offers: [
+      { id: 'offer:pot', item: 'item:minor_healing_potion', buyPrice: { currency: 'gold', amount: 0 } },
+    ] }).success).toBe(false);
+    expect(MerchantSchema.safeParse({ id: 'merchant:region_1', offers: [
+      { id: 'offer:pot', item: 'item:minor_healing_potion', buyPrice: { currency: 'gold', amount: 2_147_483_648 } },
+    ] }).success).toBe(false);
+  });
+
   it('parses skill:shield_bash from the content-format spec', () => {
     const skill = SkillSchema.parse(shieldBash);
     expect(skill.id).toBe('skill:shield_bash');

@@ -11,6 +11,7 @@ export const RPG_COLLECTION_DIRS = {
   enemies: 'enemies',
   skills: 'skills',
   items: 'items',
+  merchants: 'merchants',
   lootTables: 'loot-tables',
   encounterTables: 'encounter-tables',
   resourceNodes: 'resource-nodes',

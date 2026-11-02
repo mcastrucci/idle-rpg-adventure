@@ -32,7 +32,10 @@ fit server authority (ADR-0002), the PostgreSQL-only infrastructure (ADR-0006), 
   new epoch. The socket is the existing authenticated `/auth/live` (one device per account via the fenced
   `live_sessions` lease); the host does not add a second socket.
 - Disconnection does not pause anything; see open decision #5 for the confirmed policy.
-- `live_instances` is owned by a separate optional migration set (`LIVE_HOST_MIGRATIONS`) applied after the engine set.
+- `live_instances` was initially owned by a separate optional migration set (`LIVE_HOST_MIGRATIONS`). It is now in the
+  engine migration chain so all server roles verify the same persistence schema. The historical live-host migration
+  and journal remain immutable upgrade evidence; migration preflight adopts their table only when journal and catalog
+  shape match the expected legacy layout.
 
 ## Evidence (spike 3)
 Adversarial integration tests (`games/rpg/apps/server/src/live/live.integration.test.ts`) run two live nodes (Fastify

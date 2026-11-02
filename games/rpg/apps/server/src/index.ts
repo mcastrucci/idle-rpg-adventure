@@ -1,4 +1,4 @@
-import { createAuthModule, createCommandMaintenanceModule, createServer, LIVE_HOST_MIGRATIONS } from '@engine/server-kit';
+import { createAuthModule, createCommandMaintenanceModule, createServer } from '@engine/server-kit';
 import type { Clock, JobHandler, ServerConfig, ServerModule } from '@engine/server-kit';
 
 import { validateRpgBundle } from './content.ts';
@@ -39,7 +39,7 @@ export function createRpgServer(config: ServerConfig, options: { clock?: Clock; 
     },
   };
   return createServer({ config, game: 'rpg', validateContent: validateRpgBundle, ...options, ...(debug ? { clock: debug.clock } : {}),
-    migrationSets: [LIVE_HOST_MIGRATIONS, RPG_MIGRATIONS],
+    migrationSets: [RPG_MIGRATIONS],
     modules: [content, ...(debug ? [debug.module] : []), createAuthModule({
       enableHttp: config.roles.includes('api'), enableLive: config.roles.includes('live'),
       // `live.*` operations go to the instance host; everything else is a character command envelope.

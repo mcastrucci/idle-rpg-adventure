@@ -120,5 +120,8 @@ authenticated `/auth/live` socket and its fenced `live_sessions` lease still gua
 participant's actor activity `none → live` in ascending actor order in the insert transaction; close and participant
 release CAS back and run the optional `onClose`/`onParticipantReleased` hooks in the same transaction. All later writes are
 fenced on `(node_id, lease_generation, checkpoint_seq)` plus an unexpired lease. The table belongs to the separate
-`LIVE_HOST_MIGRATIONS` set (`migrations-live/`, journal schema `live_host_migrations`), listed after the engine set by
-compositions that host live instances; generate it with `pnpm --filter @engine/server-kit db:generate:live`.
+The live-host table is part of the engine migration chain (`drizzle`); `createDatabase`, server readiness and CLI
+therefore verify one engine journal. The former `migrations-live/` SQL and `live_host_migrations` journal are retained
+as immutable upgrade evidence. On upgrade, the migrator adopts that table only when its legacy journal and catalog
+shape match the expected historical migration. Generate future engine migrations with
+`pnpm --filter @engine/server-kit db:generate`.

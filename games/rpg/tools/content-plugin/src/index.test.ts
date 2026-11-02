@@ -57,6 +57,7 @@ describe('rpgContentPlugin', () => {
       enemies: 'enemies enemy',
       skills: 'skills skill',
       items: 'items item',
+      merchants: 'merchants merchant',
       lootTables: 'loot-tables loot',
       encounterTables: 'encounter-tables enc',
       resourceNodes: 'resource-nodes res',
@@ -81,12 +82,29 @@ describe('seed content (games/rpg/content)', () => {
       enemies: 2,
       idleActivities: 1,
       items: 2,
+      merchants: 0,
       lootTables: 3,
       progression: 1,
       resourceNodes: 1,
       skills: 2,
     });
     expect(bundle.contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('rejects merchant offers for materials; POC merchants sell stackable consumables only', () => {
+    const result = compileSeed({ add: { 'merchants/test.json': { id: 'merchant:test', offers: [
+      { id: 'offer:herb', item: 'item:test_grove.herb', buyPrice: { currency: 'gold', amount: 10 } },
+    ] } } });
+    expect(errorsOf(result)).toContain('rpg.merchantOfferInvalidItem merchants/test.json offers.0.item');
+  });
+
+  it('requires offer IDs to be unique across merchant catalogs', () => {
+    const offer = { id: 'offer:test_tonic', item: 'item:test_tonic', buyPrice: { currency: 'gold', amount: 10 } };
+    const result = compileSeed({ add: {
+      'merchants/first.json': { id: 'merchant:first', offers: [offer] },
+      'merchants/second.json': { id: 'merchant:second', offers: [offer] },
+    } });
+    expect(errorsOf(result)).toContain('rpg.merchantOfferIdDuplicate merchants/second.json offers.0.id');
   });
 
   it('applies RPG field defaults to compiled locations', () => {
