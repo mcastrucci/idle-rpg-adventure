@@ -23,4 +23,8 @@ not require long-lived processes.
 - No idle processes; worker crashes are harmless retries.
 - Deploying a new engine never affects in-flight expeditions.
 - The full outcome exists server-side before the player sees it: it must never leak to the client.
-- Estimates (Monte Carlo) are a separate concern; see spike 1.
+- Estimates (Monte Carlo) are a separate concern; see [ADR-0013](0013-tick-and-idle-encounter-model.md).
+
+## Evidence (spike 1)
+A 180-minute precompute (90 segments) takes p95 24-47 ms on Node 22, within the 100 ms budget; replays are identical
+on Node 22 and 24 in CI. See the [spike report](../spikes/spike-1-sim.md).

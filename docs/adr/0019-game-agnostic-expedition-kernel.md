@@ -71,3 +71,7 @@ The RPG idle simulators (#76) surfaced five more gaps, fixed in the engine by #7
 
 All new simulator-facing fields are optional, so v0.2 simulators still compile; `CheckStartInput.config` was renamed
 `rawConfig` (callers pass the raw command payload) and `EstimateResult` gained `metrics`.
+
+## Evidence (spike 1)
+The "interface needed amendments" finding of [spike 1](../spikes/spike-1-sim.md): the sandbox (#67) and the RPG idle
+simulators (#76) required the v0.2 and v0.3 amendments above; neither put game concepts in `engine/*`.

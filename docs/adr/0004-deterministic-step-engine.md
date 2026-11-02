@@ -25,3 +25,8 @@ logs, audits, golden tests and precomputed idle.
 - Bugs are reproducible from `(seed, inputs, engineVersion, contentHash)`.
 - Formulas must be designed for integers (see `docs/spec/combat-engine.md`).
 - Changing engine behaviour requires bumping `engineVersion`.
+
+## Evidence (spike 1)
+The step engine (`rpg-sim@1.1.0`) and the survival toy share the PCG32 streams of `engine/sim-core`; golden replays run on
+Node 22 and 24 in CI (`.github/workflows/ci.yml`). Gaps still open: a 1,000-repeat hash test and a heap/GC measurement.
+See the [spike report](../spikes/spike-1-sim.md).
