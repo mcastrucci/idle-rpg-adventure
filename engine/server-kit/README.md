@@ -14,8 +14,8 @@ Modules declare a unique domain name, process roles and `register(app, context)`
 `database` and immutable `content` dependencies. Fastify encapsulates module decorations/hooks; use explicit service
 interfaces when one module needs another. Register resource cleanup through `onClose`. All named domain boundaries
 (auth, character, ledger, content, conquest, live-host, expeditions, party, jobs, debug) are available; only implemented
-modules are registered. This foundation installs no empty domain modules. Only the ledger module may eventually
-mutate ownership/balances, and only activity may change an actor's activity state (ADR-0007).
+modules are registered. This foundation installs no empty domain modules. Ownership/balances are changed through the
+ledger transaction API, and only activity may change an actor's activity state (ADR-0007).
 
 `ROLES=api,live,worker` is the default; any non-empty unique subset starts only matching modules. A module declaring
 several roles starts once even when several match. Every role has `/health/live` and `/health/ready` for operations;
@@ -71,6 +71,20 @@ as its server. Engine migrations never import game definitions; the RPG owns its
 Identity/session APIs live in [auth](src/auth/README.md), generic activity locks in `src/actors`, and replay-safe
 transaction/maintenance APIs in [commands](src/commands/README.md). The game composes these modules and supplies its
 command dispatcher; none of them imports RPG content or grants assets. The HTTP/WS command layer is not the ledger.
+
+## Economy ledger transaction core
+
+`src/ledger` owns append-only source batches and entries, non-negative stack/currency balances, and unique item
+instances. Call `applyLedgerDeltas(tx, source, deltas, { activity })` only inside the caller's authenticated command or
+coordinator transaction. It locks every actor in canonical UUID order, rejects unrelated activity mutations, scopes the
+logical expedition `escrow` container by the explicit activity ID, and deduplicates `(source.type, source.id)` with a
+canonical payload fingerprint. `getHoldings(tx, actorId)` reads persisted balances and unique item instances;
+`moveUniqueItem` records moves and equipment slot changes in the same batch. `checkLedgerInvariants` compares fungible
+balances and unique instance ownership history and checks scoped escrow against caller-supplied active expedition IDs.
+
+This is the persistence and transaction core; it does not add authenticated Sanctuary inventory/purchase HTTP commands
+or a periodic invariant-check job. Games must use the shared authenticated command runner for player-facing mutations;
+no open production grant endpoint is provided.
 
 ## Durable jobs
 
