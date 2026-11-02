@@ -1,0 +1,18 @@
+{
+  "name": "@spikes/live-colyseus",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway spike 3 (#13) prototype: the 2-player live room with reconnection on Colyseus, for comparison with the in-house InstanceHost. Not production code.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@colyseus/core": "0.18.19",
+    "@colyseus/schema": "5.0.41",
+    "@colyseus/ws-transport": "0.18.4"
+  },
+  "devDependencies": {
+    "@colyseus/sdk": "0.18.5"
+  }
+}

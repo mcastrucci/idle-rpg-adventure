@@ -4,10 +4,23 @@ packages:
   - games/rpg/packages/*
   - games/rpg/tools/*
   - games/survival-sandbox
+  - spikes/*
 
 allowBuilds:
   esbuild: false
+  # Optional native msgpack accelerator pulled by the Colyseus spike; the pure-JS fallback is enough for a prototype.
+  msgpackr-extract: false
 
 # Keep the benchmark dependency on a release eligible for the install age policy.
 overrides:
   tinybench: 6.2.2
+  # Spike 3 Colyseus prototype (spikes/live-colyseus): its transitive dependencies float on caret ranges and several
+  # resolved to releases younger than two weeks; pin eligible releases instead (findings in docs/adr/0012).
+  '@better-fetch/fetch': 1.3.2
+  body-parser: 2.3.0
+  encodeurl: 2.0.0
+  msgpackr: 2.1.1
+  msgpackr-extract: 3.0.4
+  on-finished: 2.4.1
+  qs: 6.16.1
+  tslib: 2.8.1

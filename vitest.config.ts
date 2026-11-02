@@ -9,6 +9,8 @@ export default defineConfig({
       'games/rpg/packages/*',
       'games/rpg/tools/*',
       'games/survival-sandbox',
+      // Throwaway spike prototypes (kept tested while they live in the repo).
+      'spikes/*',
       // Repository-level tests (lint boundary proofs).
       {
         test: {
