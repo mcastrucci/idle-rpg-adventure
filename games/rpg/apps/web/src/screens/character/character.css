@@ -57,7 +57,7 @@
 .conflict__actions { display: grid; grid-template-columns: 1fr; gap: 8px; }
 .conflict__actions .button { min-height: 44px; padding: 0 12px; }
 
-.savebar--inline { position: static; box-shadow: none; }
+.savebar.savebar--inline { position: static; box-shadow: none; }
 
 @media (prefers-reduced-motion: no-preference) {
   .xp-bar__fill, .header__bar-fill { transition: width 300ms ease; }

@@ -145,7 +145,7 @@ export function LoadoutEditor({ character, canCommand, runCharacterCommand, labe
         <div className="conflict" role="group" aria-labelledby="loadout-conflict-title">
           <p id="loadout-conflict-title" className="conflict__title">
             ⚠ {conflicts.length === 1 ? '1 automation rule uses' : `${conflicts.length} automation rules use`} a skill this
-            loadout removes. The server rejects the loadout until they change.
+            loadout removes. Change or remove {conflicts.length === 1 ? 'it' : 'them'} before saving.
           </p>
           <ul className="conflict__list">
             {conflicts.map((conflict) => (
