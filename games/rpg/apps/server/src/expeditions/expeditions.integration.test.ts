@@ -219,14 +219,20 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
     const unavailable = await options(session, character.actorId);
     expect(unavailable.statusCode).toBe(200);
     expect(unavailable.json().areas).toContainEqual(expect.objectContaining({ areaId: REGION,
-      activities: [expect.objectContaining({ activityId: HUNT, available: false })] }));
+      activities: expect.arrayContaining([
+        expect.objectContaining({ activityId: HUNT, available: false }),
+        expect.objectContaining({ activityId: 'idle:region_1.gather', available: false }),
+      ]) }));
     const fake = await start(session, character.actorId, { config: { ...DEFAULT_CONFIG, completedAreas: [REGION] } });
     expect(fake.response.statusCode).toBe(400);
     const denied = await start(session, character.actorId);
     expect(denied.response.statusCode).toBe(400);
     await database.db.transaction(tx => recordAreaCompletion(tx, clock, character.actorId, REGION));
     expect((await options(session, character.actorId)).json().areas).toContainEqual(expect.objectContaining({ areaId: REGION,
-      activities: [expect.objectContaining({ activityId: HUNT, available: true })] }));
+      activities: expect.arrayContaining([
+        expect.objectContaining({ activityId: HUNT, available: true }),
+        expect.objectContaining({ activityId: 'idle:region_1.gather', available: true }),
+      ]) }));
 
     nextSeed = 17;
     const commandId = randomUUID();
