@@ -118,7 +118,9 @@ authenticated `/auth/live` socket and its fenced `live_sessions` lease still gua
 `PostgresInstanceStore` persists `live_instances` (`participants`, `status`, `node_id`, `lease_generation`,
 `lease_expires_at`, `checkpoint`, `checkpoint_seq`, game version, content hash, outcome/result). Creation CASes every
 participant's actor activity `none → live` in ascending actor order in the insert transaction; close and participant
-release CAS back and run the optional `onClose`/`onParticipantReleased` hooks in the same transaction. All later writes are
+release CAS back and run the optional `onClose`/`onParticipantReleased` hooks in the same transaction. The optional
+`onEffects(tx, instance, effects, nowMs)` hook applies a step's durable game effects (`LiveStep.effects`) inside the
+fenced transaction of the checkpoint, release or close they belong to; it must be idempotent. All later writes are
 fenced on `(node_id, lease_generation, checkpoint_seq)` plus an unexpired lease. The table belongs to the separate
 `LIVE_HOST_MIGRATIONS` set (`migrations-live/`, journal schema `live_host_migrations`), listed after the engine set by
 compositions that host live instances; generate it with `pnpm --filter @engine/server-kit db:generate:live`.

@@ -25,6 +25,13 @@ export interface LiveStep<S> {
    * encounter starts is the "pre-encounter checkpoint": a restore restarts that encounter from its beginning.
    */
   readonly checkpoint?: boolean;
+  /**
+   * Durable game records (opaque JSON, e.g. "actor X discovered location Y") committed **in the same transaction** as the
+   * write this step causes: the checkpoint (non-empty `effects` imply `checkpoint: true`), the participant release or the
+   * close. A step whose write is fenced out (lease lost) commits neither its state nor its effects. Applying an effect
+   * must be idempotent: after a restore from an earlier checkpoint the game may emit the same record again.
+   */
+  readonly effects?: readonly JsonValue[];
   /** Ends the instance: final checkpoint, activity locks released, `result` stored with the instance. */
   readonly close?: { readonly outcome: string; readonly result: JsonValue };
 }
@@ -102,6 +109,8 @@ export interface CloseInstanceInput {
   readonly outcome: string;
   readonly result: JsonValue;
   readonly checkpoint: JsonValue;
+  /** {@link LiveStep.effects} of the closing step, committed with the close. */
+  readonly effects?: readonly JsonValue[];
 }
 
 /**
@@ -115,10 +124,11 @@ export interface InstanceStore {
    */
   create(input: CreateInstanceInput): Promise<InstanceLease>;
   renew(lease: InstanceLease, nowMs: number, leaseMs: number): Promise<boolean>;
-  /** Writes checkpoint `lease.checkpointSeq + 1`. */
-  checkpoint(lease: InstanceLease, checkpoint: JsonValue, nowMs: number): Promise<InstanceLease | null>;
-  /** Marks a participant `left`, releases its activity lock and writes a checkpoint, in one fenced transaction. */
-  releaseParticipant(lease: InstanceLease, actorId: string, checkpoint: JsonValue, nowMs: number): Promise<InstanceLease | null>;
+  /** Writes checkpoint `lease.checkpointSeq + 1`, committing `effects` (see {@link LiveStep.effects}) atomically with it. */
+  checkpoint(lease: InstanceLease, checkpoint: JsonValue, nowMs: number, effects?: readonly JsonValue[]): Promise<InstanceLease | null>;
+  /** Marks a participant `left`, releases its activity lock and writes a checkpoint (and `effects`), in one fenced transaction. */
+  releaseParticipant(lease: InstanceLease, actorId: string, checkpoint: JsonValue, nowMs: number,
+    effects?: readonly JsonValue[]): Promise<InstanceLease | null>;
   /** Final fenced write: instance closed, remaining activity locks released, game close hook run. */
   close(lease: InstanceLease, input: CloseInstanceInput, nowMs: number): Promise<boolean>;
   /** Graceful shutdown: expires the lease now (keeping the last checkpoint) so another node can claim immediately. */

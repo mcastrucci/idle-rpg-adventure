@@ -15,7 +15,11 @@ const counterGame: LiveGame<CounterState> = {
       const ticks = (command as { ticks: number }).ticks;
       return { state: { ...state, ticksLeft: ticks }, events: [{ running: ticks }], checkpoint: true };
     }
-    if (op === 'finish' && state.ticksLeft === 0) return { state, close: { outcome: 'finished', result: { counter: state.counter } } };
+    if (op === 'finish' && state.ticksLeft === 0) {
+      return { state, effects: [{ finished: state.counter }], close: { outcome: 'finished', result: { counter: state.counter } } };
+    }
+    // Durable record without an explicit checkpoint flag: effects alone force the write they commit with.
+    if (op === 'record') return { state: { ...state, counter: state.counter + 1 }, effects: [{ recorded: state.counter + 1 }] };
     return { rejected: 'invalid' };
   },
   tick(state): LiveStep<CounterState> {
@@ -160,5 +164,24 @@ describe('@engine/live-kernel InstanceHost', () => {
     await fresh.submit(id, A.actorId, A.accountId, 'f', { op: 'finish' });
     expect(store.closes).toHaveLength(1);
     expect(await stale.recover(id)).toBe(false);
+  });
+
+  it('commits step effects with the checkpoint or close they belong to, never with a fenced-out write', async () => {
+    const { host, store, clock } = setup();
+    const id = await host.create({ participants: [A], setup: null });
+    await host.attach(id, A.actorId, A.accountId, connection('a1'));
+    await host.submit(id, A.actorId, A.accountId, 'r1', { op: 'record' });
+    expect(store.effects).toEqual([{ instanceId: id, effect: { recorded: 1 } }]);
+    expect(store.rows.get(id)?.checkpointSeq).toBe(1); // effects alone forced a checkpoint
+    expect(store.rows.get(id)?.record.checkpoint).toMatchObject({ state: { counter: 1 } });
+    clock.now += 30_001; // lease lost: the next write is fenced out, so its effect must not be committed
+    const fresh = setup(store, clock, 'node-2').host;
+    expect(await fresh.recover(id)).toBe(true);
+    await expect(host.submit(id, A.actorId, A.accountId, 'r2', { op: 'record' })).rejects.toBeInstanceOf(HostError);
+    expect(store.effects).toHaveLength(1);
+    await fresh.attach(id, A.actorId, A.accountId, connection('a2'));
+    await fresh.submit(id, A.actorId, A.accountId, 'f', { op: 'finish' });
+    expect(store.effects.at(-1)).toEqual({ instanceId: id, effect: { finished: 1 } });
+    expect(store.closes).toHaveLength(1);
   });
 });
