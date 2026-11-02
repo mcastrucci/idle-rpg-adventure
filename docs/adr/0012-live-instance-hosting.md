@@ -3,7 +3,7 @@
 - **Status:** Accepted (in-house `InstanceHost`)
 - **Date:** 2026-11-01 (proposed) · 2026-11-02 (accepted after spike 3, #13)
 - **Validation:** Spike 3 — `engine/live-kernel`, `engine/server-kit/src/live-host`, `games/rpg/apps/server/src/live`,
-  throwaway comparison in `spikes/live-colyseus`
+  throwaway comparison prototype (commit `10652c4`, removed from the workspace after the decision)
 
 ## Context
 Live instances are stateful (in memory), need reconnection, crash recovery and, later, cross-node routing. They must
@@ -53,7 +53,7 @@ surviving a restore, resume vs snapshot, deferred leave until the ticking phase 
 store that has the PostgreSQL semantics. The RPG plugin tests check determinism and that a restored pre-combat
 checkpoint replays the same fight.
 
-Comparison with the Colyseus prototype (`spikes/live-colyseus`, same room semantics with a counter stub):
+Comparison with the Colyseus prototype (`spikes/live-colyseus` at commit `10652c4`; removed afterwards to drop its 83 packages and overrides — restore with `git checkout 10652c4 -- spikes/live-colyseus`; same room semantics with a counter stub):
 
 | Criterion | In-house `InstanceHost` | Colyseus 0.18 |
 |---|---|---|
