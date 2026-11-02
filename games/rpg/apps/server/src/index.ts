@@ -1,17 +1,21 @@
-import { createAuthModule, createCommandMaintenanceModule, createJobsModule, createServer } from '@engine/server-kit';
+import { createAuthModule, createCommandMaintenanceModule, createJobsModule, createServer, LIVE_HOST_MIGRATIONS } from '@engine/server-kit';
 import type { Clock, JobHandler, ServerConfig, ServerModule } from '@engine/server-kit';
 
 import { validateRpgBundle } from './content.ts';
 import { RPG_MIGRATIONS } from './migrations.ts';
 import { characterModule } from './characters/http.ts';
 import { executeCharacterSocketCommand } from './character-commands.ts';
+import { createRpgLiveHost } from './live/index.ts';
+import type { RpgLiveHost } from './live/index.ts';
 
 export { createRpgDatabase, RPG_MIGRATIONS } from './migrations.ts';
+export * from './live/index.ts';
 
 export const SERVER_APP = '@rpg/server';
 /** RPG composition: game data stays here; generic infrastructure lives in server-kit. */
 export function createRpgServer(config: ServerConfig, options: { clock?: Clock; modules?: readonly ServerModule[];
-  jobHandlers?: Readonly<Record<string, JobHandler>> } = {}) {
+  jobHandlers?: Readonly<Record<string, JobHandler>>; live?: RpgLiveHost } = {}) {
+  const live = options.live ?? createRpgLiveHost();
   const content: ServerModule = {
     name: 'content', roles: ['api'],
     async register(app, context) {
@@ -20,9 +24,11 @@ export function createRpgServer(config: ServerConfig, options: { clock?: Clock; 
         format: context.content.format }));
     },
   };
-  return createServer({ config, game: 'rpg', validateContent: validateRpgBundle, ...options, migrationSets: [RPG_MIGRATIONS],
+  return createServer({ config, game: 'rpg', validateContent: validateRpgBundle, ...options, migrationSets: [LIVE_HOST_MIGRATIONS, RPG_MIGRATIONS],
     modules: [content, createAuthModule({
       enableHttp: config.roles.includes('api'), enableLive: config.roles.includes('live'),
-      onCommand: (payload, identity, context) => executeCharacterSocketCommand(context, identity.accountId, payload),
-    }), characterModule, createCommandMaintenanceModule(), createJobsModule(options.jobHandlers ?? {}), ...(options.modules ?? [])] });
+      // `live.*` operations go to the instance host; everything else is a character command envelope.
+      onCommand: async (payload, identity, context, connection) => await live.handleSocketCommand(payload, identity, connection)
+        ?? executeCharacterSocketCommand(context, identity.accountId, payload),
+    }), characterModule, live.module, createCommandMaintenanceModule(), createJobsModule(options.jobHandlers ?? {}), ...(options.modules ?? [])] });
 }

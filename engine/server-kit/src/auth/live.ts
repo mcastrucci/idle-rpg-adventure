@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import websocket from '@fastify/websocket';
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
@@ -9,7 +11,16 @@ import { AuthRateLimiter } from './rate-limit.ts';
 import type { AuthIdentity, AuthService, LiveLease } from './service.ts';
 
 export interface LiveSocketGuard { stop(): Promise<void> }
-export type LiveCommandHandler = (payload: unknown, identity: AuthIdentity) => Promise<unknown>;
+/**
+ * Per-socket server push channel handed to command handlers, e.g. so a live instance host can stream sequenced events.
+ * `push` is a no-op once the socket is gone; `onClose` listeners run once when the socket stops for any reason.
+ */
+export interface LiveSocketConnection {
+  readonly id: string;
+  push(message: unknown): void;
+  onClose(listener: () => void): void;
+}
+export type LiveCommandHandler = (payload: unknown, identity: AuthIdentity, connection: LiveSocketConnection) => Promise<unknown>;
 type PendingFrame = { type: 'ping' | 'heartbeat' } | { type: 'command'; payload: unknown };
 
 /** Bounded, serialized frame processing authenticates every command; no game-specific protocol lives here. */
@@ -23,6 +34,12 @@ export function guardLiveSocket(socket: WebSocket, service: AuthService, token: 
   let busy = false;
   const queue: PendingFrame[] = [];
   const messages = new AuthRateLimiter(context.clock, 120);
+  const closeListeners: (() => void)[] = [];
+  const connection: LiveSocketConnection = {
+    id: randomUUID(),
+    push(message) { if (!stopped && socket.readyState === 1) socket.send(JSON.stringify(message)); },
+    onClose(listener) { if (stopped) listener(); else closeListeners.push(listener); },
+  };
   const close = (code: number, reason: string): void => {
     if (socket.readyState === 1) socket.close(code, reason);
     void stop();
@@ -41,6 +58,9 @@ export function guardLiveSocket(socket: WebSocket, service: AuthService, token: 
     if (stopping) return stopping;
     stopped = true; queue.length = 0;
     if (timer) clearInterval(timer);
+    for (const listener of closeListeners.splice(0)) {
+      try { listener(); } catch { /* Listener failures must not prevent lease release. */ }
+    }
     if (socket.readyState === 1) socket.terminate();
     stopping = initialized.then(async () => {
       await working; // Drain an accepted command before module shutdown closes the shared database pool.
@@ -61,7 +81,7 @@ export function guardLiveSocket(socket: WebSocket, service: AuthService, token: 
         if (pending.type === 'ping' && socket.readyState === 1) socket.send('pong');
         else if (pending.type === 'command' && onCommand) {
           try {
-            const response = await onCommand(pending.payload, identity);
+            const response = await onCommand(pending.payload, identity, connection);
             if (!stopped && socket.readyState === 1) socket.send(JSON.stringify(response));
           } catch {
             if (!stopped && socket.readyState === 1) socket.send(JSON.stringify({ type: 'error', error: 'command_failed' }));

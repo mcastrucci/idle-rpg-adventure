@@ -10,12 +10,13 @@ export * from './service.ts';
 export * from './errors.ts';
 export { checkOrigin, requireAccount, sessionToken, SESSION_COOKIE } from './http.ts';
 export { guardLiveSocket } from './live.ts';
-export type { LiveSocketGuard } from './live.ts';
+export type { LiveSocketConnection, LiveSocketGuard } from './live.ts';
+import type { LiveSocketConnection } from './live.ts';
 export type AuthModuleOptions = AuthServiceOptions & HttpAuthOptions & {
   readonly enableHttp?: boolean;
   readonly enableLive?: boolean;
   readonly heartbeatMs?: number;
-  readonly onCommand?: (payload: unknown, identity: AuthIdentity, context: ModuleContext) => Promise<unknown>;
+  readonly onCommand?: (payload: unknown, identity: AuthIdentity, context: ModuleContext, connection: LiveSocketConnection) => Promise<unknown>;
 };
 /** Composition passes role flags explicitly; no shared Fastify decorator crosses module scopes. */
 export function createAuthModule(options: AuthModuleOptions = {}): ServerModule {
@@ -29,7 +30,7 @@ export function createAuthModule(options: AuthModuleOptions = {}): ServerModule 
       if (options.enableLive !== false) registerLiveAuth(app, context, service, { heartbeatMs: heartbeat,
         ...(options.allowedOrigins === undefined ? {} : { allowedOrigins: options.allowedOrigins }),
         ...(options.rateLimit === undefined ? {} : { rateLimit: options.rateLimit }),
-        ...(onCommand === undefined ? {} : { onCommand: (payload, identity) => onCommand(payload, identity, context) }) });
+        ...(onCommand === undefined ? {} : { onCommand: (payload, identity, connection) => onCommand(payload, identity, context, connection) }) });
       if (options.enableHttp !== false) registerAuthHttp(app, context, service, options);
     },
   };
