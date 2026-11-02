@@ -45,6 +45,6 @@ export function createRpgServer(config: ServerConfig, options: { clock?: Clock; 
       // `live.*` operations go to the instance host; everything else is a character command envelope.
       onCommand: async (payload, identity, context, connection) => await live.handleSocketCommand(payload, identity, connection)
         ?? executeCharacterSocketCommand(context, identity.accountId, payload, options.seedSource, settlementPolicies),
-    }), characterModule, live.module, createExpeditionModule(options.seedSource, settlementPolicies, options.estimates),createCommandMaintenanceModule(),
+    }), characterModule, live.module, createExpeditionModule(options.seedSource, settlementPolicies, options.estimates), createCommandMaintenanceModule(),
     createRpgJobsModule(options.jobHandlers ?? {}, settlementPolicies), ...(options.modules ?? [])] });
 }
