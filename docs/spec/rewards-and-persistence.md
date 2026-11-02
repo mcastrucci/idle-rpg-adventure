@@ -67,6 +67,8 @@ Consumable purchases, repairs placeholder, storage expansion with gold, death pe
 - [ ] Cannot use or sell an escrowed consumable.
 - [ ] Retried commands (same `command_id`) apply once.
 - [ ] Settlement job running twice grants once.
+- [ ] Cancelling after the expedition's actual end cannot skip the death penalty (settled as `completed` through the
+  kernel's `resolveSettlement`/`settleAt`, ADR-0019 v0.3).
 - [ ] Disconnecting during combat does not pause or prevent death.
 - [ ] Two devices: second session cannot mutate while the first holds the activity lock.
 - [ ] No endpoint accepts client-computed rewards, damage or timestamps.

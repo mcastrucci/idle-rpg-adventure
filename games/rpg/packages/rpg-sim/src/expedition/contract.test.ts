@@ -6,6 +6,8 @@ import { netHoldings } from '@engine/economy';
 import {
   checkSimulatorContract,
   defaultSettle,
+  estimate,
+  estimateSeed,
   settleWithEscrow,
   spliceTimeline,
   stableStringify,
@@ -15,9 +17,10 @@ import type { SettleReason, Timeline } from '@engine/expedition-kernel';
 import { DEFAULT_DEATH_XP_LOSS_BP } from '@rpg/rpg-stats';
 import { describe, expect, it } from 'vitest';
 
-import { ESCROW, INVENTORY, bagTotals, rpgProgress } from './index.ts';
+import { ESCROW, INVENTORY, applyBagLoss, bagTotals, itemAsset, rpgIdleMetrics, rpgProgress } from './index.ts';
 import type { RpgIdleEvent, RpgIdleState } from './index.ts';
 import { idleFixtures, sims } from './testing/fixtures.ts';
+import { region1 } from './testing/region1.ts';
 import type { IdleFixture } from './testing/fixtures.ts';
 
 const SIMS = sims();
@@ -25,7 +28,7 @@ const FIXTURES = idleFixtures();
 const REASONS: readonly SettleReason[] = ['completed', 'cancelled', 'member_left'];
 const sim = (f: IdleFixture) => SIMS[f.kind];
 const run = (f: IdleFixture, seed: number): Timeline<RpgIdleEvent, RpgIdleState> =>
-  sim(f).simulate({ config: f.config, actors: f.actors, seed, budget: f.budget });
+  sim(f).simulate({ config: f.config, actors: f.actors, seed, budget: f.budget, areaId: f.areaId, activityId: f.activityId });
 
 describe('kernel contract (checkSimulatorContract)', () => {
   it('has zero violations on every fixture and seed, per-reason modes', () => {
@@ -100,6 +103,59 @@ describe('escrow and settlement', () => {
   });
 });
 
+describe('unique minting of equipment drops (kernel 0.3)', () => {
+  it('equipment drops are unique_mint grants, every other drop stays a stack', () => {
+    const { content } = region1();
+    const kinds = new Set<string>();
+    for (const f of FIXTURES) {
+      for (const seed of f.seeds) {
+        for (const s of run(f, seed).segments) {
+          for (const d of s.deltas) {
+            if (d.asset.kind === 'unique_mint') {
+              kinds.add('unique_mint');
+              expect(content.combat.items[d.asset.item]?.kind).toBe('equipment');
+              expect(d.from).toBeUndefined();
+              expect(d.to).toBe(INVENTORY);
+              expect(itemAsset(content, d.asset.item)).toEqual({ kind: 'unique_mint', item: d.asset.item });
+            } else if (d.asset.kind === 'stack') {
+              kinds.add('stack');
+              expect(content.combat.items[d.asset.item]?.kind).not.toBe('equipment');
+            }
+          }
+        }
+      }
+    }
+    expect(kinds).toEqual(new Set(['stack', 'unique_mint']));
+  });
+
+  it('the death loss reduces minted instances like any grant (the odd unit stays)', () => {
+    const sword = { kind: 'unique_mint', item: 'item:sapforged_blade' } as const;
+    expect(applyBagLoss([{ actorId: 'h', asset: sword, qty: 3, to: INVENTORY }], 5000)).toEqual([{ actorId: 'h', asset: sword, qty: 2, to: INVENTORY }]);
+    expect(applyBagLoss([{ actorId: 'h', asset: sword, qty: 1, to: INVENTORY }], 5000)).toEqual([{ actorId: 'h', asset: sword, qty: 1, to: INVENTORY }]);
+  });
+});
+
+describe('estimates with the XP extractor (rpgIdleMetrics)', () => {
+  it('aggregates XP per hero with the kernel percentiles, consistent with rpgProgress', () => {
+    const f = FIXTURES[1] as IdleFixture; // mostly failing
+    const input = { config: f.config, actors: f.actors, budget: f.budget, areaId: f.areaId, activityId: f.activityId };
+    const est = estimate(sim(f), input, 30, 11, { metrics: rpgIdleMetrics });
+    const id = f.actors[0]?.actorId ?? '';
+    const xp = est.metrics.find((m) => m.key === `xp:${id}`);
+    const died = est.metrics.find((m) => m.key === `died:${id}`);
+    const values: number[] = [];
+    for (let i = 0; i < 30; i++) {
+      const t = sim(f).simulate({ ...input, seed: estimateSeed(11, i) });
+      values.push(rpgProgress(t, t.segments.length - 1, 'completed').actors[0]?.xpEarned ?? 0);
+    }
+    values.sort((a, b) => a - b);
+    expect(xp).toEqual({ key: `xp:${id}`, min: values[0], p10: values[2], p50: values[14], p90: values[26], max: values[29] });
+    expect(est.outcomes.failed).toBeGreaterThan(0);
+    expect(died?.max).toBe(1);
+    expect(estimate(sim(f), input, 30, 11, { metrics: rpgIdleMetrics })).toEqual(est);
+  });
+});
+
 describe('progress channel (rpgProgress)', () => {
   it('reports XP and kills per hero, no ledger XP, and the death penalty only for a covered death at a natural end', () => {
     for (const f of FIXTURES) {
@@ -140,6 +196,8 @@ describe('determinism and resumption', () => {
             actors: f.actors,
             seed,
             budget: f.budget - k,
+            areaId: f.areaId,
+            activityId: f.activityId,
             from: { segment: k, state: structuredClone(prev.stateAfter) },
           });
           expect(stableStringify(spliceTimeline(t, k, resumed))).toBe(stableStringify(t));

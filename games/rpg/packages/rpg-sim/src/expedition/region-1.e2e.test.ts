@@ -4,7 +4,7 @@
  * the pipeline, not about balance targets.
  */
 import { netHoldings } from '@engine/economy';
-import { checkStart, placeSegments, revealCutoff, settleWithEscrow, visibleView } from '@engine/expedition-kernel';
+import { checkStart, placeSegments, revealCutoff, settleAt, settleWithEscrow, visibleView } from '@engine/expedition-kernel';
 import type { StartRequest } from '@engine/expedition-kernel';
 import { BP_SCALE } from '@engine/sim-core';
 import { createRpgPredicateRegistry } from '@rpg/rpg-schema';
@@ -30,7 +30,7 @@ function start(simulator: RpgExpeditionSimulator, activityId: string, durationMi
     request,
     activities,
     simulator,
-    config: simulator.parseConfig(JSON.parse(JSON.stringify(config))),
+    rawConfig: JSON.parse(JSON.stringify(config)),
     actors,
     evalContexts: actors.map(() => rpgContext({ completedAreas: ['area:region_1'] })),
     predicates,
@@ -46,11 +46,11 @@ describe('Region 1 end to end (compiled bundle)', () => {
         [hunt, HUNT],
         [gather, GATHER],
       ] as const) {
-        const config = idleConfig(activityId, 5);
+        const config = idleConfig(5);
         const actors = [bulwark(4)];
         const gate = start(simulator, activityId, durationMin, config, actors);
         for (const seed of [1, 2, 3]) {
-          const t = simulator.simulate({ config, actors, seed, budget: gate.budget });
+          const t = simulator.simulate({ config: gate.config, actors, seed, budget: gate.budget, areaId: 'area:region_1', activityId });
           expect(t.segments.length).toBeGreaterThan(0);
           expect(t.segments.length).toBeLessThanOrEqual(gate.budget);
           if (t.outcome === 'completed') expect(t.segments.length).toBe(gate.budget);
@@ -77,13 +77,13 @@ describe('Region 1 end to end (compiled bundle)', () => {
   it('reveal never leaks a failure or retreat before the actual end', () => {
     let early = 0;
     for (const [config, actor] of [
-      [idleConfig(HUNT, 0), thornblade(1)],
-      [idleConfig(HUNT, 1, { belowHpBp: 6000 }), bulwark(1)],
+      [idleConfig(0), thornblade(1)],
+      [idleConfig(1, { belowHpBp: 6000 }), bulwark(1)],
     ] as const) {
       for (let seed = 1; seed <= 10; seed++) {
         const durationMin = 60;
         const gate = start(hunt, HUNT, durationMin, config, [actor]);
-        const t = hunt.simulate({ config, actors: [actor], seed, budget: gate.budget });
+        const t = hunt.simulate({ config, actors: [actor], seed, budget: gate.budget, areaId: 'area:region_1', activityId: HUNT });
         const placed = placeSegments(t, STARTS_AT, durationMin * MIN, gate.budget);
         if (t.outcome !== 'completed') {
           early++;
@@ -109,5 +109,30 @@ describe('Region 1 end to end (compiled bundle)', () => {
       }
     }
     expect(early).toBeGreaterThan(0);
+  });
+
+  it('a cancel after a death settles as the natural end: the bag loss and the XP penalty still apply', () => {
+    let deaths = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const actors = [thornblade(1)];
+      const config = idleConfig(0);
+      const gate = start(hunt, HUNT, 30, config, actors);
+      const t = hunt.simulate({ config: gate.config, actors, seed, budget: gate.budget, areaId: 'area:region_1', activityId: HUNT });
+      if (t.outcome !== 'failed') continue;
+      deaths++;
+      const placed = placeSegments(t, STARTS_AT, 30 * MIN, gate.budget);
+      const last = t.segments.length - 1;
+      // Just before the end a cancel is a real cancellation and never covers the fatal encounter.
+      const before = settleAt(hunt, t, placed, placed.endsAtMs - 1, 'cancel', gate.config, actors);
+      expect(before.ok && before.resolution.reason).toBe('cancelled');
+      expect(before.ok && before.resolution.cutoff).toBeLessThan(last);
+      // At/after the end it is converted: same deltas as the natural end, and rpgProgress applies the penalty.
+      const after = settleAt(hunt, t, placed, placed.endsAtMs, 'cancel', gate.config, actors);
+      if (!after.ok) throw new Error('late cancel refused');
+      expect(after.resolution).toMatchObject({ reason: 'completed', cutoff: last, converted: true });
+      expect(after.settlement).toEqual(settleWithEscrow(hunt, t, last, 'completed', gate.config, actors));
+      expect(rpgProgress(t, after.resolution.cutoff, after.resolution.reason).applyDeathPenalty).toBe(true);
+    }
+    expect(deaths).toBeGreaterThan(0);
   });
 });

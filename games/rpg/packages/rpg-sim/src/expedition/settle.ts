@@ -112,6 +112,21 @@ export function rpgProgress(timeline: IdleTimeline, cutoff: number, reason: Sett
   return { actors, died: anyDeath, applyDeathPenalty, deathXpLossBp: applyDeathPenalty ? DEFAULT_DEATH_XP_LOSS_BP : 0 };
 }
 
+/**
+ * Estimate metrics of the idle simulators (kernel 0.3 `estimate(…, { metrics: rpgIdleMetrics })`): XP is not a ledger
+ * asset, so it is aggregated through this extractor — per hero `xp:<actorId>` = `xpEarned` of the whole timeline
+ * (gross: the death XP penalty depends on the hero's total XP and is applied by the server), and `died:<actorId>` = 1
+ * when the hero died (its p-values show how often).
+ */
+export function rpgIdleMetrics(timeline: IdleTimeline): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const a of rpgProgress(timeline, timeline.segments.length - 1, 'completed').actors) {
+    out[`xp:${a.actorId}`] = a.xpEarned;
+    if (a.died) out[`died:${a.actorId}`] = 1;
+  }
+  return out;
+}
+
 /** Report data for segments `0..cutoff` (summary + death log). */
 export function summarizeIdle(timeline: IdleTimeline, cutoff: number): RpgIdleReport {
   assertCutoff(timeline as Timeline<unknown, unknown>, cutoff);

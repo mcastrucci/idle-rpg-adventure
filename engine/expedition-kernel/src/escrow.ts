@@ -4,7 +4,7 @@
  * the kernel returns the unused part to its source container. Pure functions over {@link LedgerDelta} data.
  */
 
-import { assertLedgerDelta, assetKey } from '@engine/economy';
+import { assertLedgerDelta, assetKey, isUniqueMint } from '@engine/economy';
 import type { AssetRef, Container, LedgerDelta } from '@engine/economy';
 
 import { assertCutoff } from './timeline.ts';
@@ -20,7 +20,8 @@ function key(actorId: string, asset: AssetRef): string {
 /**
  * Problems of a list of escrow deltas (empty = valid): each must be a well-formed delta with a positive `qty`, an
  * explicit source `from` other than `escrow` and `to: 'escrow'`; one (actor, asset) may only come from one source
- * container (so the return target is unambiguous).
+ * container (so the return target is unambiguous). `unique_mint` assets cannot be escrowed (nothing exists yet; a
+ * mint delta never has a `from`, so settlement can never mint into or out of escrow either).
  */
 export function escrowProblems(escrow: readonly LedgerDelta[]): string[] {
   if (!Array.isArray(escrow)) return ['escrow must be an array of ledger deltas'];
@@ -34,6 +35,7 @@ export function escrowProblems(escrow: readonly LedgerDelta[]): string[] {
       return;
     }
     if (d.qty <= 0) problems.push(`escrow delta ${i}: qty must be positive`);
+    if (isUniqueMint(d.asset)) problems.push(`escrow delta ${i}: unique_mint assets cannot be escrowed (no instance exists yet)`);
     if (d.to !== ESCROW_CONTAINER) problems.push(`escrow delta ${i}: to must be '${ESCROW_CONTAINER}'`);
     if (d.from === undefined || d.from === ESCROW_CONTAINER) {
       problems.push(`escrow delta ${i}: from must name the source container (not '${ESCROW_CONTAINER}')`);

@@ -14,7 +14,8 @@
  * Escrow: `escrow(config, actors)` moves each group's supplies from its shelter `storage` into `escrow` at start; hours
  * consume from `escrow`, and the kernel returns the rest at settlement (`settleWithEscrow`).
  *
- * The run duration is kernel-owned (start request → `budget`/`canStart`), not part of the config.
+ * The run duration and the district are kernel-owned (start request → `canStart`/`budget`/`simulate`): the district is
+ * the request's `areaId` (kernel 0.3), not part of the config.
  *
  * All game math is integer (condition points, item counts, basis points).
  */
@@ -35,8 +36,9 @@ export const SCAVENGE_ACTIVITY_ID = 'activity:scavenge';
 /**
  * Bump on any behaviour change (in-flight expeditions keep their stored timeline).
  * 2.0.0: config without `durationMin`; escrow declared; per-segment RNG via the kernel's `segmentStreams`.
+ * 3.0.0: config without `district`: the district is the kernel-owned target `areaId` (kernel 0.3); timelines unchanged.
  */
-export const SCAVENGE_SIMULATOR_VERSION = '2.0.0';
+export const SCAVENGE_SIMULATOR_VERSION = '3.0.0';
 
 /** Game-defined container where scavenged finds are carried until the group is back at the shelter. */
 export const PACK = 'pack';
@@ -61,8 +63,8 @@ export interface Supplies {
   readonly medkits: number;
 }
 
+/** Config (per expedition). The district is not part of it: it is the start request's `areaId` (kernel-owned). */
 export interface ScavengeConfig {
-  readonly district: AreaId;
   /** Supplies **each** participating group brings (escrowed per group at start, see `escrow`). */
   readonly supplies: Supplies;
 }
@@ -142,18 +144,13 @@ function onlyKeys(o: Record<string, unknown>, keys: readonly string[], name: str
 }
 
 /** Hand-written validation of untrusted config input (no schema library needed). */
-export function parseScavengeConfig(input: unknown, tables: ScavengeTables = SCAVENGE_TABLES): ScavengeConfig {
+export function parseScavengeConfig(input: unknown): ScavengeConfig {
   if (!isRecord(input)) throw new TypeError('config must be an object');
-  onlyKeys(input, ['district', 'supplies'], 'config');
-  const district = input['district'];
-  if (typeof district !== 'string' || !Object.hasOwn(tables.districts, district)) {
-    throw new TypeError(`config.district must be one of ${Object.keys(tables.districts).join(', ')}`);
-  }
+  onlyKeys(input, ['supplies'], 'config');
   const supplies = input['supplies'];
   if (!isRecord(supplies)) throw new TypeError('config.supplies must be an object');
   onlyKeys(supplies, ['food', 'water', 'medkits'], 'config.supplies');
   return {
-    district: district as AreaId,
     supplies: {
       food: intIn(supplies['food'], 0, MAX_SUPPLY, 'config.supplies.food'),
       water: intIn(supplies['water'], 0, MAX_SUPPLY, 'config.supplies.water'),
@@ -223,6 +220,11 @@ function snapshotState(groups: readonly MutableGroup[]): ScavengeState {
   };
 }
 
+/** The district tables of a kernel-owned target area (`undefined` = not a scavenging district). */
+function districtOf(tables: ScavengeTables, areaId: AreaId | undefined) {
+  return areaId !== undefined && Object.hasOwn(tables.districts, areaId) ? tables.districts[areaId] : undefined;
+}
+
 function damage(g: MutableGroup, amount: number, source: string): void {
   g.condition = g.condition > amount ? g.condition - amount : 0;
   if (amount > 0) g.lastHarm = source;
@@ -235,14 +237,14 @@ export function createScavengeSimulator(
     id: SCAVENGE_SIMULATOR_ID,
     version: SCAVENGE_SIMULATOR_VERSION,
 
-    parseConfig: (input) => parseScavengeConfig(input, tables),
+    parseConfig: (input) => parseScavengeConfig(input),
 
-    canStart({ config, actors, durationMin, area }) {
+    canStart({ config, actors, durationMin, areaId }) {
       if (!DURATIONS_MIN.includes(durationMin as DurationMin)) {
         return { ok: false, code: 'invalid_duration', message: `duration must be one of ${DURATIONS_MIN.join(', ')} minutes` };
       }
-      // Started through the kernel's checkStart: the requested area must be the configured district.
-      if (area !== undefined && area.id !== config.district) return { ok: false, code: 'district_mismatch' };
+      // The district is the kernel-owned target area (always set through checkStart).
+      if (districtOf(tables, areaId) === undefined) return { ok: false, code: 'unknown_district', message: `${areaId ?? '(none)'} is not a district` };
       if (actors.length === 0) return { ok: false, code: 'no_actors' };
       const ids = new Set<string>();
       for (const a of actors) {
@@ -277,9 +279,9 @@ export function createScavengeSimulator(
       return hours < 1 ? 1 : hours;
     },
 
-    simulate({ config, actors, seed, budget, from }) {
-      const district = tables.districts[config.district];
-      if (district === undefined) throw new RangeError(`unknown district ${config.district}`);
+    simulate({ config, actors, seed, budget, from, areaId }) {
+      const district = districtOf(tables, areaId);
+      if (district === undefined) throw new RangeError(`unknown district ${areaId ?? '(no areaId)'}`);
       const groups = initialGroups(config, actors, from?.state);
       const segments: Segment<ScavengeEvent, ScavengeState>[] = [];
       if (groups.some((g) => shortage(g) !== null)) return { segments, outcome: 'retreated' };

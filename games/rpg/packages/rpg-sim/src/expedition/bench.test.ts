@@ -11,7 +11,8 @@ import { BP_SCALE } from '@engine/sim-core';
 import { describe, expect, it } from 'vitest';
 
 import { sims } from './testing/fixtures.ts';
-import { HUNT, bulwark, idleConfig, thornblade } from './testing/region1.ts';
+import { rpgIdleMetrics } from './index.ts';
+import { HUNT, REGION_1, bulwark, idleConfig, thornblade } from './testing/region1.ts';
 
 const RUNS = 60;
 const ms = (start: bigint): number => Number(process.hrtime.bigint() - start) / 1e6;
@@ -19,8 +20,9 @@ const pct = (sorted: readonly number[], p: number): number => sorted[Math.max(0,
 
 describe.runIf(process.env['RPG_IDLE_BENCH'] === '1')('idle precompute measurements', () => {
   const { hunt } = sims();
-  const config = idleConfig(HUNT, 5);
-  const budget = hunt.budget(config, 180, BP_SCALE);
+  const config = idleConfig(5);
+  const target = { areaId: REGION_1, activityId: HUNT } as const;
+  const budget = hunt.budget(config, 180, BP_SCALE, target);
 
   it('180-min Region 1 hunt: p50/p95 precompute and a 200-run estimate', () => {
     expect(budget).toBe(90);
@@ -29,18 +31,18 @@ describe.runIf(process.env['RPG_IDLE_BENCH'] === '1')('idle precompute measureme
       ['thornblade L4', thornblade(4)],
     ] as const) {
       // Warm-up (JIT), not measured.
-      for (let s = 0; s < 5; s++) hunt.simulate({ config, actors: [actor], seed: 10_000 + s, budget });
+      for (let s = 0; s < 5; s++) hunt.simulate({ config, actors: [actor], seed: 10_000 + s, budget, ...target });
       const times: number[] = [];
       let segments = 0;
       for (let seed = 1; seed <= RUNS; seed++) {
         const t0 = process.hrtime.bigint();
-        const t = hunt.simulate({ config, actors: [actor], seed, budget });
+        const t = hunt.simulate({ config, actors: [actor], seed, budget, ...target });
         times.push(ms(t0));
         segments += t.segments.length;
       }
       times.sort((a, b) => a - b);
       const t1 = process.hrtime.bigint();
-      const est = estimate(hunt, { config, actors: [actor], budget }, 200, 1);
+      const est = estimate(hunt, { config, actors: [actor], budget, ...target }, 200, 1, { metrics: rpgIdleMetrics });
       const estimateMs = ms(t1);
       console.log(
         JSON.stringify({
@@ -52,6 +54,7 @@ describe.runIf(process.env['RPG_IDLE_BENCH'] === '1')('idle precompute measureme
           maxMs: (times.at(-1) ?? 0).toFixed(1),
           estimate200Ms: estimateMs.toFixed(0),
           outcomeRatesBp: est.outcomeRatesBp,
+          xp: est.metrics.find((m) => m.key.startsWith('xp:')),
           node: process.version,
         }),
       );
