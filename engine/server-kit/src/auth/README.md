@@ -74,8 +74,9 @@ UUID prevents a delayed close/heartbeat from the old socket releasing or renewin
 and module shutdown release leases. An accepted command drains before shutdown releases the database pool.
 
 Without an `onCommand` option, the socket supports only authenticated acknowledgement and ping/pong. With an
-injected `onCommand(payload, identity, context)` callback, it accepts `{ type: 'command', command: <payload> }`,
-authenticates immediately before dispatch, and sends the callback's JSON result. Games can reuse their HTTP command
+injected `onCommand(payload, identity, context, connection)` callback, it accepts `{ type: 'command', command: <payload> }`,
+authenticates immediately before dispatch, and sends the callback's JSON result. `connection` (`id`, `push`, `onClose`)
+lets a handler push later server messages on the same socket (used by the live instance host). Games can reuse their HTTP command
 dispatcher through this hook. No game imports/protocol, exploration host or combat loop is implemented here. Frames
 are bounded at 70 KiB, with eight queued frames and 120 client frames/minute per socket. Valid frames serialize with
 heartbeat work; unsupported/binary/overload frames get a policy close. Command exceptions produce a generic error,
