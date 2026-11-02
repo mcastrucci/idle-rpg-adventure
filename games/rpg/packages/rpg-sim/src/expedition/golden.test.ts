@@ -24,17 +24,18 @@ import { GATHER, HUNT, bulwark, idleConfig, thornblade } from './testing/region1
 const HISTORY: Record<string, Record<string, string>> = GOLDEN;
 const { hunt, gather } = sims();
 
-const CASES: Record<string, () => { sim: RpgExpeditionSimulator; config: RpgIdleConfig; actors: RpgActorSnapshot[]; seed: number; budget: number }> = {
-  'hunt-bulwark-l4-60min-3potions-seed-42': () => ({ sim: hunt, config: idleConfig(HUNT, 3), actors: [bulwark(4)], seed: 42, budget: 30 }),
-  'hunt-thornblade-l1-30min-no-potions-seed-3': () => ({ sim: hunt, config: idleConfig(HUNT, 0), actors: [thornblade(1)], seed: 3, budget: 15 }),
+const CASES: Record<string, () => { sim: RpgExpeditionSimulator; activityId: string; config: RpgIdleConfig; actors: RpgActorSnapshot[]; seed: number; budget: number }> = {
+  'hunt-bulwark-l4-60min-3potions-seed-42': () => ({ sim: hunt, activityId: HUNT, config: idleConfig(3), actors: [bulwark(4)], seed: 42, budget: 30 }),
+  'hunt-thornblade-l1-30min-no-potions-seed-3': () => ({ sim: hunt, activityId: HUNT, config: idleConfig(0), actors: [thornblade(1)], seed: 3, budget: 15 }),
   'hunt-bulwark-l1-retreat-60pct-seed-5': () => ({
     sim: hunt,
-    config: idleConfig(HUNT, 1, { belowHpBp: 6000 }),
+    activityId: HUNT,
+    config: idleConfig(1, { belowHpBp: 6000 }),
     actors: [bulwark(1)],
     seed: 5,
     budget: 15,
   }),
-  'gather-bulwark-l2-60min-seed-9': () => ({ sim: gather, config: idleConfig(GATHER, 1), actors: [bulwark(2)], seed: 9, budget: 10 }),
+  'gather-bulwark-l2-60min-seed-9': () => ({ sim: gather, activityId: GATHER, config: idleConfig(1), actors: [bulwark(2)], seed: 9, budget: 10 }),
 };
 
 const hex = (n: number): string => n.toString(16).padStart(8, '0');
@@ -50,8 +51,8 @@ describe('golden idle timelines', () => {
     const actual: Record<string, string> = {};
     const outcomes: Record<string, string> = {};
     for (const [name, make] of Object.entries(CASES)) {
-      const { sim, config, actors, seed, budget } = make();
-      const t = sim.simulate({ config, actors, seed, budget });
+      const { sim, activityId, config, actors, seed, budget } = make();
+      const t = sim.simulate({ config, actors, seed, budget, areaId: 'area:region_1', activityId });
       actual[name] = hex(timelineHash(t));
       outcomes[name] = t.outcome;
     }

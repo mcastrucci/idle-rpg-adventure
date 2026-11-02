@@ -26,7 +26,9 @@ import { hashEvents } from '../combat/hash.ts';
 import type { CombatEvent, EnemySetup, HeroSetup } from '../combat/types.ts';
 import type { RpgIdleContent } from './content.ts';
 import { isHealingConsumable } from './content.ts';
-import { ESCROW, GOLD, INVENTORY, mergeDeltas, stack } from './deltas.ts';
+import { idleActivityFor } from './config.ts';
+import type { IdleKind } from './config.ts';
+import { ESCROW, GOLD, INVENTORY, itemAsset, mergeDeltas, stack } from './deltas.ts';
 import { rollLoot } from './loot.ts';
 import type {
   DeathCause,
@@ -167,12 +169,14 @@ function lootTable(content: RpgIdleContent, id: string): LootTable {
 
 export function simulateIdle(
   content: RpgIdleContent,
+  kind: IdleKind,
   tuning: RpgIdleTuning,
   input: SimulateInput<RpgIdleConfig, RpgActorSnapshot, RpgIdleState>,
 ): Timeline<RpgIdleEvent, RpgIdleState> {
   const { config, actors, seed, budget, from } = input;
-  const activity = content.idleActivities[config.activity];
-  if (activity === undefined) throw new RangeError(`unknown idle activity ${config.activity}`);
+  const target = idleActivityFor(content, kind, input.activityId);
+  if (!target.ok) throw new RangeError(target.message);
+  const { activity } = target;
   const table = activity.encounterTable === undefined ? undefined : content.encounterTables[activity.encounterTable];
   if (activity.encounterTable !== undefined && table === undefined) throw new RangeError(`unknown encounter table ${activity.encounterTable}`);
   const perHour = segmentsPerHour(activity, tuning);
@@ -194,7 +198,7 @@ export function simulateIdle(
     const grant = (actorId: string, source: string, roll: ReturnType<typeof rollLoot>): void => {
       for (const it of roll.items) {
         events.push({ type: 'loot', actorId, source, item: it.item, qty: it.qty });
-        deltas.push({ actorId, asset: stack(it.item), qty: it.qty, to: INVENTORY });
+        deltas.push({ actorId, asset: itemAsset(content, it.item), qty: it.qty, to: INVENTORY });
       }
       if (roll.gold > 0) {
         events.push({ type: 'gold', actorId, source, qty: roll.gold });

@@ -173,7 +173,7 @@ Performance (dev container, Node 22): a 10,000-tick `runToEnd` takes ≈ 20 ms (
 invocations; 7,184 events). The public `step` deep-copies the state each tick (≈ 50–85 µs/tick here), which is
 negligible at the 500 ms live tick; batch callers should use `runToEnd`.
 
-## Idle expedition simulators (`rpg.hunt`, `rpg.gather`, #76)
+## Idle expedition simulators (`rpg.hunt`, `rpg.gather`, #76, kernel 0.3 #77)
 
 The pure part of idle expeditions ([idle-simulation.md](../../../../docs/spec/idle-simulation.md),
 [expedition kernel](../../../../docs/engine/expedition-kernel.md), ADR-0005/0019). Persistence, jobs and the ledger
@@ -185,7 +185,9 @@ createRpgIdleSimulators(content, options) → { hunt, gather }
 createRpgActivityRegistry(bundle | content, options): ActivityRegistry          // kernel registry
 rpgIdleContentFromBundle(bundle)                                               // compiled bundle → RpgIdleContent
 rpgProgress(timeline, cutoff, reason): RpgProgress                             // XP channel for the server hook
-RPG_IDLE_VERSION = 'rpg-idle@1.0.0'; RPG_IDLE_SIMULATOR_VERSION = `${RPG_IDLE_VERSION}+${ENGINE_VERSION}`
+rpgIdleMetrics(timeline): Record<string, number>                               // estimate extractor: xp:/died:<actorId>
+itemAsset(content, item): AssetRef                                             // equipment → unique_mint, else stack
+RPG_IDLE_VERSION = 'rpg-idle@2.0.0'; RPG_IDLE_SIMULATOR_VERSION = `${RPG_IDLE_VERSION}+${ENGINE_VERSION}`
 DEFAULT_RPG_IDLE_TUNING = { regenBetweenFightsBp: 1500, maxCombatTicks: 3000, deathBagLossBp: 5000,
                             gatherSegmentsPerHour: 12, durationsMin: [15, 30, 60, 180] }
 ```
@@ -198,11 +200,15 @@ its content (fewer encounters per hour, more resource yields).
 
 **Inputs.**
 - `RpgIdleConfig` (per expedition, `parseConfig` validates untrusted input against content):
-  `{ activity, consumables: [{ item, qty }], retreat: { belowHpBp, onlyWhenNoHealing } }`. No duration (kernel-owned).
-  `activity` must equal the start request's `activityId` (the server builds it from the request; see findings).
+  `{ consumables: [{ item, qty }], retreat: { belowHpBp, onlyWhenNoHealing } }`. No duration and no activity: both are
+  kernel-owned (start request). Since `rpg-idle@2.0.0` an `activity` key is rejected (`start.invalidConfig`); the
+  simulators read the activity from the kernel's `activityId` (`canStart` context, `budget` target, `simulate` input —
+  `idleActivityFor(content, kind, activityId)`; missing → `rpg.noActivity`, unknown → `rpg.unknownActivity`, other
+  kind → `rpg.activityKindMismatch`; `budget`/`simulate` throw instead). The server persists `areaId`/`activityId` and
+  passes them again on resumption and to `estimate`.
 - `RpgActorSnapshot` (per actor, party-ready; phase 1 runs solo): `{ actorId, build: DeriveStatsInput, skills, rules,
   hp? }`. The "automation-rules snapshot" of the spec is the snapshot's `rules`, frozen at start.
-- `canStart`: duration in `durationsMin`, activity exists / has this kind / is listed by the requested area, consumables
+- `canStart`: duration in `durationsMin`, the request's activity exists / has this kind, consumables
   are content consumables, actors unique and valid (build derives, `1 ≤ hp ≤ maxHp`, skills exist, rules schema-valid
   and only use equipped skills and real consumables). Codes `rpg.*`. Area completion is the kernel's `checkStart` gate.
 - `escrow`: each actor's configured consumables `inventory → escrow`; the kernel returns the unused part.
@@ -231,15 +237,23 @@ Events (JSON): `encounter` (group, result, ticks, `combatHash` = `hashEvents` of
 `consumable`, `hp` (before / after fight / regen / after), `loot`, `gold`, `death` (plain-language causes), `retreat`.
 Full combat logs are not stored; `combatHash` plus the seed replays a fight.
 
-**Ledger deltas** (data only, ADR-0007): items `{ stack(item), to: 'inventory' }`, gold `{ currency 'gold' }` (default
-container), consumables `{ from: 'escrow' }`; merged per (actor, asset, from, to) within a segment.
+**Ledger deltas** (data only, ADR-0007): items `{ itemAsset(content, item), to: 'inventory' }` — equipment (content
+kind `equipment`) as `{ kind: 'unique_mint', item }` with `qty` = number of new instances (the ledger creates one
+instance row per unit), every other kind as `stack(item)`; gold `{ currency 'gold' }` (default container), consumables
+`{ from: 'escrow' }`; merged per (actor, asset, from, to) within a segment.
 
 **Settlement** (`settle`, provisional rewards §4 / open decisions #6, #8):
 - `cancelled` / `member_left`: exactly `defaultSettle` (revealed encounters granted in full; consumables used consumed;
-  the kernel returns the rest).
+  the kernel returns the rest). The server settles through the kernel's `resolveSettlement`/`settleAt`, so a cancel at
+  or after the (actual) end is settled as `completed` (bag loss and XP penalty included; contract rule
+  `cancel-after-end`, e2e test).
 - `completed` (natural end): merged default deltas; if the cutoff covers the fatal encounter of a `failed` timeline, each
-  bag grant per (actor, asset) keeps `total − ⌊total × 5000 / 10000⌋` (50 % lost, the odd unit stays with the player).
+  bag grant per (actor, asset) keeps `total − ⌊total × 5000 / 10000⌋` (50 % lost, the odd unit stays with the player;
+  minted equipment counts per item like stacks).
   Consumable use is always settled in full. The contract checker's default bound holds (`completed: 'custom'`).
+
+**Estimates.** `estimate(sim, { config, actors, budget, areaId, activityId }, runs, seed, { metrics: rpgIdleMetrics })`
+adds `xp:<actorId>` (gross XP earned) and `died:<actorId>` (0/1) percentiles to the ledger estimates.
 
 **XP channel** (not ledger deltas): `rpgProgress(timeline, cutoff, reason)` → per hero `xpEarned`, `kills`, `died`, plus
 `applyDeathPenalty` (fatal encounter covered **and** `reason === 'completed'`, same rule as the bag loss) and
@@ -268,14 +282,15 @@ Region 1 world), `region-1.e2e.test.ts` (compiled bundle, 15/30/60/180 min, reve
 `RPG_IDLE_BENCH=1`): a 180-minute Region 1 hunt (90 encounters, level-4 reference builds, all completed) precomputes in
 p50 ≈ 17–23 ms, p95 ≈ 25–37 ms (60 runs per build); `estimate` with 200 runs takes ≈ 3.7–4.8 s.
 
-**Findings for the kernel / server (not patched here):**
-- `canStart` does not receive the request's `activityId`; the RPG config therefore carries `activity`, and the server
-  must build it from the request (the simulator only checks that the area lists it).
-- `checkStart` calls `budget` before `canStart`, so a config that `budget` cannot handle throws instead of being refused;
-  `parseConfig` validates the activity first to keep that path unreachable.
-- Cancellation settles with `defaultSettle` (contract mode `default`), so a cancel whose cutoff covers the fatal
-  encounter would skip the death loss. The server must settle an expedition with `now ≥ endsAt` as `completed` and
-  never accept a cancel then (a kernel-side guard would make this structural).
-- `estimate` aggregates ledger deltas only; XP (not a ledger asset) needs a game-side aggregate over `rpgProgress`.
-- Equipment drops (non-stackable) are emitted as `stack` deltas: `LedgerDelta` cannot express "mint an instance of
-  item X"; the ledger must materialise instances at settlement.
+**Findings for the kernel / server** (from #76) — all **resolved in kernel 0.3 (#77)**, adopted by `rpg-idle@2.0.0`:
+- *`canStart` did not receive the request's `activityId`, so the config carried `activity`.* → `areaId`/`activityId`
+  are kernel-owned and passed to `canStart`, `budget`, `simulate` and `estimate`; `activity` was dropped from the
+  config.
+- *`checkStart` called `budget` before `canStart`, so a bad config could throw.* → `checkStart` parses the raw config
+  first, runs `canStart` before `escrow`/`budget`, and maps every simulator throw to a `start.*` code.
+- *A cancel whose cutoff covers the fatal encounter skipped the death loss.* → the kernel's `resolveSettlement` /
+  `settleAt` settle any cancel at or after `endsAt` as `completed` over the whole timeline (contract rule
+  `cancel-after-end`). The server must settle only through them.
+- *`estimate` aggregated ledger deltas only.* → `estimate(…, { metrics })`; the RPG passes `rpgIdleMetrics` (XP).
+- *Equipment drops were `stack` deltas.* → `@engine/economy` `unique_mint`; equipment drops mint instances. The golden
+  case `hunt-bulwark-l4-60min-3potions-seed-42` (an equipment drop) changed accordingly; the others are unchanged.
