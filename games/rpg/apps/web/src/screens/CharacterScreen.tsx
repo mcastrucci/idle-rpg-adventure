@@ -1,3 +1,4 @@
+import { AutomationRuleSchema, MAX_AUTOMATION_RULES } from '@rpg/rpg-schema';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 
@@ -5,14 +6,10 @@ import { CommandUnconfirmedError, createCharacterCommand } from '../api/commands
 import type { CommandRequest } from '../api/commands.ts';
 import type { AttributeKey, CharacterDto } from '../api/types.ts';
 import { describeError } from '../app/useGameSession.ts';
+import { displayId } from '../content/labels.ts';
+import { describeRule } from '../rules/describe.ts';
 
 const ATTRIBUTE_ORDER: readonly AttributeKey[] = ['STR', 'AGI', 'INT', 'VIT', 'SPI'];
-
-/** Display-only formatting of a stable content ID (`skill:shield_bash` → `Shield bash`); names come with content. */
-function displayId(id: string): string {
-  const raw = id.slice(id.indexOf(':') + 1).replaceAll('_', ' ');
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
-}
 
 interface Props {
   readonly character: CharacterDto | null;
@@ -41,10 +38,10 @@ export function CharacterScreen({ character, canCommand, runCharacterCommand }: 
       <ol className="loadout">
         {character.skillLoadout.map((skill) => <li key={skill}>{displayId(skill)}</li>)}
       </ol>
-      <p className="muted">
-        {character.automationRules.length} automation rules. Derived stats, the rules editor and build presets arrive
-        with later client issues.
-      </p>
+      <h2 className="screen__subtitle">Automation rules ({character.automationRules.length}/{MAX_AUTOMATION_RULES})</h2>
+      <RulesSummary rules={character.automationRules} />
+      <a className="button button--link" href="#/character/rules">Edit automation rules</a>
+      <p className="muted">Derived stats arrive with a later client issue.</p>
     </section>
   );
 }
@@ -98,5 +95,18 @@ function CreateCharacter({ canCommand, run }: { canCommand: boolean; run: Props[
         {!canCommand && <p className="muted">Waiting for the connection…</p>}
       </form>
     </section>
+  );
+}
+
+/** Read-only list of the saved rules, in evaluation order. */
+function RulesSummary({ rules }: { rules: readonly unknown[] }) {
+  if (rules.length === 0) return <p className="muted">No rules: the character only uses basic attacks.</p>;
+  return (
+    <ol className="rules-summary">
+      {rules.map((raw, index) => {
+        const parsed = AutomationRuleSchema.safeParse(raw);
+        return <li key={index}>{parsed.success ? describeRule(parsed.data) : 'Unreadable rule'}</li>;
+      })}
+    </ol>
   );
 }

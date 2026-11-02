@@ -40,7 +40,9 @@ Other scripts: `pnpm --filter @rpg/web build` (production bundle in `dist/`), `p
 | `src/live/state.ts` | Pure reconnect state machine for `/auth/live`. |
 | `src/live/client.ts` | `LiveClient`: socket driver, `authenticated` ack, ping/pong liveness, backoff reconnects, online/offline hooks. |
 | `src/app/*` | Shell: header, connection banner, bottom tab bar with hash routing, session bootstrap. |
-| `src/screens/*` | Character (create/view) and placeholder tabs. |
+| `src/screens/*` | Character (create/view), automation rules editor (`#/character/rules`), placeholder tabs. |
+| `src/rules/*` | Rules editor logic (#36): closed condition/target catalog, `describeRule` summaries, draft operations, client validation, Bulwark/Thornblade presets. |
+| `src/content/labels.ts` | Display labels derived from stable content IDs until a client content endpoint exists. |
 
 ## Contracts with the server
 
@@ -60,6 +62,19 @@ Other scripts: `pnpm --filter @rpg/web build` (production bundle in `dist/`), `p
   (1 s → 30 s). `4409` (another live connection holds the lease, e.g. a stale lease after network loss, which expires
   after 30 s) and `4401` (session revoked/expired) are retried, with the session renewed first. A 4xx from the session
   renewal (for example `guest_credential_disabled` after an email upgrade) stops reconnecting and shows a Retry action.
+
+## Automation rules editor (#36)
+
+`#/character/rules` edits the ordered rule list (`docs/spec/combat-engine.md` §6). Pickers are built from the closed
+sets in `@rpg/rpg-schema` (a shared schema package, not a simulator, so ADR-0003 allows it); `skillReady`/`useSkill`
+offer only `basic_attack` plus the loadout. Save is enabled only when the draft differs from the server's rules, passes
+`AutomationRulesSchema` plus the server's reproducible checks (equipped skills, known consumables, selector fits the
+skill), and the live socket is open. It sends one `character.configure` command with `{ automationRules }` to
+`PATCH /characters/:actorId/configuration`; the screen then shows the character the server returned. Presets are the
+reference rule sets of `docs/design/region-1.md` §4.3, disabled with a reason when their skills are not equipped.
+
+Without a content endpoint, skill targeting and the consumable list are mirrored from Region 1 content in
+`src/rules/catalog.ts`. Consumables found in the server's saved rules are trusted too. The server stays the authority.
 
 ## Known gaps (server side, tracked as findings of #33)
 
