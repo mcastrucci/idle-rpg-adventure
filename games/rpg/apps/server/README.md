@@ -60,6 +60,12 @@ deployment; the server does not enable wildcard CORS.
 The game migration command applies and verifies the engine journal first (`drizzle`) and the game-owned RPG journal
 second (`rpg_migrations`). `createRpgDatabase`, server startup, tests and CLI use the same migration sets. Generate
 RPG SQL with `pnpm --filter @rpg/server db:generate`; engine generation remains in `@engine/server-kit`.
+
+The worker runs a recurring read-only ledger audit through `PostgresJobs`. It compares ledger history with materialized
+balances on one repeatable-read snapshot, logs invariant codes/counts without repairing data, and reschedules one window
+ahead even when it finds an inconsistency. `RPG_LEDGER_AUDIT_INTERVAL_MS` configures the interval (default 86,400,000 ms;
+minimum 1,000 ms, maximum 365 days). Window-keyed durable schedules prevent duplicate audits across worker restarts
+and processes, and downtime skips missed windows rather than replaying an unbounded backlog.
 The engine never imports a game schema. Never modify already applied migrations.
 
 ## Expedition lifecycle

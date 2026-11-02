@@ -3,7 +3,7 @@
  * reference resolved, so referenced entities exist. Error codes are namespaced `rpg.*`.
  */
 import type { CompiledContent, ContentEntity, PluginIssue } from '@engine/content-compiler';
-import type { Enemy, Skill } from '@rpg/rpg-schema';
+import type { Enemy, Item, Merchant, Skill } from '@rpg/rpg-schema';
 
 import { XP_CURVE_ID } from './collections.ts';
 import { completionDefeatedEnemies } from './references.ts';
@@ -15,6 +15,8 @@ export const RPG_ISSUE_CODES = {
   xpCurveMissing: 'rpg.xpCurveMissing',
   xpCurveUnexpected: 'rpg.xpCurveUnexpected',
   aiSkillNotKnown: 'rpg.aiSkillNotKnown',
+  merchantOfferIdDuplicate: 'rpg.merchantOfferIdDuplicate',
+  merchantOfferInvalidItem: 'rpg.merchantOfferInvalidItem',
 } as const;
 
 /** Entities of a game collection, typed by the schema that parsed them. */
@@ -29,7 +31,39 @@ export function validateRpgContent(content: CompiledContent): PluginIssue[] {
     ...checkActivityAreas(content),
     ...checkXpCurve(content),
     ...checkAiSkillReady(content),
+    ...checkMerchantOfferIds(content),
+    ...checkMerchantOfferItems(content),
   ];
+}
+
+/** Merchant POC buys only stackable consumables; material prices and equipment balance stay undecided. */
+function checkMerchantOfferItems(content: CompiledContent): PluginIssue[] {
+  const items = new Map<string, Item>(collection<Item>(content, 'items').map(item => [item.id, item]));
+  const issues: PluginIssue[] = [];
+  for (const merchant of collection<Merchant>(content, 'merchants')) {
+    merchant.offers.forEach((offer, index) => {
+      const item = items.get(offer.item);
+      if (item && (item.kind !== 'consumable' || !item.stackable)) issues.push({
+        code: RPG_ISSUE_CODES.merchantOfferInvalidItem, collection: 'merchants', id: merchant.id,
+        path: ['offers', index, 'item'], message: `Offer "${offer.id}" must sell a stackable consumable`,
+      });
+    });
+  }
+  return issues;
+}
+
+/** Buy commands address offers by ID alone, so offer IDs must be globally unique across merchant catalogs. */
+function checkMerchantOfferIds(content: CompiledContent): PluginIssue[] {
+  const seen = new Set<string>();
+  const issues: PluginIssue[] = [];
+  for (const merchant of collection<{ id: string; offers: readonly { id: string }[] }>(content, 'merchants')) {
+    merchant.offers.forEach((offer, index) => {
+      if (seen.has(offer.id)) issues.push({ code: RPG_ISSUE_CODES.merchantOfferIdDuplicate, collection: 'merchants', id: merchant.id,
+        path: ['offers', index, 'id'], message: `Offer ID "${offer.id}" is already used in another merchant` });
+      seen.add(offer.id);
+    });
+  }
+  return issues;
 }
 
 /** Telegraphed boss skills must have a windup (`windupTicks > 0`), otherwise there is nothing to react to. */

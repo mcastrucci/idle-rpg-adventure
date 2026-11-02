@@ -107,6 +107,7 @@ describe('plugin-ready exports', () => {
       enemies: 'enemy:',
       skills: 'skill:',
       items: 'item:',
+      merchants: 'merchant:',
       lootTables: 'loot:',
       encounterTables: 'enc:',
       resourceNodes: 'res:',
@@ -117,7 +118,7 @@ describe('plugin-ready exports', () => {
   it('exports JSON Schemas for every document type', () => {
     const schemas = rpgJsonSchemas();
     expect(Object.keys(schemas).sort()).toEqual(
-      ['area', 'encounterTables', 'enemies', 'idleActivities', 'items', 'location', 'lootTables', 'resourceNodes', 'skills', 'xpCurve'].sort(),
+      ['area', 'encounterTables', 'enemies', 'idleActivities', 'items', 'location', 'lootTables', 'merchants', 'resourceNodes', 'skills', 'xpCurve'].sort(),
     );
     expect(JSON.stringify(schemas.skills)).toContain('"cooldownTicks"');
   });

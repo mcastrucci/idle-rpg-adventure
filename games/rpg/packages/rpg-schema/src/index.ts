@@ -10,6 +10,7 @@ export * from './effects.ts';
 export * from './rules.ts';
 export * from './skills.ts';
 export * from './items.ts';
+export * from './merchants.ts';
 export * from './enemies.ts';
 export * from './tables.ts';
 export * from './gathering.ts';

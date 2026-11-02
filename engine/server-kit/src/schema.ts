@@ -5,6 +5,7 @@ export * from './auth/schema.ts';
 export * from './actors/schema.ts';
 export * from './commands/schema.ts';
 export * from './ledger/schema.ts';
+export * from './live-host/schema.ts';
 
 /** Identifies immutable content versions observed by this deployment; game content stays in compiled bundles. */
 export const contentReleases = pgTable('content_releases', {
