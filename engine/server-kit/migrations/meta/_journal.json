@@ -15,6 +15,13 @@
       "when": 1793583025837,
       "tag": "0001_identity_activity_commands",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793617082547,
+      "tag": "0002_scheduled_jobs",
+      "breakpoints": true
     }
   ]
 }

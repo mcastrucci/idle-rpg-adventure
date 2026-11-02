@@ -167,6 +167,7 @@ describe.skipIf(!adminUrl)('commands against real PostgreSQL', () => {
     expect((await runCommand(database, clock, id, command, consume(id))).status).toBe(410);
   });
   it('skips locked expired rows without blocking a replay transaction', async () => {
+    while (await cleanupExpiredCommands(database, clock) > 0) { /* drain expired rows from prior cases */ }
     const id = await account(); const command = envelope();
     await runCommand(database, clock, id, command, consume(id), { retentionMs: 1 }); clock.advance(1);
     await database.db.transaction(async (tx) => {
