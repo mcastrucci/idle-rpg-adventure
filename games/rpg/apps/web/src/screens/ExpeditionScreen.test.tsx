@@ -123,7 +123,9 @@ describe('ExpeditionScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel expedition' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
     expect(await screen.findByText(/saved rules are no longer available/i)).toBeDefined();
-    fireEvent.click(screen.getByRole('button', { name: 'Return consumables and end expedition' }));
+    const recoverButton = screen.getByRole('button', { name: 'Return consumables and end expedition' }) as HTMLButtonElement;
+    await waitFor(() => expect(recoverButton.disabled).toBe(false));
+    fireEvent.click(recoverButton);
     expect(await screen.findByText('Consumables returned. No rewards or XP were awarded.')).toBeDefined();
     expect(requests).toHaveLength(2);
     expect(requests[0]?.envelope.operation).toBe('expedition.cancel');
