@@ -71,6 +71,16 @@ describe.skipIf(!adminUrl)('economy ledger against real PostgreSQL', () => {
     expect((await holdings(id)).find(h => h.asset.kind === 'stack')?.qty).toBe(3);
     expect(await database.db.select().from(ledgerEntries).where(eq(ledgerEntries.sourceId, source.id))).toHaveLength(1);
   });
+  it('checks invariants with empty and multi-actor UUID arrays', async () => {
+    const ids = [await actor(), await actor()];
+    await transact(database, async tx => {
+      for (const id of ids) await applyLedgerDeltas(tx, { type: 'fixture_multi', id }, [
+        { actorId: id, asset: { kind: 'stack', item: 'scrap' }, qty: 2 },
+      ]);
+    });
+    expect(await transact(database, tx => checkLedgerInvariants(tx, ids, [randomUUID()]))).toEqual([]);
+    expect(await transact(database, tx => checkLedgerInvariants(tx, [], []))).toEqual([]);
+  });
   it('mints stable unique identities once and preserves definitions and rolls through equip moves', async () => {
     const id = await actor(); const source = { type: 'expedition_settlement', id: randomUUID() };
     const drop = [{ actorId: id, asset: { kind: 'unique_mint', item: 'iron_sabre' } as const, qty: 2, to: 'inventory' }];

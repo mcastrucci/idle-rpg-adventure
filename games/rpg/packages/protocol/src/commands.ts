@@ -1,5 +1,5 @@
 /** Reserved protocol operations. A listed identifier does not imply an implemented handler or route. */
-export const COMMAND_OPERATIONS = ['character.create', 'character.configure', 'inventory.usePotion'] as const;
+export const COMMAND_OPERATIONS = ['character.create', 'character.configure', 'inventory.usePotion', 'expedition.start', 'expedition.cancel'] as const;
 export type CommandOperation = typeof COMMAND_OPERATIONS[number];
 export type CommandJson = null | boolean | number | string | readonly CommandJson[] | { readonly [key: string]: CommandJson };
 export interface CommandEnvelope {

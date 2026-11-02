@@ -155,7 +155,9 @@ export async function getHoldings(tx: ActorTransaction, actorId: string): Promis
 
 /** Verify materialized totals against the append-only ledger for a set of actors. */
 export async function checkLedgerInvariants(tx: ActorTransaction, actorIds: readonly string[] = [], activeExpeditionIds: readonly string[] = []): Promise<string[]> {
-  const filters = actorIds.length ? sql`WHERE actor_id = ANY(${actorIds.map(v => v.toLowerCase())}::uuid[])` : sql``;
+  const actorIdsParam = sql.param(actorIds.map(v => v.toLowerCase()));
+  const activeExpeditionIdsParam = sql.param(activeExpeditionIds.map(v => v.toLowerCase()));
+  const filters = actorIds.length ? sql`WHERE actor_id = ANY(${actorIdsParam}::uuid[])` : sql``;
   const q = await tx.execute(sql`WITH changes AS (
     SELECT actor_id, asset_kind, asset_ref, COALESCE(to_container, 'inventory') AS container, qty AS delta
       FROM ledger_entries WHERE to_container IS NOT NULL OR (from_container IS NULL AND to_container IS NULL)
@@ -204,15 +206,15 @@ export async function checkLedgerInvariants(tx: ActorTransaction, actorIds: read
       issues.push('unique instance differs from mint and ownership history'); break;
     }
   }
-  const actorFilter = actorIds.length ? sql`AND i.actor_id = ANY(${actorIds.map(v => v.toLowerCase())}::uuid[])` : sql``;
+  const actorFilter = actorIds.length ? sql`AND i.actor_id = ANY(${actorIdsParam}::uuid[])` : sql``;
   const orphanItem = await tx.execute(sql`SELECT 1 FROM item_instances i WHERE NOT EXISTS (
       SELECT 1 FROM ledger_entries l WHERE l.source_type=i.source_type AND l.source_id=i.source_id AND l.seq=i.seq AND l.asset_kind='unique_mint'
     ) ${actorFilter} LIMIT 1`);
   if (orphanItem.rows.length) issues.push('unique instance has no mint ledger entry');
   const orphanEscrow = await tx.execute(sql`SELECT 1 FROM (
       SELECT container, actor_id FROM asset_balances WHERE qty > 0 UNION ALL SELECT container, actor_id FROM item_instances WHERE container <> 'destroyed'
-    ) owned WHERE owned.container LIKE 'escrow:%' AND substring(owned.container from 8) <> ALL(${activeExpeditionIds.map(v => v.toLowerCase())}::text[])
-    ${actorIds.length ? sql`AND owned.actor_id = ANY(${actorIds.map(v => v.toLowerCase())}::uuid[])` : sql``} LIMIT 1`);
+    ) owned WHERE owned.container LIKE 'escrow:%' AND substring(owned.container from 8) <> ALL(${activeExpeditionIdsParam}::text[])
+    ${actorIds.length ? sql`AND owned.actor_id = ANY(${actorIdsParam}::uuid[])` : sql``} LIMIT 1`);
   if (orphanEscrow.rows.length) issues.push('orphan expedition escrow');
   return issues;
 }
