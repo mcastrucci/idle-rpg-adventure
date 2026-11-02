@@ -11,6 +11,7 @@ import { createExpeditionModule } from './expeditions/http.ts';
 import { createRpgJobsModule } from './expeditions/jobs.ts';
 import { supportedSettlementPolicies } from './expeditions/policy.ts';
 import type { SettlementPolicy } from './expeditions/policy.ts';
+import type { EstimateServiceOptions } from './expeditions/estimates.ts';
 import { createRpgDebugTools } from './debug/index.ts';
 import type { RpgDebugToolsConfig } from './debug/index.ts';
 
@@ -23,7 +24,8 @@ export const SERVER_APP = '@rpg/server';
 /** RPG composition: game data stays here; generic infrastructure lives in server-kit. */
 export function createRpgServer(config: ServerConfig, options: { clock?: Clock; modules?: readonly ServerModule[];
   jobHandlers?: Readonly<Record<string, JobHandler>>; seedSource?: () => number;
-  settlementPolicies?: readonly SettlementPolicy[]; live?: RpgLiveHost; debug?: RpgDebugToolsConfig } = {}) {
+  settlementPolicies?: readonly SettlementPolicy[]; live?: RpgLiveHost; debug?: RpgDebugToolsConfig;
+  estimates?: EstimateServiceOptions } = {}) {
   const settlementPolicies = options.settlementPolicies ?? supportedSettlementPolicies;
   // Debug tools (#31) wrap the app clock for time travel; disabled → null, production config → throws.
   const debug = createRpgDebugTools(options.debug, options.clock, config.roles);
@@ -43,6 +45,6 @@ export function createRpgServer(config: ServerConfig, options: { clock?: Clock; 
       // `live.*` operations go to the instance host; everything else is a character command envelope.
       onCommand: async (payload, identity, context, connection) => await live.handleSocketCommand(payload, identity, connection)
         ?? executeCharacterSocketCommand(context, identity.accountId, payload, options.seedSource, settlementPolicies),
-    }), characterModule, live.module, createExpeditionModule(options.seedSource, settlementPolicies), createCommandMaintenanceModule(),
+    }), characterModule, live.module, createExpeditionModule(options.seedSource, settlementPolicies, options.estimates),createCommandMaintenanceModule(),
     createRpgJobsModule(options.jobHandlers ?? {}, settlementPolicies), ...(options.modules ?? [])] });
 }
