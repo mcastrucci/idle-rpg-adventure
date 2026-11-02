@@ -8,7 +8,7 @@ import {
 } from '@rpg/rpg-schema';
 import { describe, expect, it } from 'vitest';
 
-import plugin from './index.ts';
+import plugin, { RPG_ISSUE_CODES } from './index.ts';
 
 const ROOT = fileURLToPath(new URL('../../../content/', import.meta.url));
 const FILES = loadContentFiles(ROOT);
@@ -81,6 +81,20 @@ describe('Region 1 content authoring (#46 prerequisite, provisional balance)', (
     expect(secret).toMatchObject({ tags: ['secret'], requires: { flag: 'region_1.hatch_found' } });
     const bossExit = locations.find(l => l.id === 'loc:region_1.vault_antechamber')?.exits.find(e => e.to === 'loc:region_1.seed_vault_heart');
     expect(bossExit).toMatchObject({ requires: { flag: 'region_1.bulkhead_open' } });
+  });
+
+  it('opens the flag-gated routes through declarative hotspot effects (#38), and rejects a flag nothing sets', () => {
+    const effects = (id: string, hotspot: string) => locations.find(l => l.id === `loc:region_1.${id}`)?.hotspots.find(h => h.id === hotspot)?.effects;
+    expect(effects('pump_station', 'bulkhead_lever')).toEqual([{ setFlag: 'region_1.bulkhead_open' }]);
+    expect(effects('lantern_ruins', 'cracked_panel')).toEqual([{ setFlag: 'region_1.hatch_found' }]);
+    const withoutLever = FILES.map(f => f.file === 'world/locations/region_1/pump_station.json'
+      ? { ...f, text: JSON.stringify({ ...JSON.parse(f.text), hotspots: [{ id: 'bulkhead_lever', type: 'interact', textKey: 'hotspot.region_1.bulkhead_lever' }] }) } : f);
+    const result = compileContent(withoutLever, plugin);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map(e => `${e.code} ${e.file ?? '-'} ${e.path.join('.')}`)).toEqual([
+      `${RPG_ISSUE_CODES.exitFlagNeverSet} world/locations/region_1/vault_antechamber.json exits.1.requires`,
+    ]);
   });
 
   it('keeps boss and secret encounters out of area-local idle hunt/gather', () => {

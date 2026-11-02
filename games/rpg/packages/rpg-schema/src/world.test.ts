@@ -44,6 +44,14 @@ describe('area and location extensions', () => {
     expect(issuePaths(RpgLocationSchema, { ...oldWell, hotspots: [...oldWell.hotspots, ...oldWell.hotspots] })).toEqual([
       'hotspots.1.id',
     ]);
+    // Declarative hotspot effects (#38): flag names are validated, lore hotspots stay read-only.
+    const lever = { id: 'lever', type: 'interact', textKey: 'x.y', effects: [{ setFlag: 'area_1.gate_open' }] };
+    expect(RpgLocationSchema.parse({ ...oldWell, hotspots: [lever] }).hotspots[0]?.effects).toEqual([{ setFlag: 'area_1.gate_open' }]);
+    expect(issuePaths(RpgLocationSchema, { ...oldWell, hotspots: [{ ...lever, effects: [{ setFlag: 'Gate Open' }] }] })).toEqual([
+      'hotspots.0.effects.0.setFlag',
+    ]);
+    expect(issuePaths(RpgLocationSchema, { ...oldWell, hotspots: [{ ...lever, type: 'lore' }] })).toEqual(['hotspots.0.effects']);
+    expect(issuePaths(RpgLocationSchema, { ...oldWell, hotspots: [{ ...lever, effects: [] }] })).toEqual(['hotspots.0.effects']);
     // Engine fields are still validated (and strict at the engine level).
     expect(issuePaths(RpgLocationSchema, { ...oldWell, exits: [{ id: 'exit:a', to: 'area:x' }] })).toEqual(['exits.0.to']);
   });

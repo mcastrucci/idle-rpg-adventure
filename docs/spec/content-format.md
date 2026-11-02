@@ -83,6 +83,11 @@ Engine fields (`id`, `tags`, `exits`) plus RPG fields (illustrative; defined by 
 Hotspot/exit **geometry** lives in the Tiled `.tmj` (object name = hotspot/exit ID); gameplay data lives in JSON. The
 compiler checks both sides match.
 
+A `search`/`interact` hotspot may declare `"effects": [{ "setFlag": "region_1.bulkhead_open" }]`, applied server-side
+on the first interaction per live instance (flags are instance-scoped, open decision #20). `lore` hotspots cannot have
+effects, and every `{ "flag": … }` in an exit requirement must be set by a hotspot of the same area
+(`rpg.exitFlagNeverSet`).
+
 ### skill.json
 ```json
 {

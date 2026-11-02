@@ -53,7 +53,8 @@ Files named `region_1.json` and `world/locations/region_1/` add the reviewed Ver
 enemies, items, loot/resources, live/idle encounter tables, activities and the 11-location graph. All balance inputs
 are provisional. The five commons and native Fracture mini-boss preserve the owner decisions in the design.
 
-This is not yet a playable or balanced region. In particular, flag-producing hotspot interactions, localized text,
-and scenes/art still need implementation (guarded-stun semantics landed with #71). See the
+This is not yet a playable or balanced region. Flag-producing hotspots are declarative since #38 (hotspot
+`effects: [{ "setFlag": … }]`, applied by the live plugin); localized text and scenes/art still need implementation
+(guarded-stun semantics landed with #71). See the
 [authoring checkpoint](../../../docs/design/region-1-content.md) for exact data choices, unresolved contracts and
 remaining #46/#24 work.
