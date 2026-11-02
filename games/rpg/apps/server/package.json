@@ -17,7 +17,11 @@
     "@rpg/rpg-schema": "workspace:*",
     "drizzle-orm": "0.45.4",
     "zod": "4.6.7",
-    "@rpg/protocol": "workspace:*"
+    "@rpg/protocol": "workspace:*",
+    "@engine/live-kernel": "workspace:*",
+    "@engine/sim-core": "workspace:*",
+    "@rpg/rpg-sim": "workspace:*",
+    "@rpg/rpg-stats": "workspace:*"
   },
   "devDependencies": {
     "@engine/content-compiler": "workspace:*",

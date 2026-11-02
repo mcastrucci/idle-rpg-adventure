@@ -103,7 +103,7 @@ describe.skipIf(!adminUrl)('server foundation against real PostgreSQL', () => {
     const started: string[] = [];
     const stopped: string[] = [];
     let moduleDatabase: Database | undefined;
-    const modules: ServerModule[] = (['ledger', 'live-host', 'conquest'] as const).map((name, index) => ({
+    const modules: ServerModule[] = (['ledger', 'party', 'conquest'] as const).map((name, index) => ({
       name, roles: [(['api', 'live', 'worker'] as const)[index] as ProcessRole],
       async register(app, context) {
         started.push(name); moduleDatabase = context.database;
@@ -113,7 +113,7 @@ describe.skipIf(!adminUrl)('server foundation against real PostgreSQL', () => {
     }));
     const app = await createRpgServer({ ...config, roles: [role] }, { clock, modules });
     try {
-      const active = role === 'api' ? 'ledger' : role === 'live' ? 'live-host' : 'conquest';
+      const active = role === 'api' ? 'ledger' : role === 'live' ? 'party' : 'conquest';
       expect(started).toEqual([active]);
       expect((await app.inject(`/test/${active}`)).json()).toEqual({ nowMs: clock.nowMs() });
       expect((await app.inject('/content')).statusCode).toBe(role === 'api' ? 200 : 404);

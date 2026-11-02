@@ -63,6 +63,9 @@ importers:
 
   engine/server-kit:
     dependencies:
+      '@engine/live-kernel':
+        specifier: workspace:*
+        version: link:../live-kernel
       '@fastify/websocket':
         specifier: 11.3.6
         version: 11.3.6
@@ -111,9 +114,15 @@ importers:
 
   games/rpg/apps/server:
     dependencies:
+      '@engine/live-kernel':
+        specifier: workspace:*
+        version: link:../../../../engine/live-kernel
       '@engine/server-kit':
         specifier: workspace:*
         version: link:../../../../engine/server-kit
+      '@engine/sim-core':
+        specifier: workspace:*
+        version: link:../../../../engine/sim-core
       '@engine/world':
         specifier: workspace:*
         version: link:../../../../engine/world
@@ -123,6 +132,12 @@ importers:
       '@rpg/rpg-schema':
         specifier: workspace:*
         version: link:../../packages/rpg-schema
+      '@rpg/rpg-sim':
+        specifier: workspace:*
+        version: link:../../packages/rpg-sim
+      '@rpg/rpg-stats':
+        specifier: workspace:*
+        version: link:../../packages/rpg-stats
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.15.5)(pg@8.23.1)

@@ -91,3 +91,20 @@ injected app clock and does not alter PostgreSQL `NOW()`; in production the work
 interval. pg-boss retry delays and active-lease timeouts use PostgreSQL's runtime clock, not the app clock. The
 schedule mapping table is durable, while pg-boss owns retries, claiming, and completed job retention.
 Exhausted retries remain failed in pg-boss for operator handling.
+
+## Live instance hosting
+
+`createLiveHostModule({ game, nodeId?, leaseMs?, graceMs?, hooks?, autoStart?, recoverEveryMs? })` composes the
+[`@engine/live-kernel`](../live-kernel/README.md) `InstanceHost` for the `live` role ([ADR-0012](../../docs/adr/0012-live-instance-hosting.md)).
+It returns `{ module, host(), handleSocketCommand }`; the composition passes `handleSocketCommand` to
+`createAuthModule({ onCommand })`, which now hands every command a per-socket `LiveSocketConnection` (`id`, `push`,
+`onClose`) for server pushes. Non-`live.*` payloads return `undefined` so other dispatchers can handle them. The
+authenticated `/auth/live` socket and its fenced `live_sessions` lease still guarantee one device per account.
+
+`PostgresInstanceStore` persists `live_instances` (`participants`, `status`, `node_id`, `lease_generation`,
+`lease_expires_at`, `checkpoint`, `checkpoint_seq`, game version, content hash, outcome/result). Creation CASes every
+participant's actor activity `none → live` in ascending actor order in the insert transaction; close and participant
+release CAS back and run the optional `onClose`/`onParticipantReleased` hooks in the same transaction. All later writes are
+fenced on `(node_id, lease_generation, checkpoint_seq)` plus an unexpired lease. The table belongs to the separate
+`LIVE_HOST_MIGRATIONS` set (`migrations-live/`, journal schema `live_host_migrations`), listed after the engine set by
+compositions that host live instances; generate it with `pnpm --filter @engine/server-kit db:generate:live`.

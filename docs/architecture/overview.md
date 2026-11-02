@@ -26,7 +26,7 @@ RPG composition; module names map to engine packages (`server-kit`, `economy`, `
 | App UI | React + Vite, DOM-based UI | Accepted |
 | Scene / combat viewport | PixiJS v8 in a bounded canvas behind a `SceneRenderer` interface | *Hypothesis* — [ADR-0010](../adr/0010-scene-renderer.md) |
 | Server | Fastify (HTTP + WebSocket), single deployable, modular monolith | Accepted — [ADR-0009](../adr/0009-modular-monolith.md) |
-| Live rooms | In-house `InstanceHost` vs Colyseus | *Hypothesis* — [ADR-0012](../adr/0012-live-instance-hosting.md) |
+| Live rooms | In-house `InstanceHost` (Colyseus evaluated and rejected) | Accepted — [ADR-0012](../adr/0012-live-instance-hosting.md) |
 | Persistence + jobs | PostgreSQL only (pg-boss or graphile-worker in-process) | Accepted — [ADR-0006](../adr/0006-postgresql-single-source-of-truth.md) |
 | Data access | Drizzle (locks/idempotency as explicit SQL) | *Hypothesis* — [ADR-0015](../adr/0015-data-access-layer.md) |
 | Combat engine | Server-only deterministic step function | Accepted — [ADR-0003](../adr/0003-simulation-server-only.md), [ADR-0004](../adr/0004-deterministic-step-engine.md) |

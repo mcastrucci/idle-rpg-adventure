@@ -12,3 +12,4 @@ export * from './actors/index.ts';
 export * from './commands/index.ts';
 export * from './jobs/index.ts';
 export * from './jobs/module.ts';
+export * from './live-host/index.ts';
