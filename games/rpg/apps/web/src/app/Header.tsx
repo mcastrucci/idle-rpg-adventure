@@ -2,8 +2,8 @@ import type { CharacterDto } from '../api/types.ts';
 import { levelProgress } from '../character/progression.ts';
 
 /**
- * Sanctuary header. Values are server-provided; placeholders mark data the server does not expose yet:
- * gold needs the ledger, the chip needs expedition hosting. The XP bar uses the client's mirror of the content XP
+ * Sanctuary header. Values are server-provided; gold is still a placeholder because the character DTO has no balance.
+ * The expedition chip reflects the character's activity state. The XP bar uses the client's mirror of the content XP
  * curve (no content endpoint yet) and stays empty if the server's level does not fit it.
  */
 export function Header({ character }: { character: CharacterDto | null }) {

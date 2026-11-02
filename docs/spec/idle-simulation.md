@@ -1,16 +1,17 @@
 # Spec: Idle Expedition Simulation
 
-> Status: **Draft v0.1**. Decision: [ADR-0005](../adr/0005-idle-precompute-at-start.md),
+> Status: **Solo POC implementation contract; pacing and penalty values remain unvalidated**. Decision: [ADR-0005](../adr/0005-idle-precompute-at-start.md),
 > [ADR-0013](../adr/0013-tick-and-idle-encounter-model.md).
 
 > **Engine mapping (ADR-0019):** lifecycle, reveal, settlement, cancellation, party and estimates are implemented by
 > `engine/expedition-kernel` ([spec](../engine/expedition-kernel.md)); this document describes the RPG simulator
-> plugin (`games/rpg/packages/rpg-sim`): segments = encounters.
+> plugin (`games/rpg/packages/rpg-sim`): segments = encounters. The current contract uses kernel v0.3; duration, pace,
+> area and activity come from the kernel-owned start request, and RPG config contains only consumables and retreat policy.
 
 ## 1. Lifecycle
 
 ```
-draft ──(solo)──────────────────────────► running ──► settled (completed | retreated | died)
+draft ──(solo)──────────────────────────► running ──► completed | cancelled
   │                                         │
   └─(party, phase 2)─► pending_invites ─────┤
                          │ expiry/decline   └──cancel──► cancelled (partial settlement)
@@ -18,77 +19,84 @@ draft ──(solo)────────────────────�
                        draft
 ```
 
+The timeline outcome (`completed`, `retreated` or `failed`) is separate from the persisted lifecycle state.
+
 ## 2. Configuration
 
 | Field | Values (POC) |
 |---|---|
-| `regionId` | conquered regions only (server-checked) |
-| `activityId` | `hunt` (combat-focused), `gather` (fewer fights, more resources) |
-| `durationMin` | 15, 30, 60, 180 |
+| Start request `areaId`, `activityId` | A content activity listed in that area and registered to an RPG simulator; server checks the actor's persisted completion state |
+| Start request `durationMin`, `paceBp` | Duration is one of 15, 30, 60, 180 minutes; the current server allows `paceBp = 10000` (normal pace) |
 | `consumables` | item IDs + quantities from inventory (escrowed) |
-| `automationRules` | snapshot of current rules (editable before start) |
-| `retreatPolicy` | e.g. retreat when HP < X% and no healing consumables left *(provisional)* |
+| `retreat` | `belowHpBp` and `onlyWhenNoHealing`; policy is stored in config |
+| `snapshot` | Server-generated attributes, level, equipped-item stats, skills and automation rules for each actor. Starting HP defaults to derived max HP in the current character model. |
 
 ## 3. Start (single transaction)
 
-1. `SELECT … FOR UPDATE` character(s) in ID order.
-2. Verify region conquered and `activity_state = 'none'`; CAS to `expedition`.
-3. Move consumables `inventory → escrow` (ledger, source = expedition ID).
-4. Snapshot stats/loadout/rules into `snapshot`.
-5. Generate `seed`; run the simulation (§4); store `timeline`, `outcome`, `ends_at`.
-6. Insert settlement job at `ends_at` (idempotent job key = expedition ID + revision).
-7. Commit. Respond with public data only (no future events).
+1. Lock the actor row, validate ownership and `activity_state = 'none'`, then evaluate the area's completion rule from server-owned progress.
+2. Parse the start request and RPG config; derive the actor snapshot on the server.
+3. Move requested consumables `inventory → expedition escrow` through the ledger, and CAS the actor to `expedition`.
+4. Generate a seed, simulate, place segments, and persist the input snapshot, config, content/simulator/kernel versions, timeline hash and compressed timeline.
+5. Insert the durable settlement job in the same transaction, due at the actual end.
+6. Commit and return a client-safe view only.
 
 ## 4. Simulation model
 
-- `encounterBudget = round(durationMin / 60 * activity.encountersPerHour * paceMultiplier)`.
+- The kernel asks the simulator for an integer segment budget using the requested duration and pace. The current RPG
+  rule floors the per-hour rate calculation and plans at least one segment.
 - For each encounter `i`: roll enemy group from the activity's encounter table (`encounters` stream); run combat to end
   with automation policy; apply between-encounter regen *(provisional: % HP regen between fights)*; roll loot
   (`loot` stream) into a virtual expedition bag; consume escrowed consumables as used.
-- Wall-clock placement: encounter `i` is revealed at `startsAt + (i+1)/encounterBudget * duration`.
-- Early end: on death or retreat policy trigger, the timeline ends at that encounter; `ends_at` is set to that
-  encounter's reveal time.
-- Stored per encounter: enemies, result, XP, gold, loot, consumables used, HP after. Full event logs stored only for the
-  last N encounters (death log) to bound row size.
+- Wall-clock placement uses each segment's weight against the planned budget. An early failed or retreated timeline
+  ends at its last segment's reveal time; the planned end remains safe to show before then.
+- Each simulated segment stores its events, deltas and server-only post-segment state; the complete deterministic
+  timeline is compressed and persisted at start so reveal and settlement do not rerun the simulation.
 
 ## 5. Reveal
 
-`GET /expeditions/:id` returns encounters with `revealAt ≤ now()` plus aggregated totals so far. Progress bar uses
-`startsAt/plannedEndsAt` — the *actual* `ends_at` is withheld until reached, since an earlier end would leak a death or
-retreat. The final outcome is never returned before `ends_at` (implemented by `visibleView` in the expedition kernel).
+`GET /expeditions/:id` returns only segments with `revealAt ≤ now()` and aggregates derived from those segments. It omits
+`stateAfter`, the total segment count, actual end and outcome until the actual end is reached. Progress uses the planned
+end. The server lazily settles an overdue expedition before returning its final view; the durable job provides the
+background settlement path. `visibleView` enforces the kernel-level reveal boundary.
 
 ## 6. Settlement (idempotent)
 
-Triggered by the job at `ends_at` or lazily on read after `ends_at`:
+Triggered by the durable job at the actual end or lazily on read after the actual end. The settlement transaction:
 
 ```sql
-UPDATE expeditions SET status='settled', settled_at=now()
-WHERE id=$1 AND revision=$2 AND status='running'
+UPDATE expeditions SET status=:final_state, settled_at=:settled_at
+WHERE id=:id AND revision=:revision AND status='running'
 RETURNING *;
 ```
 
-If a row returns, in the same transaction: grant XP/gold/loot via ledger (keys `(expedition_settlement, id:rev, seq)`),
-consume used escrow, return unused escrow to inventory, apply death penalty if `died`, CAS activity back to `none`.
+`:final_state` is `completed` for a natural end and `cancelled` for a pre-end cancellation.
 
-## 7. Cancellation (provisional policy)
+The running-state claim, ledger deltas (including escrow returns), XP progression/death penalty, actor unlock and final
+expedition status are committed together. Retried jobs or lazy settlement apply the mutation once. The persisted final
+state distinguishes completed from cancelled; the timeline outcome is `completed`, `retreated` or `failed`.
 
-- Player may cancel any time while `running`.
-- Rewards: encounters with `revealAt ≤ now` are granted in full; later ones discarded.
-- Consumables: those used in revealed encounters are consumed; the rest returned.
-- No extra penalty in POC. Revisit if cancel-scumming appears (e.g. cancel right before a revealed death is impossible,
-  since a death encounter is the last one and is revealed at the moment it happens).
+## 7. Cancellation (solo POC policy; decision #6)
+
+- Before the actual end, cancellation settles through the last revealed segment: its grants apply in full, its used
+  consumables are consumed, and unused escrow is returned. There is no separate cancellation penalty.
+- At or after the actual end, a cancel request is resolved as natural completion over the full timeline, so a fatal
+  segment revealed at the end receives the normal death penalties. The kernel owns the cutoff/reason resolution.
+- Revisit the policy if playtests show cancellation abuse.
 
 ## 8. Estimates
 
-- Monte Carlo: run the same simulation for N seeds (N = 100–200 *(provisional)*), report p10/p50/p90 for XP, gold,
-  potions used, and death probability.
-- Cache key: `(buildHash, regionId, activityId, durationMin, consumables, rules hash, contentHash, engineVersion)`.
-- If too slow (spike 1), fall back to a per-encounter Monte Carlo composed analytically.
+- Monte Carlo runs use the same simulator with derived seeds and can aggregate ledger deltas plus RPG metrics such as
+  gross XP and death rate. Report percentiles and label the result as an estimate.
+- Cache inputs must include canonical server snapshot/build, area/activity, duration/pace, config/rules, content hash and
+  kernel/simulator versions. Cache implementation and target latency are tracked separately (#53).
+- On Node 24.22.1, 60-seed 180-minute/90-segment simulation benchmarks measured p95 31.9 ms for the Bulwark build and
+  23.7 ms for Thornblade. Two hundred estimates took 5.169 s and 3.882 s, respectively, above the 2 s target; estimate
+  caching remains a prerequisite tracked by #53. These figures measure simulator work, not database-backed start latency.
 - UI must label estimates as estimates.
 
 ## 9. Death in idle
 
-- Timeline ends at the fatal encounter; player is notified when it is revealed.
+- A failed timeline ends at the fatal encounter; the client learns this only when that segment is revealed.
 - Report includes a **death log**: last encounter's key events (big hits, missed heals, consumables exhausted) in plain
   language.
-- Penalties per [rewards-and-persistence.md](rewards-and-persistence.md#death-penalties).
+- Current idle POC penalties are recorded in [rewards-and-persistence.md](rewards-and-persistence.md); their values remain provisional pending playtesting.

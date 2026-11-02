@@ -1,9 +1,12 @@
 import { PgBoss } from 'pg-boss';
+import { and, eq } from 'drizzle-orm';
 import type { Db as IDatabase, QueuePolicy } from 'pg-boss';
 import type { PoolClient } from 'pg';
 
 import type { Clock } from '../clock.ts';
 import type { Database } from '../database.ts';
+import { scheduledJobs } from '../schema.ts';
+import type { ActorTransaction } from '../actors/service.ts';
 
 export interface JobContext {
   readonly clock: Clock;
@@ -20,6 +23,25 @@ export interface ScheduledJob {
   readonly singletonKey: string;
   readonly payload: Readonly<Record<string, unknown>>;
   readonly dueAtMs: number;
+}
+
+/** Persist a named job in a caller's transaction, so domain state and its wake-up commit or roll back together. */
+export async function scheduleJobInTransaction(tx: ActorTransaction, clock: Clock,
+  job: Omit<ScheduledJob, 'id'>): Promise<string> {
+  requireName(job.name, 'job name');
+  requireName(job.singletonKey, 'singleton key');
+  if (!Number.isSafeInteger(job.dueAtMs) || job.dueAtMs < 0) throw new RangeError('job due time must be a non-negative safe integer');
+  const payload = JSON.parse(serializePayload(job.payload)) as Record<string, unknown>;
+  const [inserted] = await tx.insert(scheduledJobs).values({ ...job, payload,
+    createdAt: new Date(clock.nowMs()) }).onConflictDoNothing().returning({ id: scheduledJobs.id });
+  if (inserted) return inserted.id;
+  const [existing] = await tx.select().from(scheduledJobs).where(and(eq(scheduledJobs.name, job.name),
+    eq(scheduledJobs.singletonKey, job.singletonKey))).for('update');
+  if (!existing) throw new Error('scheduled job conflict disappeared');
+  if (existing.dueAtMs !== job.dueAtMs || stableJson(existing.payload) !== stableJson(payload)) {
+    throw new Error('singleton schedule already exists with different due time or payload');
+  }
+  return existing.id;
 }
 
 export interface JobsOptions {

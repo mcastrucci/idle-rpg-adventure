@@ -11,9 +11,14 @@ The reusable kernels and content pipeline are implemented, along with RPG combat
 reporting. The [Region 1 baseline](design/balance/region-1-baseline.md) measures provisional content and identifies
 tuning gaps; it does not finalize the balance targets. Region 1 still needs interactions, scenes and playtesting.
 The server composes guest/email authentication, fenced live sessions, persisted characters, activity locks and
-transactional HTTP/WS command replay. The ledger/inventory, live exploration host, durable jobs, expedition runtime
-and web client are still separate work. M0 renderer/mobile and hosting spike decisions still need their own evidence.
-Check GitHub claims and PRs before taking work; this snapshot is not an issue-by-issue progress mirror.
+transactional HTTP/WS command replay. The generic ledger transaction core is implemented; authenticated inventory
+commands and the periodic invariant job remain separate work. The solo expedition lifecycle is implemented for
+characters with a persisted area completion, including server-validated start, transactional escrow, durable settlement,
+reveal, cancellation and the current setup/progress client flow. The conquest read gate has an internal server write
+seam, but live exploration does not yet record that progress, so ordinary gameplay cannot unlock idle yet. Estimate
+caching and follow-on expedition UI/report scope remain separately tracked (#53/#54). Live exploration hosting and M0
+renderer/mobile evidence also remain outstanding. Check GitHub claims and PRs before taking work; this snapshot is not
+an issue-by-issue progress mirror.
 
 ## Dependency guidance
 
@@ -101,8 +106,10 @@ Tiled import, 10 locations, enemies/loot/mini-boss, discovery + conquest evaluat
 
 Epic: [#7](https://github.com/mcastrucci/idle-rpg-adventure/issues/7)
 
-Start transaction + precompute, reveal API + progress screen, settlement, cancellation, estimates + setup screen, report
-+ death log.
+Start transaction + precompute, reveal API + progress screen, settlement and cancellation are implemented for actors
+whose area completion is already persisted. The options endpoint enforces that completion gate, but ordinary playable
+conquest records still depend on the live exploration milestone. The current Web screen covers setup, progress,
+cancellation and a basic result summary. Estimates and the follow-on UI/report scope remain separate work (#53/#54).
 
 **Exit:** expeditions of 15–180 min complete/cancel/die correctly with app closed (success criterion 4).
 

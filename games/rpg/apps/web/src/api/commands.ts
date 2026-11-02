@@ -5,6 +5,7 @@ import { exponentialBackoff, sleep as defaultSleep } from './backoff.ts';
 import type { ApiClient, HttpMethod } from './http.ts';
 import { errorCode, NetworkError } from './http.ts';
 import type { CharacterDto } from './types.ts';
+import type { ExpeditionDto, ExpeditionStartPayload } from '@rpg/protocol';
 
 export type CommandPayload = { readonly [key: string]: CommandJson };
 
@@ -41,6 +42,19 @@ export function configureCharacterCommand(actorId: string, configuration: Comman
     path: `/characters/${encodeURIComponent(actorId)}/configuration`,
     envelope: buildEnvelope('character.configure', configuration, newId),
   };
+}
+
+export function startExpeditionCommand(payload: ExpeditionStartPayload, newId?: () => string): CommandRequest<ExpeditionDto> {
+  return { method: 'POST', path: '/expeditions', envelope: buildEnvelope('expedition.start', payload as unknown as CommandPayload, newId) };
+}
+
+export function cancelExpeditionCommand(expeditionId: string, newId?: () => string): CommandRequest<ExpeditionDto> {
+  return { method: 'POST', path: `/expeditions/${encodeURIComponent(expeditionId)}/cancel`, envelope: buildEnvelope('expedition.cancel', { expeditionId }, newId) };
+}
+
+export function recoverUnavailableExpeditionCommand(expeditionId: string, newId?: () => string): CommandRequest<ExpeditionDto> {
+  return { method: 'POST', path: `/expeditions/${encodeURIComponent(expeditionId)}/recover-unavailable`,
+    envelope: buildEnvelope('expedition.recoverUnavailable', { expeditionId }, newId) };
 }
 
 /** Terminal outcome: the server decided (domain error, 409 `command_id_conflict`, 410 `command_expired`…). */

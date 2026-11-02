@@ -1,4 +1,4 @@
-import { createAuthModule, createCommandMaintenanceModule, createJobsModule, createServer, LIVE_HOST_MIGRATIONS } from '@engine/server-kit';
+import { createAuthModule, createCommandMaintenanceModule, createServer, LIVE_HOST_MIGRATIONS } from '@engine/server-kit';
 import type { Clock, JobHandler, ServerConfig, ServerModule } from '@engine/server-kit';
 
 import { validateRpgBundle } from './content.ts';
@@ -7,6 +7,10 @@ import { characterModule } from './characters/http.ts';
 import { executeCharacterSocketCommand } from './character-commands.ts';
 import { createRpgLiveHost } from './live/index.ts';
 import type { RpgLiveHost } from './live/index.ts';
+import { createExpeditionModule } from './expeditions/http.ts';
+import { createRpgJobsModule } from './expeditions/jobs.ts';
+import { supportedSettlementPolicies } from './expeditions/policy.ts';
+import type { SettlementPolicy } from './expeditions/policy.ts';
 
 export { createRpgDatabase, RPG_MIGRATIONS } from './migrations.ts';
 export * from './live/index.ts';
@@ -14,7 +18,9 @@ export * from './live/index.ts';
 export const SERVER_APP = '@rpg/server';
 /** RPG composition: game data stays here; generic infrastructure lives in server-kit. */
 export function createRpgServer(config: ServerConfig, options: { clock?: Clock; modules?: readonly ServerModule[];
-  jobHandlers?: Readonly<Record<string, JobHandler>>; live?: RpgLiveHost } = {}) {
+  jobHandlers?: Readonly<Record<string, JobHandler>>; seedSource?: () => number;
+  settlementPolicies?: readonly SettlementPolicy[]; live?: RpgLiveHost } = {}) {
+  const settlementPolicies = options.settlementPolicies ?? supportedSettlementPolicies;
   const live = options.live ?? createRpgLiveHost();
   const content: ServerModule = {
     name: 'content', roles: ['api'],
@@ -29,6 +35,7 @@ export function createRpgServer(config: ServerConfig, options: { clock?: Clock; 
       enableHttp: config.roles.includes('api'), enableLive: config.roles.includes('live'),
       // `live.*` operations go to the instance host; everything else is a character command envelope.
       onCommand: async (payload, identity, context, connection) => await live.handleSocketCommand(payload, identity, connection)
-        ?? executeCharacterSocketCommand(context, identity.accountId, payload),
-    }), characterModule, live.module, createCommandMaintenanceModule(), createJobsModule(options.jobHandlers ?? {}), ...(options.modules ?? [])] });
+        ?? executeCharacterSocketCommand(context, identity.accountId, payload, options.seedSource, settlementPolicies),
+    }), characterModule, live.module, createExpeditionModule(options.seedSource, settlementPolicies), createCommandMaintenanceModule(),
+    createRpgJobsModule(options.jobHandlers ?? {}, settlementPolicies), ...(options.modules ?? [])] });
 }

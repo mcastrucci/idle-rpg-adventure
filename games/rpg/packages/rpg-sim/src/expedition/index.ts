@@ -9,6 +9,8 @@ export { ESCROW, GOLD, GOLD_CURRENCY, INVENTORY, isGrant, itemAsset, mergeDeltas
 export { rollLoot } from './loot.ts';
 export type { LootDrop, LootRoll } from './loot.ts';
 export { applyBagLoss, bagTotals, coversDeath, rpgIdleMetrics, rpgProgress, settleIdle, summarizeIdle } from './settle.ts';
+/** Retained behavior for persisted RPG idle simulator version 2.0.0. Never edit; append a new version module instead. */
+export { applyBagLossV2, coversDeathV2, rpgIdleMetricsV2, rpgProgressV2, settleIdleV2, summarizeIdleV2 } from './settlement-v2.ts';
 export { DEFAULT_RPG_IDLE_TUNING, deathCauses, idleBudget, maxHpOf, segmentsPerHour, simulateIdle } from './simulate.ts';
 export type { RpgIdleTuning } from './simulate.ts';
 export {
