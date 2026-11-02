@@ -11,9 +11,9 @@ record the outcome here (and in an ADR if architectural).
 | 3 | Party loot distribution | Equal gold/XP split; round-robin loot (idle); personal loot (live) | M8 | Open |
 | 4 | Max party size | 4 (POC validates 2) | M8 | Open |
 | 5 | Live disconnection policy | 60 s grace; combat continues on automation; then `left` — **amended by spike 3**, see [below](#5-live-disconnection-policy-spike-3) | Spike 3 / M4 | Confirmed with amendments (values provisional) |
-| 6 | Idle cancellation and partial rewards | Revealed encounters granted; unused consumables returned; no extra penalty | M6 | Open |
+| 6 | Idle cancellation and partial rewards | Before the actual end, settle only revealed segments: their grants and used consumables apply, unused escrow returns, and no cancellation penalty applies. A cancel at/after the actual end settles as a natural completion. | M6 / kernel v0.3 | Resolved for solo POC; abuse/balance remains unvalidated |
 | 7 | Corpse persistence and recovery in instances | Owner-only corpse at death location, 24 h, one active, spawned into future instances | M4 | Open |
-| 8 | Exact death penalties | See [rewards spec §4](spec/rewards-and-persistence.md#4-death-penalties-provisional--open-decision-8) | M4/M6 + playtest | Open |
+| 8 | Exact death penalties | Idle solo POC: on natural failed completion, lose 50% of each positive gold/item bag grant (floored; odd unit kept) and apply 10% of the next-level XP requirement after adding expedition XP; used escrow is consumed and unused escrow returned. Live penalties remain in [rewards spec §4](spec/rewards-and-persistence.md). | M4/M6 + playtest | Idle behavior implemented; live behavior and balance validation remain open |
 | 9 | Crafting | Out of POC beyond placeholders | Post-POC | Deferred |
 | 10 | Premium accelerator balance | Pacing multiplier on encounter budget, capped | Post-POC | Deferred |
 | 11 | Direct purchase of resources or power | Not in POC | Post-POC | Deferred |
@@ -46,3 +46,8 @@ it as follows. The 60 s grace and 30 s leases stay **provisional** numbers to tu
   each), which fits inside the grace. An encounter in progress restarts from its start (pre-encounter checkpoint).
 - **One device.** A second device of the same account is refused while the first holds the live-session lease.
 
+### #13 Attribute points on level change
+
+Until #13 is resolved, changes in level from earned XP or death penalties neither grant nor revoke unspent points or
+attributes. The level-up settlement hook must not change point allocation before an explicit decision; the existing
+four active skill slots are a separate provisional loadout limit.

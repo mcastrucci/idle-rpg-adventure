@@ -21,7 +21,7 @@ pnpm --filter @rpg/server start          # api,live,worker roles on http://127.0
 pnpm --filter @rpg/web dev               # http://localhost:5173
 ```
 
-Vite proxies `/auth` (including the `/auth/live` WebSocket), `/characters`, `/content` and `/health` to
+Vite proxies `/auth` (including the `/auth/live` WebSocket), `/characters`, `/content`, `/expeditions` and `/health` to
 `RPG_SERVER_URL` (default `http://127.0.0.1:3000`). The proxy keeps the browser's `Host` (`changeOrigin: false`) so the
 server's same-origin check passes, and the server's `__Host-` session cookie stays first-party. Open the app on
 `http://localhost` (not a LAN IP): browsers accept `Secure` cookies over plain HTTP only on localhost. For a phone on the
@@ -34,13 +34,13 @@ Other scripts: `pnpm --filter @rpg/web build` (production bundle in `dist/`), `p
 
 | Path | Role |
 |---|---|
-| `src/api/http.ts` | Typed `ApiClient` over the real routes (`/auth/*`, `/characters`, `/content`); `ApiError` vs `NetworkError`. |
+| `src/api/http.ts` | Typed `ApiClient` over the real routes (`/auth/*`, `/characters`, `/content`, `/expeditions/*`); `ApiError` vs `NetworkError`. |
 | `src/api/auth.ts` | Device token (32 CSPRNG bytes, base64url) in `localStorage`; `ensureSession` reuses the cookie session or logs in as the device guest. |
 | `src/api/commands.ts` | Command envelopes (`command_id` UUID generated once per intent, validated by `@rpg/protocol`) and `sendCommand` with safe retries. |
 | `src/live/state.ts` | Pure reconnect state machine for `/auth/live`. |
 | `src/live/client.ts` | `LiveClient`: socket driver, `authenticated` ack, ping/pong liveness, backoff reconnects, online/offline hooks. |
 | `src/app/*` | Shell: header, connection banner, bottom tab bar with hash routing, session bootstrap. |
-| `src/screens/*` | Character (create, attributes, derived stats, loadout editor), automation rules editor (`#/character/rules`), placeholder tabs. |
+| `src/screens/*` | Character (create, attributes, derived stats, loadout editor), automation rules editor (`#/character/rules`), expedition lifecycle, placeholder tabs. |
 | `src/character/*` | Character screen logic (#34): derived stat rows over `@rpg/rpg-stats`, XP progress, loadout draft/conflicts/presets, point allocation. |
 | `src/rules/*` | Rules editor logic (#36): closed condition/target catalog, `describeRule` summaries, draft operations, client validation, Bulwark/Thornblade presets. |
 | `src/content/labels.ts` | Display labels derived from stable content IDs until a client content endpoint exists. |
@@ -57,6 +57,8 @@ Other scripts: `pnpm --filter @rpg/web build` (production bundle in `dist/`), `p
   new one automatically. After the retry budget the caller gets `CommandUnconfirmedError` holding the original request,
   and the UI offers "Retry" with the same `command_id`. Commands wait while the live socket is down, and command
   buttons are disabled.
+- **Expeditions.** The Expeditions tab reads server options and expedition DTOs, starts and cancels through commands,
+  and refreshes the character after settlement. The header chip reflects the character's server-provided activity.
 - **Live socket.** The client waits for `{ type: 'authenticated' }` before treating the connection as open (frames
   sent earlier would be closed with 1008 by the server). It pings every 15 s (the server answers `pong` and renews the
   lease) and drops the socket after 10 s without an inbound frame. Reconnects use exponential backoff with jitter
@@ -108,6 +110,7 @@ inventory the stats are shown without gear.
 - No unlock endpoint: the client mirrors the server's provisional unlocked set (the four starter skills) and treats
   skills already in the saved loadout as unlocked. The server remains the authority (`invalid_configuration`).
 - No progression yet: `unspentPoints` is always 0, so the allocation UI only appears once levelling grants points.
-- No ledger (gold placeholder), inventory, or expedition hosting (chip reads the actor's `activityState` only).
+- No gold balance in the character DTO (gold placeholder) or inventory UI. Expedition hosting and settlement are available
+  in the Expeditions tab; the header chip reads the actor's server-provided `activityState`.
 - No sign-in UI yet. An upgraded account's device token is disabled server-side, so this device then shows a fatal
   connection state.

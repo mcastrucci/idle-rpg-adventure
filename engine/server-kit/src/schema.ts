@@ -4,6 +4,7 @@ import { bigint, check, index, integer, jsonb, pgTable, text, timestamp, unique,
 export * from './auth/schema.ts';
 export * from './actors/schema.ts';
 export * from './commands/schema.ts';
+export * from './ledger/schema.ts';
 
 /** Identifies immutable content versions observed by this deployment; game content stays in compiled bundles. */
 export const contentReleases = pgTable('content_releases', {

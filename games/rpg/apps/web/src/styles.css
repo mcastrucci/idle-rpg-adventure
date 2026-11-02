@@ -71,6 +71,8 @@ h1, h2, p, dl, ol { margin: 0; }
   border-radius: var(--radius); border: 1px dashed var(--warn); background: #3a2a1d; color: #ffe3c7; font-size: 0.9rem;
 }
 .banner--failed, .banner--stopped { border-style: solid; border-color: var(--danger); background: #3a1d22; color: #ffd6d6; }
+.expedition-toast { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 16px 0; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--ok); background: #1e332c; color: #d7f6e6; }
+.expedition-toast button { min-height: 36px; padding: 0 10px; border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; font: inherit; }
 .banner__action {
   min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid currentColor;
   background: transparent; color: inherit; font: inherit;
@@ -111,6 +113,24 @@ h1, h2, p, dl, ol { margin: 0; }
   font: inherit; font-weight: 700;
 }
 .button:disabled { opacity: 0.45; }
+.button--secondary { color: var(--text); border: 1px solid var(--border); background: var(--surface-2); }
+.form__input[type='number'] { font-variant-numeric: tabular-nums; }
+.expedition-form { margin-top: 12px; }
+.expedition-check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.expedition-check input { width: 20px; height: 20px; accent-color: var(--accent); }
+.expedition-card { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.expedition-card__top { display: flex; align-items: center; gap: 14px; }
+.progress-ring { --expedition-progress: 0%; flex: none; display: grid; place-items: center; width: 76px; height: 76px; border-radius: 50%; background: conic-gradient(var(--accent) var(--expedition-progress), var(--surface-2) 0); }
+.progress-ring::before { content: ''; grid-area: 1 / 1; width: 60px; height: 60px; border-radius: 50%; background: var(--surface); }
+.progress-ring span { grid-area: 1 / 1; z-index: 1; font-size: 0.82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.expedition-feed { display: flex; flex-direction: column; gap: 6px; }
+.expedition-feed h3, .expedition-dialog h3 { margin: 0; font-size: 0.9rem; color: var(--muted); }
+.expedition-feed ol, .expedition-dialog ul { margin: 0; padding-left: 20px; }
+.expedition-feed li, .expedition-dialog li { margin-top: 4px; overflow-wrap: anywhere; }
+.dialog-backdrop { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; padding: 20px; background: #09070dbb; }
+.expedition-dialog { display: flex; flex-direction: column; gap: 12px; width: min(100%, 440px); max-height: 85dvh; overflow: auto; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: 0 18px 60px #0008; }
+.expedition-dialog h2 { margin: 0; font-size: 1.15rem; }
+.expedition-dialog__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 /* Bottom tab bar in the thumb zone; 44px+ targets. */
 .tabbar {

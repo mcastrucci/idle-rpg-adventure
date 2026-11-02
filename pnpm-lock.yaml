@@ -63,6 +63,9 @@ importers:
 
   engine/server-kit:
     dependencies:
+      '@engine/economy':
+        specifier: workspace:*
+        version: link:../economy
       '@engine/live-kernel':
         specifier: workspace:*
         version: link:../live-kernel
@@ -114,6 +117,12 @@ importers:
 
   games/rpg/apps/server:
     dependencies:
+      '@engine/economy':
+        specifier: workspace:*
+        version: link:../../../../engine/economy
+      '@engine/expedition-kernel':
+        specifier: workspace:*
+        version: link:../../../../engine/expedition-kernel
       '@engine/live-kernel':
         specifier: workspace:*
         version: link:../../../../engine/live-kernel

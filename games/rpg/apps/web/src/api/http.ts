@@ -1,4 +1,6 @@
 import type { CharacterDto, ContentInfoDto, IssuedSessionDto, SessionDto } from './types.ts';
+import type { ExpeditionDto, ExpeditionOptionsDto } from '@rpg/protocol';
+import { parseExpeditionDto, parseExpeditionOptionsDto } from '@rpg/protocol';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 export type HttpMethod = 'GET' | 'POST' | 'PATCH';
@@ -78,6 +80,12 @@ export class ApiClient {
   listCharacters(): Promise<CharacterDto[]> { return this.request('GET', '/characters'); }
   character(actorId: string): Promise<CharacterDto> {
     return this.request('GET', `/characters/${encodeURIComponent(actorId)}`);
+  }
+  expedition(expeditionId: string): Promise<ExpeditionDto> {
+    return this.request<unknown>('GET', `/expeditions/${encodeURIComponent(expeditionId)}`).then(parseExpeditionDto);
+  }
+  expeditionOptions(actorId: string): Promise<ExpeditionOptionsDto> {
+    return this.request<unknown>('GET', `/characters/${encodeURIComponent(actorId)}/expedition-options`).then(parseExpeditionOptionsDto);
   }
 }
 
