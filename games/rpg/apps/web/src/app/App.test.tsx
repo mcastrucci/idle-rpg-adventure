@@ -69,6 +69,18 @@ describe('App shell', () => {
     expect(await screen.findByRole('heading', { name: 'Ada' })).toBeDefined();
   });
 
+  it('reaches the automation rules editor from the Character tab', async () => {
+    const rules = [{ when: {}, do: { useSkill: 'skill:basic_attack', target: 'lowestHpEnemy' } }];
+    render(<App services={services([{ ...CHARACTER, automationRules: rules }])} />);
+    expect(await screen.findByText('Always use Basic attack on the enemy with the lowest HP.')).toBeDefined();
+    const edit = screen.getByRole('link', { name: 'Edit automation rules' });
+    expect(edit.getAttribute('href')).toBe('#/character/rules');
+    act(() => { window.location.hash = '/character/rules'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByRole('heading', { name: 'Automation rules' })).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Character' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('button', { name: 'Save rules' }).hasAttribute('disabled')).toBe(true);
+  });
+
   it('opens a deep-linked tab', async () => {
     window.location.hash = '/world';
     render(<App services={services([CHARACTER])} />);

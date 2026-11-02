@@ -12,8 +12,14 @@ export type TabId = typeof TABS[number]['id'];
 export const DEFAULT_TAB: TabId = 'character';
 
 export function tabFromHash(hash: string): TabId {
-  const id = hash.replace(/^#\/?/, '');
+  const id = hash.replace(/^#\/?/, '').split('/')[0];
   return TABS.find((tab) => tab.id === id)?.id ?? DEFAULT_TAB;
+}
+
+/** Sub-page inside a tab: `#/character/rules` → `rules`; `null` on the tab's main page. */
+export function subrouteFromHash(hash: string): string | null {
+  const [, sub] = hash.replace(/^#\/?/, '').split('/');
+  return sub === undefined || sub === '' ? null : sub;
 }
 
 function subscribe(listener: () => void): () => void {
@@ -26,4 +32,9 @@ export function useHashTab(): [TabId, (tab: TabId) => void] {
   const tab = useSyncExternalStore(subscribe, () => tabFromHash(window.location.hash));
   const select = useCallback((next: TabId) => { window.location.hash = `/${next}`; }, []);
   return [tab, select];
+}
+
+/** Current sub-page of the active tab (see `subrouteFromHash`). */
+export function useHashSubroute(): string | null {
+  return useSyncExternalStore(subscribe, () => subrouteFromHash(window.location.hash));
 }

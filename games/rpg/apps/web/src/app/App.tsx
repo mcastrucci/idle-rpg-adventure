@@ -2,19 +2,21 @@ import { useEffect } from 'react';
 
 import { CharacterScreen } from '../screens/CharacterScreen.tsx';
 import { PlaceholderScreen } from '../screens/Placeholder.tsx';
+import { RulesScreen } from '../screens/RulesScreen.tsx';
 import { ConnectionBanner } from './ConnectionBanner.tsx';
 import { Header } from './Header.tsx';
 import type { AppServices } from './services.ts';
 import { useLiveState } from './services.ts';
 import { TabBar } from './TabBar.tsx';
 import type { TabId } from './tabs.ts';
-import { useHashTab } from './tabs.ts';
+import { useHashSubroute, useHashTab } from './tabs.ts';
 import { useGameSession } from './useGameSession.ts';
 
 export function App({ services }: { services: AppServices }) {
   const { live } = services;
   const liveState = useLiveState(live);
   const [tab, selectTab] = useHashTab();
+  const subroute = useHashSubroute();
   const { state, retry, runCharacterCommand } = useGameSession(services);
 
   useEffect(() => {
@@ -43,21 +45,23 @@ export function App({ services }: { services: AppServices }) {
             <button type="button" className="button" onClick={retry}>Try again</button>
           </div>
         )}
-        {state.phase === 'ready' && <Screen tab={tab} character={character} canCommand={canCommand} run={runCharacterCommand} />}
+        {state.phase === 'ready' && <Screen tab={tab} subroute={subroute} character={character} canCommand={canCommand} run={runCharacterCommand} />}
       </main>
       <TabBar active={tab} onSelect={selectTab} />
     </div>
   );
 }
 
-function Screen({ tab, character, canCommand, run }: {
+function Screen({ tab, subroute, character, canCommand, run }: {
   tab: TabId;
+  subroute: string | null;
   character: Parameters<typeof CharacterScreen>[0]['character'];
   canCommand: boolean;
   run: Parameters<typeof CharacterScreen>[0]['runCharacterCommand'];
 }) {
   switch (tab) {
     case 'character':
+      if (subroute === 'rules' && character) return <RulesScreen character={character} canCommand={canCommand} runCharacterCommand={run} />;
       return <CharacterScreen character={character} canCommand={canCommand} runCharacterCommand={run} />;
     case 'inventory':
       return <PlaceholderScreen title="Inventory">Storage and equipment arrive with the inventory and ledger modules.</PlaceholderScreen>;
