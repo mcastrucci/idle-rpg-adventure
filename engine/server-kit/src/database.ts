@@ -195,7 +195,22 @@ function normalizeCatalog(value: string): string {
   return value.replaceAll('"', '').replaceAll(/\s+/g, ' ').toLowerCase();
 }
 
-/** PostgreSQL adds cosmetic parentheses around CHECK/index expressions; stripping them keeps semantic tokens exact. */
+/** PostgreSQL adds cosmetic parentheses around CHECK/index expressions; replace them with spaces to preserve tokens. */
 function normalizeExpression(value: string): string {
-  return normalizeCatalog(value).replace(/^check\s*/, '').replaceAll(/[()]/g, '').replaceAll(/\s+/g, ' ').trim();
+  const source = normalizeCatalog(value).replace(/^check\s*/, '');
+  let normalized = '';
+  let inString = false;
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (character === "'") {
+      normalized += character;
+      if (inString && source[index + 1] === "'") normalized += source[++index];
+      else inString = !inString;
+    } else if (!inString && (character === '(' || character === ')')) {
+      normalized += ' ';
+    } else {
+      normalized += character;
+    }
+  }
+  return normalized.replaceAll(/\s+/g, ' ').trim();
 }

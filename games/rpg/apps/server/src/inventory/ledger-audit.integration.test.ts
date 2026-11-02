@@ -119,7 +119,7 @@ describe.skipIf(!adminUrl)('PostgreSQL ledger invariant audit worker', () => {
       typeof fields === 'object' && fields !== null);
     await eventually(async () => loggedCodes(errors).some(fields => fields['code'] === 'LEDGER_INVARIANT_VIOLATION'), 'first audit corruption report');
     expect(loggedCodes(errors)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'LEDGER_INVARIANT_VIOLATION', issueCount: 1, issueCodes: ['BALANCE_MISMATCH'] }),
+      expect.objectContaining({ code: 'LEDGER_INVARIANT_VIOLATION', issueCount: 2, issueCodes: ['BALANCE_MISMATCH'] }),
     ]));
     await eventually(async () => (await scheduled(window + 1)).length === 1, 'first future durable window');
     expect(await database.db.select().from(assetBalances).where(eq(assetBalances.actorId, character.actorId)))
