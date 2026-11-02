@@ -1,51 +1,63 @@
+import { AutomationRuleSchema, MAX_AUTOMATION_RULES } from '@rpg/rpg-schema';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 
 import { CommandUnconfirmedError, createCharacterCommand } from '../api/commands.ts';
 import type { CommandRequest } from '../api/commands.ts';
-import type { AttributeKey, CharacterDto } from '../api/types.ts';
+import type { CharacterDto } from '../api/types.ts';
 import { describeError } from '../app/useGameSession.ts';
-
-const ATTRIBUTE_ORDER: readonly AttributeKey[] = ['STR', 'AGI', 'INT', 'VIT', 'SPI'];
-
-/** Display-only formatting of a stable content ID (`skill:shield_bash` → `Shield bash`); names come with content. */
-function displayId(id: string): string {
-  const raw = id.slice(id.indexOf(':') + 1).replaceAll('_', ' ');
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
-}
+import { levelProgress } from '../character/progression.ts';
+import { describeRule } from '../rules/describe.ts';
+import { AttributesPanel } from './character/AttributesPanel.tsx';
+import './character/character.css';
+import { LoadoutEditor } from './character/LoadoutEditor.tsx';
 
 interface Props {
   readonly character: CharacterDto | null;
   readonly canCommand: boolean;
   readonly runCharacterCommand: (request: CommandRequest<CharacterDto>) => Promise<void>;
+  /** Injected in tests for a predictable command_id. */
+  readonly newCommandId?: () => string;
 }
 
-export function CharacterScreen({ character, canCommand, runCharacterCommand }: Props) {
+export function CharacterScreen({ character, canCommand, runCharacterCommand, newCommandId }: Props) {
   if (!character) return <CreateCharacter canCommand={canCommand} run={runCharacterCommand} />;
+  const inSanctuary = character.activityState === 'none';
   return (
-    <section className="screen" aria-labelledby="character-title">
+    <section className="screen character" aria-labelledby="character-title">
       <h1 id="character-title" className="screen__title">{character.name}</h1>
-      <dl className="stats">
-        <div><dt>Level</dt><dd>{character.level}</dd></div>
-        <div><dt>XP</dt><dd>{character.xp}</dd></div>
-        <div><dt>Unspent points</dt><dd>{character.unspentPoints}</dd></div>
-        <div><dt>Activity</dt><dd>{character.activityState === 'none' ? 'In the Sanctuary' : character.activityState}</dd></div>
-      </dl>
-      <h2 className="screen__subtitle">Attributes</h2>
-      <dl className="attributes">
-        {ATTRIBUTE_ORDER.map((key) => (
-          <div key={key}><dt>{key}</dt><dd>{character.attributes[key]}</dd></div>
-        ))}
-      </dl>
-      <h2 className="screen__subtitle">Skill loadout</h2>
-      <ol className="loadout">
-        {character.skillLoadout.map((skill) => <li key={skill}>{displayId(skill)}</li>)}
-      </ol>
-      <p className="muted">
-        {character.automationRules.length} automation rules. Derived stats, the rules editor and build presets arrive
-        with later client issues.
+      <LevelSummary character={character} />
+      <p className={`character-activity${inSanctuary ? '' : ' character-activity--busy'}`}>
+        {inSanctuary
+          ? 'In the Sanctuary: attributes, loadout and rules can be changed.'
+          : `On ${character.activityState === 'live' ? 'a live run' : 'an expedition'}: changes wait until the character returns to the Sanctuary.`}
       </p>
+      <AttributesPanel character={character} canCommand={canCommand} runCharacterCommand={runCharacterCommand} newCommandId={newCommandId} />
+      <LoadoutEditor character={character} canCommand={canCommand} runCharacterCommand={runCharacterCommand} newCommandId={newCommandId} />
+      <section className="character-section" aria-labelledby="rules-summary-title">
+        <h2 id="rules-summary-title" className="screen__subtitle">Automation rules ({character.automationRules.length}/{MAX_AUTOMATION_RULES})</h2>
+        <RulesSummary rules={character.automationRules} />
+        <a className="button button--link" href="#/character/rules">Edit automation rules</a>
+      </section>
     </section>
+  );
+}
+
+/** Level and XP inside the level, from the shared rpg-stats XP helpers over the (mirrored) content curve. */
+function LevelSummary({ character }: { character: CharacterDto }) {
+  const progress = levelProgress(character.level, character.xp);
+  if (!progress) {
+    return <p className="character-level">Level {character.level} · {character.xp} XP <span className="muted">(XP to next level unknown)</span></p>;
+  }
+  const label = progress.xpToNext === null ? `${progress.xpIntoLevel} XP · max level` : `${progress.xpIntoLevel} / ${progress.xpToNext} XP`;
+  return (
+    <div className="character-level">
+      <p>Level {progress.level} · {label}</p>
+      <div className="xp-bar" role="progressbar" aria-label="XP to next level" aria-valuemin={0} aria-valuemax={10_000}
+        aria-valuenow={progress.progressBp} aria-valuetext={label}>
+        <div className="xp-bar__fill" style={{ width: `${progress.progressBp / 100}%` }} />
+      </div>
+    </div>
   );
 }
 
@@ -98,5 +110,18 @@ function CreateCharacter({ canCommand, run }: { canCommand: boolean; run: Props[
         {!canCommand && <p className="muted">Waiting for the connection…</p>}
       </form>
     </section>
+  );
+}
+
+/** Read-only list of the saved rules, in evaluation order. */
+function RulesSummary({ rules }: { rules: readonly unknown[] }) {
+  if (rules.length === 0) return <p className="muted">No rules: the character only uses basic attacks.</p>;
+  return (
+    <ol className="rules-summary">
+      {rules.map((raw, index) => {
+        const parsed = AutomationRuleSchema.safeParse(raw);
+        return <li key={index}>{parsed.success ? describeRule(parsed.data) : 'Unreadable rule'}</li>;
+      })}
+    </ol>
   );
 }
