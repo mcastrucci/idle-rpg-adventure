@@ -29,17 +29,19 @@ COMMIT
 
 Granted only at settlement ([idle-simulation.md §6](idle-simulation.md#6-settlement-idempotent)).
 
-## 4. Death penalties (provisional — open decision #8)
+## 4. Death penalties (idle solo POC behavior; balance provisional — open decision #8)
 
 | Penalty | Live | Idle |
 |---|---|---|
-| XP | lose 10% of the XP required for next level; may drop a level, never below level 1 | same |
-| Run bag / expedition loot | moved to corpse | 50% of expedition loot and gold lost; XP earned kept before penalty |
-| Inventory | carried consumables used are gone; rest kept | escrow used consumables consumed; rest returned |
-| Equipped gear | kept in POC (durability/loss deferred) | kept |
-| Storage | never affected | never affected |
+| XP | Provisional: lose 10% of the XP required for next level; may drop a level, never below level 1 | On a natural failed completion, add XP earned during the expedition first, then lose 10% of the XP required for the hero's next level. The penalty is floored and XP never falls below zero. |
+| Run bag / expedition loot | Provisional: moved to corpse | On a natural failed completion, lose `floor(qty × 5000 / 10000)` of each positive gold/item grant in the bag; the odd unit is kept. |
+| Inventory | Provisional: carried consumables used are gone; rest kept | Used escrowed consumables are consumed; unused escrow is returned. A cancellation before actual end settles only revealed segments and applies no death penalty. A cancel at or after actual end is settled as a natural completion, so a revealed fatal segment still incurs the death penalties. |
+| Equipped gear | Provisional: kept in POC (durability/loss deferred) | Kept |
+| Storage | Provisional: never affected | Never affected |
 
-The UI must show these consequences before risky actions (boss room, high-risk expedition).
+The idle values and rules above describe the current solo POC implementation; they are not validated balance targets.
+The Live column remains provisional and is not implemented. The UI must show these consequences before risky actions
+(boss room, high-risk expedition). Live corpse and death recovery behavior remains provisional.
 
 ## 5. Corpses (live)
 

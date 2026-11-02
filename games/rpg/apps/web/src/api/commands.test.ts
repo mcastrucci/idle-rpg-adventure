@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  buildEnvelope, CommandRejectedError, CommandUnconfirmedError, configureCharacterCommand, createCharacterCommand, sendCommand,
+  buildEnvelope, cancelExpeditionCommand, CommandRejectedError, CommandUnconfirmedError, configureCharacterCommand, createCharacterCommand, sendCommand, startExpeditionCommand,
 } from './commands.ts';
 import { ApiClient } from './http.ts';
 import type { FetchLike } from './http.ts';
@@ -67,6 +67,19 @@ describe('command envelopes', () => {
     expect(configure.method).toBe('PATCH');
     expect(configure.path).toBe('/characters/a%2Fb/configuration');
     expect(configure.envelope.payload).toEqual({ name: 'Bo' });
+  });
+
+  it('uses the authenticated expedition routes and retains stable command IDs for both actions', () => {
+    const payload = { actorId: '11111111-1111-4111-8111-111111111111', request: { areaId: 'area:ruins', activityId: 'activity:ruins', durationMin: 30, paceBp: 10_000 },
+      config: { consumables: [], retreat: { belowHpBp: 0, onlyWhenNoHealing: false } } } as const;
+    const start = startExpeditionCommand(payload, () => '22222222-2222-4222-8222-222222222222');
+    expect(start.method).toBe('POST');
+    expect(start.path).toBe('/expeditions');
+    expect(start.envelope.operation).toBe('expedition.start');
+    expect(start.envelope.payload).toMatchObject(payload);
+    const cancel = cancelExpeditionCommand(payload.actorId, () => '33333333-3333-4333-8333-333333333333');
+    expect(cancel.path).toBe(`/expeditions/${payload.actorId}/cancel`);
+    expect(cancel.envelope.operation).toBe('expedition.cancel');
   });
 
   it('rejects envelopes the shared protocol parser would reject, before sending', () => {

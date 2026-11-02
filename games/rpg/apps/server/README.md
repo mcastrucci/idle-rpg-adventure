@@ -2,9 +2,10 @@
 
 Fastify composition root over `@engine/server-kit`. Generic infrastructure stays in the engine; this app validates
 compiled RPG schemas and references, and composes content metadata, authentication, character APIs and worker
-command maintenance. API processes serve auth/characters; live processes serve authenticated WebSocket commands;
-workers compact expired command responses. Ledger, conquest, expedition hosting, exploration, party and durable job
-execution remain separate modules. No gameplay simulation is run by the authentication socket.
+command maintenance. API processes serve auth/characters/expedition routes; live processes serve authenticated
+WebSocket commands; workers settle persisted expeditions and compact expired command responses. Expedition precompute
+runs in the authenticated command transaction and uses only the shared deterministic simulator; it does not start a
+live combat session.
 
 From the repository root, with a running PostgreSQL database:
 
@@ -19,6 +20,9 @@ pnpm --filter @rpg/server start
 Node must support built-in TypeScript stripping (Node 22.18+ or 24). The same executable supports `ROLES=api`,
 `ROLES=live` or `ROLES=worker`. `GET /content` is API-only and exposes `{ game, format, contentHash }`; it does not
 publish a bundle containing server-only tables. `/health/live` and `/health/ready` are available for every role.
+Run at least one `ROLES=worker` process for scheduled expedition settlement. Start inserts its settlement wake-up in the
+same PostgreSQL transaction as escrow, activity lock, snapshot, and timeline. Authenticated API reads also settle lazily
+once the actual end is reached.
 
 Pass `clock` and explicit `modules` to `createRpgServer` for application composition and tests. Game services read
 time through the supplied `Clock`; direct `Date.now()` is confined to engine `SystemClock`. Runtime imports contain
@@ -57,3 +61,30 @@ The game migration command applies and verifies the engine journal first (`drizz
 second (`rpg_migrations`). `createRpgDatabase`, server startup, tests and CLI use the same migration sets. Generate
 RPG SQL with `pnpm --filter @rpg/server db:generate`; engine generation remains in `@engine/server-kit`.
 The engine never imports a game schema. Never modify already applied migrations.
+
+## Expedition lifecycle
+
+The API exposes authenticated `GET /characters/:actorId/expedition-options`, `GET /characters/:actorId/expeditions`,
+`GET /expeditions/:expeditionId`, `POST /expeditions`, and `POST /expeditions/:expeditionId/cancel`. Start and cancel
+POSTs use the shared command envelope and `expedition.start` / `expedition.cancel` operations; HTTP and WebSocket
+commands share ownership checks, idempotency, and the same transaction dispatcher. Start payloads contain one owned
+`actorId`, a kernel request (`areaId`, `activityId`, `durationMin`, `paceBp`), and RPG config (`consumables`, `retreat`).
+Supported durations are 15, 30, 60, and 180 minutes; pace is fixed at 10,000 bp until other pace values are accepted.
+
+The response only contains revealed segments. The actual end and simulator outcome appear after that end is reached.
+Early cancellation saves the kernel's cutoff and cancellation timestamp; later reads continue to return that same
+prefix, with `outcome: "cancelled"`, never a hidden future death or natural end. `cancelPreview` is computed from the
+same kernel settlement rules used by cancellation.
+
+World completion input comes only from server-recorded `rpg_area_discoveries`, `rpg_completed_areas`, and
+`rpg_actor_objectives`. `expeditions/progress.ts` exposes internal transaction seams for trusted exploration/conquest
+systems; there is no client endpoint for setting completion. Until the conquest system (#47) writes those records,
+areas with completion rules remain locked for new characters; areas without a completion rule follow the kernel's
+open-area behavior.
+
+Persisted runs record kernel/simulator versions, content hash, seed, parsed config, participant snapshot, and compressed
+timeline. The worker checks those versions before settlement and returns a retryable `expedition_version_unavailable`
+error rather than applying rewards with changed rules. This release does not retain old simulator code/content bundles;
+deployment must keep compatible code and content available for unsettled runs or drain them before an incompatible
+upgrade. The XP curve is included in the snapshot. Equipped items are resolved from server ledger definitions; non-empty
+instance roll data is rejected until RPG stat-roll semantics are defined.

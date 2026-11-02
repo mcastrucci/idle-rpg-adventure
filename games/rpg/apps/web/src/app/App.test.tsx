@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ApiClient } from '../api/http.ts';
@@ -91,5 +91,29 @@ describe('App shell', () => {
     act(() => deps.live.set({ status: 'reconnecting', attempt: 1, retryInMs: 2000, lastCloseCode: 1006 }));
     expect(screen.getByRole('status').textContent).toContain('Reconnecting in 2s');
     expect(create.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('settles and announces completion while another tab is open', async () => {
+    const actorId = '22222222-2222-4222-8222-222222222222';
+    const active = { ...CHARACTER, actorId, activityState: 'expedition' as const, activityId: '11111111-1111-4111-8111-111111111111' };
+    const completed = { ...active, activityState: 'none' as const, activityId: null };
+    const paths: string[] = [];
+    const fetch: FetchLike = async (input) => {
+      paths.push(input);
+      if (input === '/auth/session') return Response.json({ accountId: 'acc', guest: true, email: null, expiresAtMs: 1 });
+      if (input === '/characters') return Response.json([active]);
+      if (input === `/expeditions/${active.activityId}`) return Response.json({
+        id: active.activityId, actorId, state: 'completed', areaId: 'area:ruins', activityId: 'activity:ruins',
+        startsAtMs: 1, plannedEndsAtMs: 2, endsAtMs: 2, outcome: 'victory', progress: { revealed: 1 }, segments: [], revealedDeltas: [], summary: { segments: 1, encounters: 1, victories: 1, outcome: 'victory' },
+      });
+      if (input === `/characters/${actorId}`) return Response.json(completed);
+      return Response.json({ error: 'not_found' }, { status: 404 });
+    };
+    render(<App services={{ api: new ApiClient(fetch), live: fakeLive(), storage: { getItem: () => null, setItem: () => {} } }} />);
+    await waitFor(() => expect(paths).toContain(`/expeditions/${active.activityId}`));
+    await waitFor(() => expect(paths).toContain(`/characters/${actorId}`));
+    expect(await screen.findByRole('button', { name: 'Dismiss expedition update' })).toBeDefined();
+    expect(screen.getByText('Expedition completed')).toBeDefined();
+    expect(screen.getByText('No expedition')).toBeDefined();
   });
 });

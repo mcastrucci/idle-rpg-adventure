@@ -10,9 +10,12 @@ The implemented foundations include the reusable world/expedition kernels, conte
 deterministic combat and idle simulators, and [balance tooling with a provisional Region 1 baseline](docs/design/balance/region-1-baseline.md).
 Region 1 has authored structural content; scene assets, interaction effects and balance tuning remain unfinished.
 The [Fastify/PostgreSQL server](games/rpg/apps/server/README.md) now composes guest/email authentication, fenced live
-sessions, persisted RPG characters, activity locks and replay-safe HTTP/WS commands. Inventory/ledger, persistent
-live exploration, expedition hosting/settlement and the web client remain separate work. See the
-[roadmap](docs/roadmap.md) for dependencies and validation gaps.
+sessions, persisted RPG characters, activity locks and replay-safe HTTP/WS commands. The generic ledger transaction
+core is implemented, but authenticated inventory commands and a periodic invariant job remain outstanding. Idle
+expedition API and client setup/progress work are in flight, but they are not yet an accepted end-to-end loop. Persistent
+live exploration has not yet populated conquest records, so a real character cannot unlock idle through gameplay yet;
+PostgreSQL lifecycle acceptance and estimate caching also remain outstanding. See the [roadmap](docs/roadmap.md) for
+dependencies and validation gaps.
 
 ## Documentation
 

@@ -114,6 +114,12 @@ importers:
 
   games/rpg/apps/server:
     dependencies:
+      '@engine/economy':
+        specifier: workspace:*
+        version: link:../../../../engine/economy
+      '@engine/expedition-kernel':
+        specifier: workspace:*
+        version: link:../../../../engine/expedition-kernel
       '@engine/server-kit':
         specifier: workspace:*
         version: link:../../../../engine/server-kit
@@ -126,6 +132,12 @@ importers:
       '@rpg/rpg-schema':
         specifier: workspace:*
         version: link:../../packages/rpg-schema
+      '@rpg/rpg-sim':
+        specifier: workspace:*
+        version: link:../../packages/rpg-sim
+      '@rpg/rpg-stats':
+        specifier: workspace:*
+        version: link:../../packages/rpg-stats
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.15.5)(pg@8.23.1)

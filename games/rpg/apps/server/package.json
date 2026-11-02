@@ -14,7 +14,11 @@
   "dependencies": {
     "@engine/server-kit": "workspace:*",
     "@engine/world": "workspace:*",
+    "@engine/expedition-kernel": "workspace:*",
+    "@engine/economy": "workspace:*",
     "@rpg/rpg-schema": "workspace:*",
+    "@rpg/rpg-sim": "workspace:*",
+    "@rpg/rpg-stats": "workspace:*",
     "drizzle-orm": "0.45.4",
     "zod": "4.6.7",
     "@rpg/protocol": "workspace:*"
