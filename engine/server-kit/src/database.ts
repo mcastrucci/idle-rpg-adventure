@@ -16,7 +16,10 @@ export interface MigrationSet {
   readonly schema: string;
 }
 export const ENGINE_MIGRATIONS: MigrationSet = { id: 'engine', directory: MIGRATIONS_DIRECTORY, schema: 'drizzle' };
-export interface DatabaseOptions { readonly migrationSets?: readonly MigrationSet[]; }
+export interface DatabaseOptions {
+  readonly migrationSets?: readonly MigrationSet[];
+  readonly onIdleError?: (error: Error) => void;
+}
 
 function migrationSets(options: DatabaseOptions): readonly MigrationSet[] {
   const sets = [ENGINE_MIGRATIONS, ...(options.migrationSets ?? [])];
@@ -35,6 +38,9 @@ export function createDatabase(config: Pick<ServerConfig, 'databaseUrl' | 'poolM
   const pool = new pg.Pool({ connectionString: config.databaseUrl, max: config.poolMax,
     connectionTimeoutMillis: config.databaseTimeoutMs, query_timeout: config.databaseTimeoutMs,
     statement_timeout: config.databaseTimeoutMs, idleTimeoutMillis: 30000 });
+  // Idle connection failures emit outside a query promise, including sockets still closing after pool.end().
+  // Always consume the event; applications can subscribe or provide a safe telemetry callback.
+  pool.on('error', (error: Error) => { options.onIdleError?.(error); });
   const db = drizzle(pool, { schema });
   let closing: Promise<void> | undefined;
   return {

@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { WebSocket } from 'ws';
+import WebSocket from 'ws';
 
 import { ManualClock } from '../clock.ts';
 import { createDatabase } from '../database.ts';
@@ -173,34 +173,55 @@ describe.skipIf(!adminUrl)('guest/email/session authentication against real Post
     const instance = await app({ onCommand: async (payload, identity) => {
       calls.push(payload); await held; return { type: 'command.result', accountId: identity.accountId, payload };
     } });
-    let first: WebSocket | undefined; let second: WebSocket | undefined;
+    const address = await instance.listen({ host: '127.0.0.1', port: 0 });
+    const endpoint = address.replace('http:', 'ws:') + '/auth/live';
+    const connections = new Set<WebSocket>();
+    function connect(headers: Record<string, string> = {}) {
+      const socket = new WebSocket(endpoint, { headers });
+      connections.add(socket);
+      const inbox: string[] = [];
+      // Capture messages/close immediately: auth can complete before an awaited open resumes.
+      socket.on('message', (data) => { inbox.push(data.toString()); });
+      socket.on('error', () => {}); // opened rejects on upgrade errors; avoid an unhandled EventEmitter error.
+      const opened = once(socket, 'open');
+      const closed = new Promise<number>((resolve) => { socket.once('close', (code) => { resolve(code); }); });
+      return { socket, opened, closed, async next(): Promise<string> {
+        await waitUntil(async () => {
+          if (inbox.length > 0) return true;
+          if (socket.readyState === WebSocket.CLOSED) throw new Error('socket closed before expected message');
+          return false;
+        });
+        return inbox.shift() as string;
+      } };
+    }
     try {
-      await expect(instance.injectWS('/auth/live')).rejects.toThrow();
-      await expect(instance.injectWS('/auth/live', { headers: { authorization: `Bearer ${session.sessionToken}`, origin: 'https://evil.example' } })).rejects.toThrow();
-      first = await instance.injectWS('/auth/live', { headers: { authorization: `Bearer ${session.sessionToken}` } });
-      expect(JSON.parse(await message(first))).toMatchObject({ type: 'authenticated', accountId: session.accountId });
-      second = await instance.injectWS('/auth/live', { headers: { authorization: `Bearer ${session.sessionToken}` } });
-      const duplicateClose = await once(second, 'close'); expect(duplicateClose[0]).toBe(4409);
-      const responses: string[] = []; first.on('message', (data) => { responses.push(data.toString()); });
-      first.send(JSON.stringify({ type: 'command', command: { command_id: randomUUID(), value: 'private-command' } }));
+      await expect(connect().opened).rejects.toThrow(/401/);
+      await expect(connect({ authorization: `Bearer ${session.sessionToken}`, origin: 'https://evil.example' }).opened).rejects.toThrow(/403/);
+      const first = connect({ authorization: `Bearer ${session.sessionToken}` });
+      await first.opened;
+      expect(JSON.parse(await first.next())).toMatchObject({ type: 'authenticated', accountId: session.accountId });
+      const second = connect({ authorization: `Bearer ${session.sessionToken}` });
+      await second.opened;
+      expect(await second.closed).toBe(4409);
+      first.socket.send(JSON.stringify({ type: 'command', command: { command_id: randomUUID(), value: 'private-command' } }));
       await waitUntil(async () => calls.length === 1);
-      first.send('ping'); // Valid ping queues while a command is awaiting I/O, rather than closing the socket.
+      first.socket.send('ping'); // Valid ping queues while a command is awaiting I/O, rather than closing the socket.
       releaseCommand?.();
-      await waitUntil(async () => responses.length === 2);
-      expect(JSON.parse(responses[0] as string)).toMatchObject({ type: 'command.result', accountId: session.accountId });
-      expect(responses[1]).toBe('pong');
-      const closed = once(first, 'close'); first.close(); await closed;
+      expect(JSON.parse(await first.next())).toMatchObject({ type: 'command.result', accountId: session.accountId });
+      expect(await first.next()).toBe('pong');
+      // Real TCP FIN/close lifecycle is essential here: injectWS's duplex stream leaves the server CLOSING.
+      first.socket.close(); await first.closed;
       await waitUntil(async () => (await database.db.select().from(liveSessions).where(eq(liveSessions.accountId, session.accountId))).length === 0);
-      const reconnect = await instance.injectWS('/auth/live', { headers: { cookie: `${SESSION_COOKIE}=${session.sessionToken}` } });
-      expect(JSON.parse(await message(reconnect))).toMatchObject({ type: 'authenticated' });
+      const reconnect = connect({ cookie: `${SESSION_COOKIE}=${session.sessionToken}` });
+      await reconnect.opened;
+      expect(JSON.parse(await reconnect.next())).toMatchObject({ type: 'authenticated' });
       await service.logout(session.sessionToken);
-      const expired = once(reconnect, 'close'); reconnect.send('ping');
-      expect((await expired)[0]).toBe(4401);
-    } finally { releaseCommand?.(); first?.terminate(); second?.terminate(); await instance.close(); }
+      reconnect.socket.send('ping');
+      expect(await reconnect.closed).toBe(4401);
+    } finally { releaseCommand?.(); for (const socket of connections) socket.terminate(); await instance.close(); }
   }, 15000);
 });
 async function waitUntil(check: () => Promise<boolean>): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt++) { if (await check()) return; await delay(10); }
   throw new Error('condition did not become true');
 }
-async function message(socket: WebSocket): Promise<string> { return String((await once(socket, 'message'))[0]); }

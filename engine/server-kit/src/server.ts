@@ -53,7 +53,10 @@ export async function createServer(options: ServerOptions): Promise<FastifyInsta
   const database = createDatabase(config, options);
   app.addHook('onClose', async () => { await database.close(); });
   // pg emits idle-client errors outside requests; handle them to prevent an unhandled EventEmitter crash.
-  database.pool.on('error', (error) => app.log.error({ err: error }, 'idle database connection failed'));
+  database.pool.on('error', (error: Error & { code?: string }) => {
+    // pg can attach the client (including connection credentials) to idle errors. Never serialize that object.
+    app.log.error({ code: error.code ?? 'DATABASE_CONNECTION_ERROR' }, 'idle database connection failed');
+  });
   try {
     await database.ping();
     if (config.migrateOnBoot) await database.migrate();
