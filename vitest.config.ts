@@ -9,6 +9,7 @@ export default defineConfig({
       'games/rpg/packages/*',
       'games/rpg/tools/*',
       'games/survival-sandbox',
+      'spikes/*',
       // Repository-level tests (lint boundary proofs).
       {
         test: {
