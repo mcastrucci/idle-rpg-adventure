@@ -1,6 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -41,24 +40,30 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
   const databaseName = `inventory_test_${randomUUID().replaceAll('-', '')}`;
   const clock = new ManualClock(1_800_000_000_000);
   const sockets = new Set<WebSocket>();
+  let nextRemoteAddress = 1;
 
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), 'inventory-integration-'));
-    const compiled = compileContentDirectory(fileURLToPath(new URL('../../../../content', import.meta.url)), plugin);
-    if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
-    content = structuredClone(compiled.bundle);
-    const contentItems = content.collections['items'] as { id: string; levelRequired?: number }[] | undefined;
-    const paddedVest = contentItems?.find(item => item.id === 'item:padded_vest');
-    if (!paddedVest) throw new Error('compiled content is missing the padded vest');
-    // This private integration bundle exercises the level gate without changing authored game content.
+    const sourceContent = fileURLToPath(new URL('../../../../content', import.meta.url));
+    const contentDirectory = join(directory, 'test-content');
+    await cp(sourceContent, contentDirectory, { recursive: true });
+    const itemsPath = join(contentDirectory, 'items', 'region_1.json');
+    const authoredItems = JSON.parse(await readFile(itemsPath, 'utf8')) as { id: string; levelRequired?: number }[];
+    const paddedVest = authoredItems.find(item => item.id === 'item:padded_vest');
+    if (!paddedVest) throw new Error('authored content is missing the padded vest');
+    // This private integration fixture exercises the level gate without changing authored game content.
     paddedVest.levelRequired = 2;
+    await writeFile(itemsPath, JSON.stringify(authoredItems));
+    const compiled = compileContentDirectory(contentDirectory, plugin);
+    if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
+    content = compiled.bundle;
     const bundlePath = join(directory, 'bundle.json');
     await writeFile(bundlePath, JSON.stringify(content));
     const base = parseServerConfig({ DATABASE_URL: adminUrl, CONTENT_BUNDLE_PATH: bundlePath, LOG_LEVEL: 'silent' });
     admin = createDatabase(base);
     await admin.pool.query(`CREATE DATABASE "${databaseName}"`);
     const url = new URL(base.databaseUrl); url.pathname = `/${databaseName}`;
-    config = { ...base, databaseUrl: url.toString(), roles: ['api'] };
+    config = { ...base, databaseUrl: url.toString(), roles: ['api', 'live'] };
     database = createRpgDatabase(config);
     await database.migrate();
     app = await createRpgServer(config, { clock, seedSource: () => 17 });
@@ -79,7 +84,8 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
 
   const headers = (session: Session) => ({ authorization: `Bearer ${session.sessionToken}` });
   async function guest(): Promise<Session> {
-    const response = await app.inject({ method: 'POST', url: '/auth/guest', payload: { deviceToken: token() } });
+    const response = await app.inject({ method: 'POST', url: '/auth/guest', remoteAddress: `127.0.0.${nextRemoteAddress++}`,
+      payload: { deviceToken: token() } });
     expect(response.statusCode).toBe(200);
     return response.json<Session>();
   }
@@ -121,6 +127,11 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
     sockets.add(connection);
     const inbox: string[] = [];
     connection.on('message', message => inbox.push(message.toString()));
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error) => reject(error);
+      connection.once('error', onError);
+      connection.once('open', () => { connection.off('error', onError); resolve(); });
+    });
     async function next(): Promise<string> {
       for (let attempt = 0; attempt < 500; attempt++) {
         const message = inbox.shift();
@@ -131,11 +142,6 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
       throw new Error('socket response timeout');
     }
     return { connection, next };
-  }
-  async function grantGold(actorId: string, amount: number, id = randomUUID()) {
-    await database.db.transaction(tx => applyLedgerDeltas(tx, { type: 'test_fixture', id }, [
-      { actorId, asset: GOLD, qty: amount },
-    ]));
   }
   async function gold(actorId: string): Promise<number> {
     const rows = await database.db.select().from(assetBalances).where(eq(assetBalances.actorId, actorId));
@@ -222,21 +228,21 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
     const request = envelope('buy', { actorId: character.actorId, offerId: 'offer:minor_healing_potion', quantity: 1 });
     const first = await command(session, character.actorId, request);
     expect(first.statusCode).toBe(200);
-    const changed = structuredClone(content) as unknown;
-    const changeOffer = (value: unknown): boolean => {
-      if (Array.isArray(value)) return value.some(changeOffer);
-      if (typeof value !== 'object' || value === null) return false;
-      const record = value as Record<string, unknown>;
-      if (record['id'] === 'offer:minor_healing_potion' && typeof record['buyPrice'] === 'object' && record['buyPrice'] !== null) {
-        (record['buyPrice'] as Record<string, unknown>)['amount'] = 99;
-        return true;
-      }
-      return Object.values(record).some(changeOffer);
+    const changedContent = join(directory, 'changed-content');
+    await cp(join(directory, 'test-content'), changedContent, { recursive: true });
+    const merchantPath = join(changedContent, 'merchants', 'region_1.json');
+    const authoredMerchant = JSON.parse(await readFile(merchantPath, 'utf8')) as {
+      offers: { id: string; buyPrice: { amount: number } }[];
     };
-    expect(changeOffer(changed)).toBe(true);
+    const changedOffer = authoredMerchant.offers.find(offer => offer.id === 'offer:minor_healing_potion');
+    if (!changedOffer) throw new Error('authored merchant is missing the minor potion offer');
+    changedOffer.buyPrice.amount = 99;
+    await writeFile(merchantPath, JSON.stringify(authoredMerchant));
+    const changedBundle = compileContentDirectory(changedContent, plugin);
+    if (!changedBundle.ok) throw new Error(JSON.stringify(changedBundle.errors));
     const changedPath = join(directory, 'changed-bundle.json');
-    await writeFile(changedPath, JSON.stringify(changed));
-    const changedApp = await createRpgServer({ ...config, contentBundlePath: changedPath }, { clock });
+    await writeFile(changedPath, JSON.stringify(changedBundle.bundle));
+    const changedApp = await createRpgServer({ ...config, contentBundlePath: changedPath, roles: ['api'] }, { clock });
     try {
       const replay = await changedApp.inject({ method: 'POST', url: `/characters/${character.actorId}/inventory/commands`,
         headers: headers(session), payload: request });

@@ -1,4 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
+import type { LedgerDelta } from '@engine/economy';
 import { applyLedgerDeltas, getHoldings, itemInstances, requireOwnedActor, requireSanctuaryMutation, actors } from '@engine/server-kit';
 import type { ApplyLedgerOptions } from '@engine/server-kit';
 import type { ActorTransaction, LoadedContent } from '@engine/server-kit';
@@ -36,6 +37,15 @@ function getItem(content: LoadedContent, itemId: string): Item | undefined { ret
 function itemOffer(content: LoadedContent, offerId: string): MerchantOffer | undefined {
   const matches = merchants(content).flatMap(merchant => merchant.offers.filter(row => row.id === offerId));
   return matches.length === 1 ? matches[0] : undefined;
+}
+
+/** Purchase batch convention: positive qty debited from a container; grants are positive qty to a container. */
+export function buildPurchaseDeltas(actorId: string, itemId: string, quantity: number, price: number): LedgerDelta[] {
+  const deltas: LedgerDelta[] = [
+    { actorId, asset: { kind: 'currency', currency: 'gold' }, qty: price, from: 'inventory' },
+    { actorId, asset: { kind: 'stack', item: itemId }, qty: quantity, to: 'inventory' },
+  ];
+  return deltas;
 }
 
 export async function inventorySnapshot(tx: ActorTransaction, accountId: string, actorId: string) {
@@ -113,10 +123,7 @@ export function createInventoryService(tx: ActorTransaction, content: LoadedCont
         const status = evaluateCompletion(area, worldResult.world.locations, evalContext, createRpgPredicateRegistry());
         if (!status.recorded) throw new InventoryError('conquest_required');
       }
-      return mutate(accountId, commandId, actor.actorId, [
-        { actorId: actor.actorId, asset: { kind: 'currency', currency: 'gold' }, qty: -price, from: 'inventory' },
-        { actorId: actor.actorId, asset: { kind: 'stack', item: offer.item }, qty: input.quantity, to: 'inventory' },
-      ]);
+      return mutate(accountId, commandId, actor.actorId, buildPurchaseDeltas(actor.actorId, offer.item, input.quantity, price));
     },
   };
 }
