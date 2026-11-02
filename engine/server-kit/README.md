@@ -54,11 +54,12 @@ explicit local/single-deployment convenience. Queries, connection acquisition an
 | `MIGRATE_ON_BOOT` | `false` | Explicit `true` enables serialized startup migrations. |
 
 CI supplies a real PostgreSQL 16 service on both supported Node versions. Set `TEST_DATABASE_URL` locally to run the
-same integration suite (`pnpm vitest run --project @rpg/server`). The user must have `CREATEDB`: tests create and drop
+same integration suites (`pnpm vitest run --project @engine/server-kit --project @rpg/server`). The user must have `CREATEDB`: tests create and drop
 a uniquely named disposable database and never clear the URL's existing database. With no URL these tests skip;
 CI deliberately fails if its URL is missing. The suite covers concurrent/replayed migrations, transaction rollback,
 content identity and first-seen clock, api/live/worker lifecycle, shutdown order, degraded readiness and failed-boot
-pool cleanup. Unit tests separately check config, manual time and hash parity with real compiler output.
+pool cleanup. Job tests cover persistence after worker recreation, app-clock time travel, duplicate keys, retries,
+multiple workers and graceful drain. Unit tests separately check config, manual time and hash parity with real compiler output.
 
 ## Layer-owned migration sets and domain modules
 
@@ -70,3 +71,23 @@ as its server. Engine migrations never import game definitions; the RPG owns its
 Identity/session APIs live in [auth](src/auth/README.md), generic activity locks in `src/actors`, and replay-safe
 transaction/maintenance APIs in [commands](src/commands/README.md). The game composes these modules and supplies its
 command dispatcher; none of them imports RPG content or grants assets. The HTTP/WS command layer is not the ledger.
+
+## Durable jobs
+
+`PostgresJobs` uses pg-boss for persistent job execution, worker coordination, and retries with exponential
+backoff. `createJobsModule(handlers)` starts handlers only in the `worker` role and registers a Fastify close hook
+that stops dispatch and gracefully drains active work before the shared server pool closes. Job handlers receive
+the injected `Clock` and database. Their effects must be idempotent and transactional where possible: execution is
+at-least-once, and external effects need a separate idempotency key or outbox. Exactly-once external effects are
+not guaranteed.
+
+The app-clock adapter persists a `(name, singletonKey)` schedule and its deadline as epoch milliseconds. A worker
+promotes due schedules into pg-boss in one PostgreSQL transaction, so a crash cannot commit only one side of that
+promotion. The `(name, singletonKey)` is unique for the lifetime of the schedule record; duplicate scheduling returns
+the original ID, even after the job completes. pg-boss's `short` policy also collapses duplicate queued work but
+allows concurrently active jobs. The permanent schedule key is the logical one-off guard; jobs needing another run
+must use a new key (for example a new revision). `dispatchDue()` is public for deterministic tests. It reads the
+injected app clock and does not alter PostgreSQL `NOW()`; in production the worker calls it at the configured poll
+interval. pg-boss retry delays and active-lease timeouts use PostgreSQL's runtime clock, not the app clock. The
+schedule mapping table is durable, while pg-boss owns retries, claiming, and completed job retention.
+Exhausted retries remain failed in pg-boss for operator handling.

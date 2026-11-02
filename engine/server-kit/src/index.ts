@@ -10,3 +10,5 @@ export * from './shutdown.ts';
 export * from './auth/index.ts';
 export * from './actors/index.ts';
 export * from './commands/index.ts';
+export * from './jobs/index.ts';
+export * from './jobs/module.ts';
