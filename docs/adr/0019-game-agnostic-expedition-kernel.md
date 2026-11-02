@@ -45,3 +45,29 @@ The survival sandbox (#67) exposed boundary gaps, fixed in the engine by #70 (`K
 
 `escrow` and the new `StartContext` fields are optional, so simulators written against v0.1 still compile; they must
 drop any duration from their configs and register their activities to be started through `checkStart`.
+
+## Amendment 2026-11 (v0.3)
+
+The RPG idle simulators (#76) surfaced five more gaps, fixed in the engine by #77 (`KERNEL_VERSION` 0.3.0):
+
+- **Cancel-after-end guard.** The settle reason and cutoff are kernel decisions, not server choices:
+  `resolveSettlement(placed, now, 'complete' | 'cancel' | 'member_left')` (or `settleAt`, which also settles with
+  escrow) turns any request at or after the **actual** end (`now ≥ endsAt`) into a `completed` settlement of the whole
+  timeline, refuses `complete` before the end (`settle.notEnded`, without timestamps), and otherwise uses the reveal
+  cutoff (which never covers the last segment before the end). A cancel can therefore never skip a natural-end penalty
+  such as the loss on a failed run. The contract checker verifies it per fixture and seed (`cancel-after-end`).
+- **The target is kernel-owned**, like the duration: the start request's `areaId`/`activityId` are passed to
+  `canStart`, `budget`, `simulate`, estimates and contract fixtures; game configs must not duplicate them (the RPG idle
+  config dropped `activity`, the sandbox config dropped `district`). Servers persist them with the expedition.
+- **Start order and errors.** `checkStart` receives the raw config, parses it first (`start.invalidConfig`), runs
+  `canStart` before `escrow` and `budget`, and maps every simulator throw to a stable `start.*` code
+  (`start.simulatorError`, `start.invalidEscrow`, `start.invalidBudget`); it returns the parsed config.
+- **Unique minting.** `@engine/economy` gains `{ kind: 'unique_mint', item }`: a grant of `qty` new unique instances
+  (ADR-0007: equipment = unique rows; simulators cannot know instance IDs). It is grant-only (no `from`, `qty ≥ 1`)
+  and cannot be escrowed; the ledger derives instance IDs from the delta's idempotency key. `unique` deltas move
+  exactly one instance.
+- **Non-ledger estimates.** `estimate` accepts a game extractor `(timeline, settled) → Record<string, integer>` (e.g.
+  XP) aggregated with the same nearest-rank percentiles.
+
+All new simulator-facing fields are optional, so v0.2 simulators still compile; `CheckStartInput.config` was renamed
+`rawConfig` (callers pass the raw command payload) and `EstimateResult` gained `metrics`.

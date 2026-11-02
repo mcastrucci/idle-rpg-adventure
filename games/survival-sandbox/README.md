@@ -18,12 +18,13 @@ art, no UI.
 
 ### `survival.scavenge`
 
-- **Config** `{ district: AreaId, supplies: { food, water, medkits } }`, hand-validated by `parseConfig`. The
-  duration (60/120/180 min) is kernel-owned: it comes with the start request and `canStart` rejects other values
-  (`invalid_duration`); when started through `checkStart`, the request's area must equal `district`
-  (`district_mismatch`). Supplies are what **each** participating group brings.
-- **Start** — `checkStart` with `{ areaId, activityId: 'activity:scavenge', durationMin, paceBp }`: the engine gates
-  the district on completion (per group) before `canStart` runs.
+- **Config** `{ supplies: { food, water, medkits } }`, hand-validated by `parseConfig`. The duration (60/120/180 min)
+  and the **district** are kernel-owned: both come with the start request. `canStart` rejects other durations
+  (`invalid_duration`) and a target `areaId` that is not a district (`unknown_district`); `simulate` reads the district
+  from `input.areaId` (kernel 0.3) and throws without it. Supplies are what **each** participating group brings.
+- **Start** — `checkStart` with `{ areaId, activityId: 'activity:scavenge', durationMin, paceBp }` and the **raw**
+  config: the engine gates the district on completion (per group), parses the config (`start.invalidConfig`), then
+  runs `canStart`, `escrow` and `budget`; the gate returns the parsed config.
 - **Escrow** — `escrow(config, actors)`: per group, each non-zero supply moves `storage → escrow`; hours consume from
   `escrow`; `settleWithEscrow` returns the rest to `storage` (cancel before the first hour returns everything).
 - **Snapshot** (actor) — a survivor group `{ actorId, members, condition 0..100, carryCapacity }`.
@@ -40,7 +41,9 @@ art, no UI.
 - **Settle** — natural end of a `failed` run: consumption kept, finds aggregated per (actor, item) and
   `total − ⌊total/2⌋` kept. Every other case (`completed`/`retreated` outcomes, `cancelled`, `member_left`, partial
   cutoffs) is `defaultSettle`. Contract-checked with `{ completed: 'custom', cancelled: 'default', member_left:
-  'default' }` (and in all-custom mode against the default bound).
+  'default' }` (and in all-custom mode against the default bound), including the kernel's `cancel-after-end` rule.
+  Cancellation goes through `resolveSettlement`/`settleAt`: a cancel at or after the end of a failed run is settled as
+  `completed` and still loses half of the finds (tested; the CLI shows both cancel cases).
 - **Summarize** — `{ hours, outcome (whole timeline only), finds, leftBehind, threats, medkitsUsed, suppliesUsed,
   causeOfFailure }`.
 
@@ -60,7 +63,7 @@ simulated (start at t = 0); no `Date` anywhere, so the package-wide determinism 
 ## Boundary findings
 
 Things the sandbox needed that the engine did not provide (or provided awkwardly). All were **resolved in the engine**
-by issue #70 (`@engine/expedition-kernel` 0.2.0, `@engine/world` predicate args); the sandbox now uses the new APIs and
+by issue #70 (`@engine/expedition-kernel` 0.2.0, `@engine/world` predicate args) and #77 (kernel 0.3.0, items 10–11); the sandbox now uses the new APIs and
 its workarounds are gone.
 
 1. **Escrow had no owner in the simulator contract (unused supplies were never returned).** *Resolved:*
@@ -87,6 +90,12 @@ its workarounds are gone.
 8. **Multi-actor inputs.** *Resolved:* documented (config per expedition; per-actor inputs via snapshots or
    `escrow(config, actors)`, one delta per actor and asset).
 9. **Minor: `BP_SCALE` exported twice.** *Resolved:* `@engine/world` re-exports sim-core's binding.
+10. **The config duplicated the target district** (found again by the RPG idle simulator, #76). *Resolved in kernel
+    0.3 (#77):* `areaId`/`activityId` are kernel-owned and passed to `canStart`, `budget`, `simulate`, `estimate` and
+    contract fixtures; `district` was removed from the config (simulator 3.0.0, `district_mismatch` is gone; timelines
+    and the golden hash are unchanged).
+11. **Cancel after the end skipped the failure loss** (#76 finding). *Resolved in kernel 0.3:* `resolveSettlement` /
+    `settleAt` settle a late cancel as `completed`.
 
 What worked without friction: `validateWorld`, requirement/visibility/completion with a game predicate and typed
 game context, game-defined area kinds (`district`) and containers (`pack`), `placeSegments`/`visibleView` (no early

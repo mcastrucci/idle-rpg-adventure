@@ -1,8 +1,11 @@
 import { netHoldings } from '@engine/economy';
+import type { LedgerDelta } from '@engine/economy';
 import { describe, expect, it } from 'vitest';
 
 import { COIN, coinCollector } from './__tests__/coin-collector.ts';
+import type { CoinEvent, CoinState } from './__tests__/coin-collector.ts';
 import { estimate, estimateSeed, nearestRank } from './index.ts';
+import type { Timeline } from './index.ts';
 
 describe('nearestRank', () => {
   const values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -84,6 +87,45 @@ describe('estimate', () => {
   it('counts runs without a change as zero', () => {
     const zero = estimate(coinCollector, { config: { maxCoins: 0, hazardBp: 0 }, actors, budget: 3 }, 5, 9);
     expect(zero.assets).toEqual([]);
+  });
+
+  it('aggregates game metrics with the same nearest-rank percentiles (missing keys count as 0)', () => {
+    const config = { maxCoins: 10, hazardBp: 1500 };
+    const runs = 40;
+    const metrics = (t: Timeline<CoinEvent, CoinState>, settled: readonly LedgerDelta[]): Record<string, number> => {
+      const out: Record<string, number> = { segments: t.segments.length };
+      if (t.outcome === 'failed') out['failed'] = 1;
+      out['deltas'] = settled.length;
+      return out;
+    };
+    const result = estimate(coinCollector, { config, actors, budget: 12 }, runs, 77, { metrics });
+    const plain = estimate(coinCollector, { config, actors, budget: 12 }, runs, 77);
+    expect(plain.metrics).toEqual([]);
+    expect({ ...result, metrics: [] }).toEqual(plain);
+    expect(result.metrics.map((m) => m.key)).toEqual(['deltas', 'failed', 'segments']);
+
+    const lengths: number[] = [];
+    for (let i = 0; i < runs; i++) lengths.push(coinCollector.simulate({ config, actors, seed: estimateSeed(77, i), budget: 12 }).segments.length);
+    lengths.sort((x, y) => x - y);
+    expect(result.metrics.find((m) => m.key === 'segments')).toEqual({
+      key: 'segments',
+      min: lengths[0],
+      p10: lengths[3], // rank ceil(10*40/100) = 4
+      p50: lengths[19],
+      p90: lengths[35],
+      max: lengths[39],
+    });
+    const failed = result.metrics.find((m) => m.key === 'failed');
+    expect(failed?.max).toBe(1);
+    expect(failed?.min).toBe(0); // runs without the key count as 0
+  });
+
+  it('passes the target to simulate and rejects non-integer metrics', () => {
+    const seen: string[] = [];
+    const sim = { ...coinCollector, simulate: (input: Parameters<typeof coinCollector.simulate>[0]) => (seen.push(input.activityId ?? '-'), coinCollector.simulate(input)) };
+    estimate(sim, { config: { maxCoins: 1, hazardBp: 0 }, actors, budget: 3, areaId: 'area:x', activityId: 'activity:y' }, 2, 1);
+    expect(seen).toEqual(['activity:y', 'activity:y']);
+    expect(() => estimate(coinCollector, { config: { maxCoins: 1, hazardBp: 0 }, actors, budget: 3 }, 2, 1, { metrics: () => ({ x: 0.5 }) })).toThrow(RangeError);
   });
 
   it('rejects bad arguments', () => {

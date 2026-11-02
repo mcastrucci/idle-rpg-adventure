@@ -29,6 +29,13 @@ describe('escrowProblems', () => {
     ];
     for (const deltas of bad) expect(escrowProblems(deltas)).not.toEqual([]);
   });
+
+  it('rejects unique mints (nothing to escrow yet) and keeps them out of escrow at settlement', () => {
+    const sword = { kind: 'unique_mint', item: 'item:sword' } as const;
+    expect(escrowProblems([{ actorId: 'a', asset: sword, qty: 1, to: 'escrow' }]).join()).toMatch(/unique_mint/);
+    expect(() => escrowReturns([], [{ actorId: 'a', asset: sword, qty: 1, to: 'escrow' }])).toThrow(/never escrowed/);
+    expect(escrowReturns([], [{ actorId: 'a', asset: sword, qty: 2, to: 'inventory' }])).toEqual([]);
+  });
 });
 
 describe('escrowReturns', () => {

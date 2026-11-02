@@ -4,7 +4,7 @@ import { assertInt } from '@engine/sim-core';
 
 import type { AssetRef, Container, LedgerDelta } from './types.ts';
 
-/** Canonical string key of an asset, e.g. `currency:gold`, `stack:herb`, `unique:it_42`. */
+/** Canonical string key of an asset, e.g. `currency:gold`, `stack:herb`, `unique:it_42`, `unique_mint:item:sword`. */
 export function assetKey(asset: AssetRef): string {
   switch (asset.kind) {
     case 'stack':
@@ -13,6 +13,8 @@ export function assetKey(asset: AssetRef): string {
       return `currency:${asset.currency}`;
     case 'unique':
       return `unique:${asset.itemId}`;
+    case 'unique_mint':
+      return `unique_mint:${asset.item}`;
   }
 }
 
@@ -43,7 +45,11 @@ function addChecked(a: number, b: number): number {
   return sum;
 }
 
-/** Throws unless `delta` is well-formed (non-empty actor, known asset kind, safe-integer qty). */
+/**
+ * Throws unless `delta` is well-formed: non-empty actor, known asset kind with a non-empty ID, safe-integer `qty`,
+ * non-empty containers; a `unique` delta moves exactly one instance (`qty` ±1); a `unique_mint` delta is a grant of
+ * `qty ≥ 1` new instances without `from`.
+ */
 export function assertLedgerDelta(delta: LedgerDelta): void {
   if (typeof delta.actorId !== 'string' || delta.actorId === '') throw new TypeError('delta.actorId must be a non-empty string');
   assertInt(delta.qty, 'delta.qty');
@@ -56,9 +62,24 @@ export function assertLedgerDelta(delta: LedgerDelta): void {
   for (const c of [delta.from, delta.to]) {
     if (c !== undefined && (typeof c !== 'string' || c === '')) throw new TypeError('containers must be non-empty strings');
   }
+  if (asset['kind'] === 'unique' && delta.qty !== 1 && delta.qty !== -1) throw new RangeError('a unique delta moves exactly one instance (qty ±1)');
+  if (asset['kind'] === 'unique_mint') {
+    if (delta.qty < 1) throw new RangeError('a unique_mint delta mints at least one instance (qty >= 1)');
+    if (delta.from !== undefined) throw new RangeError('a unique_mint delta is a grant (no from)');
+  }
 }
 
-const ASSET_ID_FIELD: Readonly<Record<string, string>> = { stack: 'item', currency: 'currency', unique: 'itemId' };
+const ASSET_ID_FIELD: Readonly<Record<string, string>> = { stack: 'item', currency: 'currency', unique: 'itemId', unique_mint: 'item' };
+
+/** `{ kind: 'unique_mint', item }`: new unique instances of item definition `item` (grant `qty` instances). */
+export function uniqueMint(item: string): AssetRef {
+  return { kind: 'unique_mint', item };
+}
+
+/** True for assets that are minted as new unique instances (`unique_mint`). */
+export function isUniqueMint(asset: AssetRef): asset is Extract<AssetRef, { kind: 'unique_mint' }> {
+  return asset.kind === 'unique_mint';
+}
 
 /**
  * Aggregates deltas per `(actorId, asset, container)`: `from` loses `qty`, `to` gains `qty`, a delta with neither

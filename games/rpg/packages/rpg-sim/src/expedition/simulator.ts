@@ -1,5 +1,5 @@
 /**
- * The RPG `ExpeditionSimulator`s (`rpg.hunt`, `rpg.gather`) on the expedition kernel v0.2 (ADR-0019), and the
+ * The RPG `ExpeditionSimulator`s (`rpg.hunt`, `rpg.gather`) on the expedition kernel v0.3 (ADR-0019), and the
  * activity registry of the RPG.
  */
 import type { LedgerDelta } from '@engine/economy';
@@ -10,7 +10,7 @@ import type { RpgGameContext } from '@rpg/rpg-schema';
 import { DEFAULT_STAT_FORMULAS, deriveStats } from '@rpg/rpg-stats';
 
 import { ENGINE_VERSION } from '../version.ts';
-import { IDLE_KINDS, idleKindOf, parseRpgIdleConfig } from './config.ts';
+import { IDLE_KINDS, idleActivityFor, idleKindOf, parseRpgIdleConfig } from './config.ts';
 import type { IdleKind } from './config.ts';
 import type { ContentBundleLike, RpgIdleContent } from './content.ts';
 import { consumableOf, rpgIdleContentFromBundle } from './content.ts';
@@ -23,8 +23,11 @@ import type { RpgActorSnapshot, RpgIdleConfig, RpgIdleEvent, RpgIdleReport, RpgI
 /**
  * Behaviour version of the idle simulation model (segment model, regen, loot rolls, settlement, events). Bump on any
  * behaviour change and append a new entry to `golden.json` (see README).
+ *
+ * 2.0.0 (kernel 0.3, #77): the activity is the kernel-owned `activityId` (config field `activity` dropped); equipment
+ * drops are `unique_mint` deltas instead of stacks.
  */
-export const RPG_IDLE_VERSION = 'rpg-idle@1.0.0';
+export const RPG_IDLE_VERSION = 'rpg-idle@2.0.0';
 
 /**
  * Stored simulator version: the idle model version **and** the combat engine version it runs, so a combat engine bump
@@ -79,29 +82,26 @@ function actorProblem(content: RpgIdleContent, a: RpgActorSnapshot): string | nu
 /** Creates the simulator of one idle kind over `content` (pure; content is read-only). */
 export function createRpgIdleSimulator(kind: IdleKind, content: RpgIdleContent, options: RpgIdleOptions = {}): RpgExpeditionSimulator {
   const tuning: RpgIdleTuning = { ...DEFAULT_RPG_IDLE_TUNING, ...options.tuning };
-  const activityOf = (config: RpgIdleConfig) => {
-    const a = content.idleActivities[config.activity];
-    if (a === undefined || idleKindOf(config.activity) !== kind) throw new RangeError(`${config.activity} is not a ${kind} activity`);
-    return a;
+  const activityOf = (activityId: string | undefined) => {
+    const target = idleActivityFor(content, kind, activityId);
+    if (!target.ok) throw new RangeError(target.message);
+    return target.activity;
   };
   return {
     id: `rpg.${kind}`,
     version: RPG_IDLE_SIMULATOR_VERSION,
 
-    parseConfig: (input) => parseRpgIdleConfig(input, content, kind),
+    parseConfig: (input) => parseRpgIdleConfig(input, content),
 
-    canStart({ config, actors, durationMin, area }) {
+    canStart({ config, actors, durationMin, activityId }) {
       if (!tuning.durationsMin.includes(durationMin)) {
         return fail('rpg.invalidDuration', `duration must be one of ${tuning.durationsMin.join(', ')} minutes`);
       }
-      const activity = content.idleActivities[config.activity];
-      if (activity === undefined) return fail('rpg.unknownActivity', `unknown activity ${config.activity}`);
-      if (idleKindOf(config.activity) !== kind) return fail('rpg.activityKindMismatch', `${config.activity} is not a ${kind} activity`);
-      // Through checkStart, the requested area must list the configured activity. (The kernel does not pass the
-      // request's activityId; the server must build `config.activity` from it — see README findings.)
-      if (area !== undefined && !(area.activities ?? []).includes(config.activity)) {
-        return fail('rpg.activityNotInArea', `${config.activity} is not an activity of ${area.id}`);
-      }
+      // The activity is the kernel-owned activityId (checkStart already checked that the area lists it and that it
+      // is registered to this simulator).
+      const target = idleActivityFor(content, kind, activityId);
+      if (!target.ok) return fail(target.code, target.message);
+      const { activity } = target;
       if (activity.encounterTable !== undefined && content.encounterTables[activity.encounterTable] === undefined) {
         return fail('rpg.unknownActivity', `unknown encounter table ${activity.encounterTable}`);
       }
@@ -130,12 +130,9 @@ export function createRpgIdleSimulator(kind: IdleKind, content: RpgIdleContent, 
       return out;
     },
 
-    budget: (config, durationMin, paceBp) => idleBudget(activityOf(config), tuning, durationMin, paceBp),
+    budget: (_config, durationMin, paceBp, target) => idleBudget(activityOf(target?.activityId), tuning, durationMin, paceBp),
 
-    simulate(input) {
-      activityOf(input.config);
-      return simulateIdle(content, tuning, input);
-    },
+    simulate: (input) => simulateIdle(content, kind, tuning, input),
 
     settle: (timeline, cutoff, reason) => settleIdle(tuning, timeline, cutoff, reason),
 

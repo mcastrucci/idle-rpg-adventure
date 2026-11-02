@@ -23,12 +23,12 @@ export interface RetreatPolicy {
 }
 
 /**
- * Expedition config (per expedition, shared by every participant). Duration and pace are **kernel-owned** (start
- * request), not part of it. Automation rules are not duplicated here: each actor's frozen rules are in its snapshot.
+ * Expedition config (per expedition, shared by every participant). Duration, pace, area and activity are
+ * **kernel-owned** (start request; kernel 0.3 passes `activityId` to `canStart`, `budget`, `simulate` and estimates),
+ * not part of it — `rpg-idle@2.0.0` dropped the former `activity` field. Automation rules are not duplicated here: each
+ * actor's frozen rules are in its snapshot.
  */
 export interface RpgIdleConfig {
-  /** Idle activity content ID (`idle:<area>.<kind>`); must equal the start request's `activityId`. */
-  readonly activity: string;
   /** Consumables each participant brings (escrowed `inventory → escrow` per actor). Unique items, `qty ≥ 1`. */
   readonly consumables: readonly IdleConsumable[];
   readonly retreat: RetreatPolicy;

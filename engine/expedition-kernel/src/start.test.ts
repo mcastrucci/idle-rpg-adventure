@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { coinCollector } from './__tests__/coin-collector.ts';
 import type { CoinActor, CoinConfig, CoinEvent, CoinReport, CoinState } from './__tests__/coin-collector.ts';
 import { TORCHES, torchCollector } from './__tests__/torch-collector.ts';
-import { ActivityRegistry, checkStart, unregisteredActivities } from './index.ts';
+import { ActivityRegistry, START_CODES, checkStart, unregisteredActivities } from './index.ts';
 import type { ExpeditionSimulator, StartContext, StartRequest } from './index.ts';
 
 type Game = { readonly lanterns: number };
@@ -66,7 +66,7 @@ const activities = new ActivityRegistry().register('activity:dig', digger).regis
 const config: CoinConfig = { maxCoins: 3, hazardBp: 0 };
 const req = (over: Partial<StartRequest> = {}): StartRequest => ({ areaId: 'area:mine', activityId: 'activity:dig', durationMin: 60, paceBp: 10_000, ...over });
 const gate = (request: StartRequest, evalContexts: EvalContext<Game>[], actors: CoinActor[] = [{ id: 'a' }]) =>
-  checkStart({ world, request, activities, simulator: digger, config, actors, evalContexts, predicates });
+  checkStart({ world, request, activities, simulator: digger, rawConfig: config, actors, evalContexts, predicates });
 
 describe('ActivityRegistry', () => {
   it('maps activity IDs (content) to simulators (code) and validates both ID formats', () => {
@@ -90,12 +90,12 @@ describe('checkStart', () => {
   it('passes the gates and hands world, area, contexts and predicates to canStart', () => {
     seen.length = 0;
     const result = gate(req(), [done(2)]);
-    expect(result).toEqual({ ok: true, budget: 12, escrow: [] });
+    expect(result).toEqual({ ok: true, config, budget: 12, escrow: [] });
     expect(seen).toHaveLength(1);
     expect(seen[0]?.area?.id).toBe('area:mine');
     expect(seen[0]?.world).toBe(world);
     expect(seen[0]?.predicates).toBe(predicates);
-    expect(seen[0]).toMatchObject({ durationMin: 60, paceBp: 10_000, config });
+    expect(seen[0]).toMatchObject({ durationMin: 60, paceBp: 10_000, config, areaId: 'area:mine', activityId: 'activity:dig' });
   });
 
   it('returns the simulator verdict last', () => {
@@ -107,7 +107,7 @@ describe('checkStart', () => {
     expect(gate(req({ activityId: 'activity:fish' }), [done(2)])).toMatchObject({ ok: false, code: 'start.activityNotInArea' });
     expect(gate(req({ activityId: 'activity:torches' }), [done(2)])).toMatchObject({ ok: false, code: 'start.simulatorMismatch' });
     const empty = new ActivityRegistry();
-    expect(checkStart({ world, request: req(), activities: empty, simulator: digger, config, actors: [{ id: 'a' }], evalContexts: [done(2)], predicates })).toMatchObject({
+    expect(checkStart({ world, request: req(), activities: empty, simulator: digger, rawConfig: config, actors: [{ id: 'a' }], evalContexts: [done(2)], predicates })).toMatchObject({
       ok: false,
       code: 'start.unknownActivity',
     });
@@ -135,7 +135,7 @@ describe('checkStart', () => {
       request: req({ activityId: 'activity:torches' }),
       activities,
       simulator: torchCollector,
-      config,
+      rawConfig: config,
       actors: [{ id: 'a' }],
       evalContexts: [done(1)],
       predicates,
@@ -145,7 +145,85 @@ describe('checkStart', () => {
     const broken = { ...digger, escrow: () => [{ actorId: 'a', asset: { kind: 'stack', item: 'x' }, qty: 1, to: 'escrow' }] } as typeof digger;
     const reg = new ActivityRegistry().register('activity:dig', broken);
     expect(
-      checkStart({ world, request: req(), activities: reg, simulator: broken, config, actors: [{ id: 'a' }], evalContexts: [done(2)], predicates }),
+      checkStart({ world, request: req(), activities: reg, simulator: broken, rawConfig: config, actors: [{ id: 'a' }], evalContexts: [done(2)], predicates }),
     ).toMatchObject({ ok: false, code: 'start.invalidEscrow' });
+  });
+});
+
+describe('checkStart order and simulator failures (v0.3)', () => {
+  const calls: string[] = [];
+  type Hooks = { parse?: () => never; can?: () => unknown; escrow?: () => never; budget?: () => number };
+  const make = (hooks: Hooks): typeof digger => ({
+    ...coinCollector,
+    id: 'test.dig',
+    parseConfig(input) {
+      calls.push('parseConfig');
+      if (hooks.parse) hooks.parse();
+      return coinCollector.parseConfig(input);
+    },
+    canStart(ctx) {
+      calls.push(`canStart:${ctx.areaId ?? '-'}:${ctx.activityId ?? '-'}`);
+      return (hooks.can ? hooks.can() : { ok: true }) as ReturnType<typeof digger.canStart>;
+    },
+    escrow() {
+      calls.push('escrow');
+      if (hooks.escrow) hooks.escrow();
+      return [];
+    },
+    budget(c, durationMin, paceBp, target) {
+      calls.push(`budget:${target?.activityId ?? '-'}`);
+      return hooks.budget ? hooks.budget() : coinCollector.budget(c, durationMin, paceBp);
+    },
+  });
+  const run = (hooks: Hooks, rawConfig: unknown = { maxCoins: 3, hazardBp: 0 }) => {
+    calls.length = 0;
+    const sim = make(hooks);
+    return checkStart({
+      world,
+      request: req(),
+      activities: new ActivityRegistry().register('activity:dig', sim),
+      simulator: sim,
+      rawConfig,
+      actors: [{ id: 'a' }],
+      evalContexts: [done(2)],
+      predicates,
+    });
+  };
+  const boom = (): never => {
+    throw new Error('boom');
+  };
+
+  it('parses the raw config first, then canStart (with the target), escrow and budget (with the target)', () => {
+    expect(run({}, { maxCoins: 3, hazardBp: 0, extra: 'ignored by the test parser' })).toEqual({ ok: true, config: { maxCoins: 3, hazardBp: 0 }, budget: 12, escrow: [] });
+    expect(calls).toEqual(['parseConfig', 'canStart:area:mine:activity:dig', 'escrow', 'budget:activity:dig']);
+  });
+
+  it('refuses an invalid config before anything uses it', () => {
+    expect(run({}, { maxCoins: -1, hazardBp: 0 })).toMatchObject({ ok: false, code: 'start.invalidConfig', message: 'maxCoins' });
+    expect(calls).toEqual(['parseConfig']);
+    expect(run({}, 'not an object')).toMatchObject({ ok: false, code: 'start.invalidConfig' });
+  });
+
+  it('returns a canStart refusal before calling escrow or budget', () => {
+    expect(run({ can: () => ({ ok: false, code: 'dig.nope' }) })).toEqual({ ok: false, code: 'dig.nope' });
+    expect(calls).toEqual(['parseConfig', 'canStart:area:mine:activity:dig']);
+  });
+
+  it('maps simulator throws and malformed results to stable start codes (never throws)', () => {
+    expect(run({ parse: boom })).toEqual({ ok: false, code: 'start.invalidConfig', message: 'boom' });
+    expect(run({ can: boom })).toEqual({ ok: false, code: 'start.simulatorError', message: 'canStart threw: boom' });
+    expect(run({ can: () => undefined })).toMatchObject({ ok: false, code: 'start.simulatorError' });
+    expect(run({ can: () => ({ ok: false }) })).toMatchObject({ ok: false, code: 'start.simulatorError' });
+    expect(run({ escrow: boom })).toEqual({ ok: false, code: 'start.invalidEscrow', message: 'escrow threw: boom' });
+    expect(calls).not.toContain('budget:activity:dig');
+    expect(run({ budget: boom })).toEqual({ ok: false, code: 'start.invalidBudget', message: 'budget threw: boom' });
+    expect(run({ budget: () => 0 })).toMatchObject({ ok: false, code: 'start.invalidBudget' });
+    expect(run({ budget: () => 1.5 })).toMatchObject({ ok: false, code: 'start.invalidBudget' });
+  });
+
+  it('lists every engine code', () => {
+    expect(START_CODES).toContain('start.invalidConfig');
+    expect(START_CODES).toContain('start.simulatorError');
+    expect(new Set(START_CODES).size).toBe(START_CODES.length);
   });
 });

@@ -2,7 +2,8 @@
  * Config parsing and the activity → simulator kind convention.
  */
 import { BP_SCALE } from '@engine/sim-core';
-import { IdleActivityIdSchema, ItemIdSchema } from '@rpg/rpg-schema';
+import type { IdleActivity } from '@rpg/rpg-schema';
+import { ItemIdSchema } from '@rpg/rpg-schema';
 
 import type { RpgIdleContent } from './content.ts';
 import type { IdleConsumable, RpgIdleConfig } from './types.ts';
@@ -43,20 +44,29 @@ function intIn(v: unknown, min: number, max: number, name: string): number {
 }
 
 /**
- * Validates untrusted config input for a simulator of `kind`; throws a `TypeError` on invalid input. Checks the shape,
- * that `activity` is a content idle activity of this kind, and that consumable items are content consumables
- * (unique, `1 ≤ qty ≤ MAX_IDLE_CONSUMABLE_QTY`). Durations are kernel-owned: a `durationMin` key is rejected.
+ * The content idle activity a simulator of `kind` runs for the kernel-owned `activityId` (start request), or a reason
+ * why it cannot: missing (`undefined`, e.g. a direct call without a target), unknown, or of another kind.
  */
-export function parseRpgIdleConfig(input: unknown, content: RpgIdleContent, kind: IdleKind): RpgIdleConfig {
-  if (!isRecord(input)) throw new TypeError('config must be an object');
-  onlyKeys(input, ['activity', 'consumables', 'retreat'], 'config');
+export function idleActivityFor(
+  content: RpgIdleContent,
+  kind: IdleKind,
+  activityId: string | undefined,
+): { readonly ok: true; readonly activity: IdleActivity } | { readonly ok: false; readonly code: string; readonly message: string } {
+  if (activityId === undefined) return { ok: false, code: 'rpg.noActivity', message: 'the start request carries no activityId' };
+  const activity = Object.hasOwn(content.idleActivities, activityId) ? content.idleActivities[activityId] : undefined;
+  if (activity === undefined) return { ok: false, code: 'rpg.unknownActivity', message: `unknown activity ${activityId}` };
+  if (idleKindOf(activityId) !== kind) return { ok: false, code: 'rpg.activityKindMismatch', message: `${activityId} is not a ${kind} activity` };
+  return { ok: true, activity };
+}
 
-  const activity = input['activity'];
-  if (typeof activity !== 'string' || !IdleActivityIdSchema.safeParse(activity).success) {
-    throw new TypeError('config.activity must be an idle activity ID');
-  }
-  if (content.idleActivities[activity] === undefined) throw new TypeError(`config.activity: unknown activity ${activity}`);
-  if (idleKindOf(activity) !== kind) throw new TypeError(`config.activity: ${activity} is not a ${kind} activity`);
+/**
+ * Validates untrusted config input; throws a `TypeError` on invalid input. Checks the shape and that consumable items
+ * are content consumables (unique, `1 ≤ qty ≤ MAX_IDLE_CONSUMABLE_QTY`). Duration and activity are kernel-owned (start
+ * request): `durationMin` and `activity` keys are rejected (the latter was part of the config before `rpg-idle@2.0.0`).
+ */
+export function parseRpgIdleConfig(input: unknown, content: RpgIdleContent): RpgIdleConfig {
+  if (!isRecord(input)) throw new TypeError('config must be an object');
+  onlyKeys(input, ['consumables', 'retreat'], 'config');
 
   const rawConsumables = input['consumables'];
   if (!Array.isArray(rawConsumables)) throw new TypeError('config.consumables must be an array');
@@ -80,7 +90,6 @@ export function parseRpgIdleConfig(input: unknown, content: RpgIdleContent, kind
   if (typeof onlyWhenNoHealing !== 'boolean') throw new TypeError('config.retreat.onlyWhenNoHealing must be a boolean');
 
   return {
-    activity,
     consumables,
     retreat: { belowHpBp: intIn(retreat['belowHpBp'], 0, BP_SCALE, 'config.retreat.belowHpBp'), onlyWhenNoHealing },
   };

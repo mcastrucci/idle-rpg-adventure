@@ -8,11 +8,12 @@
  * --carry <n>, --food <n>, --water <n>, --medkits <n>, --pace <bp>, --runs <n>, --fresh 1 (district not completed).
  * The wall clock is simulated: the run starts at t = 0 (no `Date`, ADR-0004).
  */
-import { netDeltas } from '@engine/economy';
+import { assetKey, netDeltas } from '@engine/economy';
 import type { LedgerDelta } from '@engine/economy';
-import { cancelCutoff, checkStart, estimate, placeSegments, settleWithEscrow, visibleView } from '@engine/expedition-kernel';
+import { checkStart, estimate, placeSegments, settleAt, settleWithEscrow, visibleView } from '@engine/expedition-kernel';
 import { BP_SCALE, mulDivFloor } from '@engine/sim-core';
 import { computeWorldView } from '@engine/world';
+import type { AreaId } from '@engine/world';
 
 import { SCAVENGE_ACTIVITY_ID, createScavengeSimulator, survivalActivities } from './scavenge.ts';
 import type { ScavengeEvent, SurvivorGroup } from './scavenge.ts';
@@ -68,14 +69,14 @@ function describe(e: ScavengeEvent): string {
 
 function formatDeltas(deltas: readonly LedgerDelta[]): string[] {
   return netDeltas(deltas).map((d) => {
-    const asset = d.asset.kind === 'stack' ? d.asset.item : d.asset.kind === 'currency' ? d.asset.currency : d.asset.itemId;
+    const asset = assetKey(d.asset);
     return `    ${d.actorId}  ${asset.padEnd(18)} ${String(d.qty).padStart(4)}  @ ${d.container ?? '(default)'}`;
   });
 }
 
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
-  const district = `area:${args.get('district') ?? 'old_market'}`;
+  const district: AreaId = `area:${args.get('district') ?? 'old_market'}`;
   const hours = intArg(args, 'hours', 3);
   const seed = intArg(args, 'seed', 42);
   const members = intArg(args, 'members', 3);
@@ -91,27 +92,26 @@ function main(): void {
 
   const simulator = createScavengeSimulator();
   const durationMin = hours * 60;
-  const config = simulator.parseConfig({
-    district,
+  const rawConfig = {
     supplies: {
       food: intArg(args, 'food', members * hours),
       water: intArg(args, 'water', members * hours),
       medkits: intArg(args, 'medkits', 1),
     },
-  });
+  };
   const actors: SurvivorGroup[] = [
     { actorId: 'group:alpha', members, condition: intArg(args, 'condition', 100), carryCapacity: intArg(args, 'carry', 12) },
   ];
   // Engine start gates (area, activity, completion — the group is assumed to have completed the district unless
   // --fresh 1 is passed) and then the simulator's own canStart.
   const fresh = intArg(args, 'fresh', 0) === 1;
-  const ctx = survivalContext(fresh ? {} : { completedAreas: [config.district] }, []);
+  const ctx = survivalContext(fresh ? {} : { completedAreas: [district] }, []);
   const gate = checkStart({
     world,
-    request: { areaId: config.district, activityId: SCAVENGE_ACTIVITY_ID, durationMin, paceBp },
+    request: { areaId: district, activityId: SCAVENGE_ACTIVITY_ID, durationMin, paceBp },
     activities: survivalActivities(simulator),
     simulator,
-    config,
+    rawConfig,
     actors,
     evalContexts: actors.map(() => ctx),
     predicates: registry,
@@ -120,13 +120,13 @@ function main(): void {
     const why = [gate.message, ...(gate.reasons ?? [])].filter((x) => x !== undefined).join('; ');
     throw new Error(`cannot start: ${gate.code}${why === '' ? '' : ` (${why})`}`);
   }
-  const { budget } = gate;
+  const { budget, config } = gate;
   console.log('\nEscrow at start:');
   for (const line of formatDeltas(gate.escrow)) console.log(line);
-  console.log(`\nRun: ${simulator.id}@${simulator.version} ${JSON.stringify(config)} seed=${seed} budget=${budget}h pace=${paceBp}bp`);
+  console.log(`\nRun: ${simulator.id}@${simulator.version} ${district} ${JSON.stringify(config)} seed=${seed} budget=${budget}h pace=${paceBp}bp`);
 
   // Simulate and place on a simulated wall clock starting at t = 0.
-  const timeline = simulator.simulate({ config, actors, seed, budget });
+  const timeline = simulator.simulate({ config, actors, seed, budget, areaId: district });
   const durationMs = durationMin * MS_PER_MIN;
   const placed = placeSegments(timeline, 0, durationMs, budget);
   console.log(`\nTimeline (server view): outcome=${placed.outcome}, ends ${clock(placed.endsAtMs)} (planned ${clock(placed.plannedEndsAtMs)})`);
@@ -148,14 +148,18 @@ function main(): void {
   const last = timeline.segments.length - 1;
   console.log(`\nSettlement (natural end, outcome ${timeline.outcome}; incl. escrow returns):`);
   for (const line of formatDeltas(settleWithEscrow(simulator, timeline, last, 'completed', config, actors).deltas)) console.log(line);
-  const cancelAt = mulDivFloor(durationMs, 1, 2);
-  const cutoff = cancelCutoff(placed, cancelAt);
-  console.log(`Settlement if cancelled at ${clock(cancelAt)} (cutoff ${cutoff}):`);
-  for (const line of formatDeltas(settleWithEscrow(simulator, timeline, cutoff, 'cancelled', config, actors).deltas)) console.log(line);
+  // Cancellation goes through the kernel's settlement resolution: a cancel at or after the end is a natural end.
+  for (const cancelAt of [mulDivFloor(durationMs, 1, 2), placed.endsAtMs]) {
+    const result = settleAt(simulator, timeline, placed, cancelAt, 'cancel', config, actors);
+    if (!result.ok) continue;
+    const { reason, cutoff } = result.resolution;
+    console.log(`Settlement if cancelled at ${clock(cancelAt)} (settled as ${reason}, cutoff ${cutoff}):`);
+    for (const line of formatDeltas(result.settlement.deltas)) console.log(line);
+  }
   console.log(`\nReport: ${JSON.stringify(simulator.summarize(timeline, last))}`);
 
   // Estimate.
-  const est = estimate(simulator, { config, actors, budget }, runs, seed);
+  const est = estimate(simulator, { config, actors, budget, areaId: district }, runs, seed);
   console.log(`\nEstimate (${est.runs} runs): outcomes ${JSON.stringify(est.outcomes)} rates(bp) ${JSON.stringify(est.outcomeRatesBp)}`);
   for (const a of est.assets) {
     const asset = a.asset.kind === 'stack' ? a.asset.item : JSON.stringify(a.asset);

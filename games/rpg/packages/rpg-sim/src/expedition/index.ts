@@ -1,14 +1,14 @@
 /**
- * RPG idle expedition simulators (`rpg.hunt`, `rpg.gather`) on `@engine/expedition-kernel` v0.2 (#76).
+ * RPG idle expedition simulators (`rpg.hunt`, `rpg.gather`) on `@engine/expedition-kernel` v0.3 (#76, #77).
  */
-export { IDLE_KINDS, MAX_IDLE_CONSUMABLE_QTY, idleKindOf, parseRpgIdleConfig } from './config.ts';
+export { IDLE_KINDS, MAX_IDLE_CONSUMABLE_QTY, idleActivityFor, idleKindOf, parseRpgIdleConfig } from './config.ts';
 export type { IdleKind } from './config.ts';
 export { consumableOf, isHealingConsumable, rpgIdleContentFromBundle } from './content.ts';
 export type { ContentBundleLike, RpgIdleContent } from './content.ts';
-export { ESCROW, GOLD, GOLD_CURRENCY, INVENTORY, isGrant, mergeDeltas, stack } from './deltas.ts';
+export { ESCROW, GOLD, GOLD_CURRENCY, INVENTORY, isGrant, itemAsset, mergeDeltas, stack } from './deltas.ts';
 export { rollLoot } from './loot.ts';
 export type { LootDrop, LootRoll } from './loot.ts';
-export { applyBagLoss, bagTotals, coversDeath, rpgProgress, settleIdle, summarizeIdle } from './settle.ts';
+export { applyBagLoss, bagTotals, coversDeath, rpgIdleMetrics, rpgProgress, settleIdle, summarizeIdle } from './settle.ts';
 export { DEFAULT_RPG_IDLE_TUNING, deathCauses, idleBudget, maxHpOf, segmentsPerHour, simulateIdle } from './simulate.ts';
 export type { RpgIdleTuning } from './simulate.ts';
 export {

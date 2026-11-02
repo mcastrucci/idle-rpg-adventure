@@ -35,6 +35,7 @@ export function region1(): { bundle: ContentBundle; content: RpgIdleContent } {
 export const POTION = 'item:minor_healing_potion';
 export const HUNT = 'idle:region_1.hunt';
 export const GATHER = 'idle:region_1.gather';
+export const REGION_1 = 'area:region_1';
 
 const attrs = (STR: number, AGI: number, INT: number, VIT: number, SPI: number): AttributeMap => ({ STR, AGI, INT, VIT, SPI });
 const rules = (r: unknown): AutomationRule[] => AutomationRulesSchema.parse(r);
@@ -110,9 +111,9 @@ export function thornblade(level: number, over: Partial<RpgActorSnapshot> = {}):
   };
 }
 
-export function idleConfig(activity: string, potions: number, retreat: Partial<RpgIdleConfig['retreat']> = {}): RpgIdleConfig {
+/** Idle config (the activity is not part of it: it is the kernel-owned `activityId` of the start request). */
+export function idleConfig(potions: number, retreat: Partial<RpgIdleConfig['retreat']> = {}): RpgIdleConfig {
   return {
-    activity,
     consumables: potions > 0 ? [{ item: POTION, qty: potions }] : [],
     retreat: { belowHpBp: 0, onlyWhenNoHealing: true, ...retreat },
   };

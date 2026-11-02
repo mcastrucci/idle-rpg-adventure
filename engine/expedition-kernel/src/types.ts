@@ -8,7 +8,7 @@
 
 import type { LedgerDelta } from '@engine/economy';
 import type { Seed } from '@engine/sim-core';
-import type { Area, EvalContext, PredicateRegistry, World } from '@engine/world';
+import type { Area, AreaId, EvalContext, PredicateRegistry, World } from '@engine/world';
 
 /**
  * Simulator (plugin) IDs: `<game>.<name>` in lowercase snake case separated by dots, e.g. `rpg.hunt`,
@@ -35,6 +35,18 @@ export type SettleReason = 'completed' | 'cancelled' | 'member_left';
 
 export const SETTLE_REASONS: readonly SettleReason[] = ['completed', 'cancelled', 'member_left'];
 
+/**
+ * What an expedition targets: an activity (content ID, `ns:name`, listed in `area.activities`) in an area. Part of the
+ * start request and **kernel-owned** like the duration (v0.3): the kernel passes it to `canStart`, `budget`,
+ * `simulate` and estimates, so game configs must not duplicate it. Persist it with the expedition (resumption and
+ * estimates need it again).
+ */
+export interface ActivityRef {
+  readonly areaId: AreaId;
+  /** Content ID (`ns:name`, e.g. `activity:scavenge`, `idle:hunt`) listed in the area's `activities`. */
+  readonly activityId: string;
+}
+
 /** One unit of simulated progress (an encounter, an in-game hour…). */
 export interface Segment<Event, SimState = unknown> {
   /** Position in the timeline; contiguous from 0 (or from `from.segment` for a resumed simulation). */
@@ -60,10 +72,11 @@ export interface Timeline<Event, SimState = unknown> {
 
 /**
  * Input of `canStart`, for checks beyond the engine's own (area exists, activity listed and registered, area completed
- * by every actor, escrow well-formed — see `checkStart`).
+ * by every actor, config parsed — see `checkStart`). `canStart` runs before `escrow` and `budget` (v0.3), so it can
+ * refuse what those cannot handle.
  *
- * `durationMin` and `paceBp` are **kernel-owned**: they come from the start request, are passed here and to `budget`,
- * and game configs must not duplicate them.
+ * `durationMin`, `paceBp`, `areaId` and `activityId` are **kernel-owned**: they come from the start request, are passed
+ * here and to `budget`/`simulate`, and game configs must not duplicate them.
  */
 export interface StartContext<Config, Snapshot, Game = unknown> {
   readonly config: Config;
@@ -71,6 +84,10 @@ export interface StartContext<Config, Snapshot, Game = unknown> {
   readonly durationMin: number;
   /** Pace multiplier in basis points (10 000 = ×1). */
   readonly paceBp: number;
+  /** The requested area (v0.3). Always set when called through `checkStart`; may be absent in direct unit-test calls. */
+  readonly areaId?: AreaId;
+  /** The requested activity (v0.3). Always set when called through `checkStart`; may be absent in direct calls. */
+  readonly activityId?: string;
   /** World and target area. Always set when called through `checkStart`; absent in direct unit-test calls. */
   readonly world?: World;
   readonly area?: Area;
@@ -108,6 +125,12 @@ export interface SimulateInput<Config, Snapshot, SimState = unknown> {
    */
   readonly budget: number;
   readonly from?: ResumeFrom<SimState>;
+  /**
+   * The expedition's target (v0.3, kernel-owned: the start request's `areaId`/`activityId`). Callers that know it
+   * (start, resumption, estimates, contract fixtures) pass it; a simulator that needs it throws when it is absent.
+   */
+  readonly areaId?: AreaId;
+  readonly activityId?: string;
 }
 
 /**
@@ -128,7 +151,10 @@ export interface ExpeditionSimulator<Config, Snapshot, Event, SimState = unknown
    * (`schema.parse`); the kernel has no schema-library dependency.
    */
   parseConfig(input: unknown): Config;
-  /** Game-specific start checks beyond the engine's own (see {@link StartContext}). */
+  /**
+   * Game-specific start checks beyond the engine's own (see {@link StartContext}). Should refuse (not throw); a throw
+   * is turned into `start.simulatorError` by `checkStart`.
+   */
   canStart(ctx: StartContext<Config, Snapshot, Game>): StartCheck;
   /**
    * What is moved into the engine `escrow` container at start, per actor (e.g. supplies, consumables). Each delta
@@ -138,8 +164,11 @@ export interface ExpeditionSimulator<Config, Snapshot, Event, SimState = unknown
    * with leftovers. Omitted = nothing is escrowed. Pure and deterministic.
    */
   escrow?(config: Config, actors: readonly Snapshot[]): LedgerDelta[];
-  /** Planned total segment weight for a duration (with unit weights: the number of segments). Positive safe int. */
-  budget(config: Config, durationMin: number, paceBp: number): number;
+  /**
+   * Planned total segment weight for a duration (with unit weights: the number of segments). Positive safe int.
+   * `target` (v0.3) is the start request's area/activity; always passed by `checkStart`.
+   */
+  budget(config: Config, durationMin: number, paceBp: number, target?: ActivityRef): number;
   /** Pure and deterministic. */
   simulate(input: SimulateInput<Config, Snapshot, SimState>): Timeline<Event, SimState>;
   /**
