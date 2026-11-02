@@ -51,7 +51,7 @@ interface Slot { worker: Worker | null; task: Task | null; ready: Promise<void> 
  * (`workerData`). A crashed worker fails its current chunk (the estimate request gets an error) and is replaced on
  * the next task. Workers are `unref`ed and terminated by `close()`.
  */
-export function createWorkerEstimateRunner(content: LoadedContent, options: { workers?: number } = {}): EstimateRunner {
+export function createWorkerEstimateRunner(content: LoadedContent, options: { workers?: number } = {}): Required<EstimateRunner> {
   const size = options.workers ?? defaultEstimateWorkers();
   if (!Number.isSafeInteger(size) || size < 1) throw new RangeError('workers must be a positive integer');
   const slots: Slot[] = Array.from({ length: size }, () => ({ worker: null, task: null, ready: Promise.resolve() }));
