@@ -10,7 +10,9 @@ import type { Database, ProcessRole, ServerConfig, ServerModule } from '@engine/
 import rpgContentPlugin from '@rpg/content-plugin';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { createRpgServer } from './index.ts';
+import { createRpgDatabase, createRpgServer } from './index.ts';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
+import { MIGRATIONS_DIRECTORY } from '@engine/server-kit';
 
 const adminUrl = process.env['TEST_DATABASE_URL'];
 if (process.env['CI'] && !adminUrl) throw new Error('CI must supply TEST_DATABASE_URL for real PostgreSQL integration tests');
@@ -35,9 +37,9 @@ describe.skipIf(!adminUrl)('server foundation against real PostgreSQL', () => {
     await admin.pool.query(`CREATE DATABASE "${databaseName}"`);
     const url = new URL(base.databaseUrl); url.pathname = `/${databaseName}`;
     config = { ...base, databaseUrl: url.toString() };
-    database = createDatabase(config);
+    database = createRpgDatabase(config);
     // Both processes race on a fresh schema, including migration journal initialization.
-    const concurrent = createDatabase(config);
+    const concurrent = createRpgDatabase(config);
     try { await Promise.all([database.migrate(), concurrent.migrate()]); }
     finally { await concurrent.close(); }
   }, 30000);
@@ -55,12 +57,27 @@ describe.skipIf(!adminUrl)('server foundation against real PostgreSQL', () => {
     await database.migrate();
     await database.verifyMigrations();
     const journal = await database.pool.query<{ count: string }>('SELECT count(*) FROM drizzle.__drizzle_migrations');
-    expect(journal.rows[0]?.count).toBe('1');
+    expect(Number(journal.rows[0]?.count)).toBe(readMigrationFiles({ migrationsFolder: MIGRATIONS_DIRECTORY }).length);
     await expect(database.db.transaction(async (tx) => {
       await tx.insert(contentReleases).values({ contentHash: 'a'.repeat(64), game: 'test', format: 1, firstSeenAt: new Date(clock.nowMs()) });
       throw new Error('rollback');
     })).rejects.toThrow('rollback');
     expect(await database.db.select().from(contentReleases)).toEqual([]);
+  });
+
+  it('verifies the RPG journal as well as the generic engine journal before boot', async () => {
+    const rows = await database.pool.query<{id:number;hash:string}>('SELECT id,hash FROM rpg_migrations.__drizzle_migrations ORDER BY id');
+    const row = rows.rows[0];
+    if (!row) throw new Error('missing RPG journal fixture');
+    try {
+      await database.pool.query('UPDATE rpg_migrations.__drizzle_migrations SET hash=$1 WHERE id=$2', ['0'.repeat(64), row.id]);
+      const engineOnly = createDatabase(config);
+      try { await engineOnly.verifyMigrations(); } finally { await engineOnly.close(); }
+      await expect(createRpgServer(config)).rejects.toThrow('database migration version differs for rpg');
+    } finally {
+      await database.pool.query('UPDATE rpg_migrations.__drizzle_migrations SET hash=$1 WHERE id=$2', [row.hash, row.id]);
+    }
+    await database.verifyMigrations();
   });
 
   it('boots RPG content, reports its hash, and records the injected clock once per content release', async () => {
@@ -86,7 +103,7 @@ describe.skipIf(!adminUrl)('server foundation against real PostgreSQL', () => {
     const started: string[] = [];
     const stopped: string[] = [];
     let moduleDatabase: Database | undefined;
-    const modules: ServerModule[] = (['auth', 'live-host', 'jobs'] as const).map((name, index) => ({
+    const modules: ServerModule[] = (['ledger', 'live-host', 'jobs'] as const).map((name, index) => ({
       name, roles: [(['api', 'live', 'worker'] as const)[index] as ProcessRole],
       async register(app, context) {
         started.push(name); moduleDatabase = context.database;
@@ -96,7 +113,7 @@ describe.skipIf(!adminUrl)('server foundation against real PostgreSQL', () => {
     }));
     const app = await createRpgServer({ ...config, roles: [role] }, { clock, modules });
     try {
-      const active = role === 'api' ? 'auth' : role === 'live' ? 'live-host' : 'jobs';
+      const active = role === 'api' ? 'ledger' : role === 'live' ? 'live-host' : 'jobs';
       expect(started).toEqual([active]);
       expect((await app.inject(`/test/${active}`)).json()).toEqual({ nowMs: clock.nowMs() });
       expect((await app.inject('/content')).statusCode).toBe(role === 'api' ? 200 : 404);

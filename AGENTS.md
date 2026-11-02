@@ -14,6 +14,11 @@
 The orchestrator reads the current code, issue discussions, and open PRs before assigning work. Check existing claim
 comments and `status:in-progress` labels; another session may already own a dependency. Avoid competing implementations.
 
+Before implementing or delegating an issue, reserve it on GitHub: add `status:in-progress` and a claim comment naming
+the orchestrator, owned scope, and branch/worktree. Re-read its discussion before claiming; do not take another
+session's reserved work. Refresh the default branch and open PRs before integration. When a task ends, link its PR
+and release the reservation (or close the issue only when all acceptance criteria pass).
+
 Delegate bounded tasks to smaller models when available: routine documentation and inventory can use a lightweight
 model; implementation needs a coding model appropriate to the task. The orchestrator owns architecture, scope,
 integration, and final review. Each task needs:

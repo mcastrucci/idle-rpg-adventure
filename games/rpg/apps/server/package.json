@@ -8,15 +8,22 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "node src/main.ts",
-    "db:migrate": "node src/migrate.ts"
+    "db:migrate": "node src/migrate.ts",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts"
   },
   "dependencies": {
     "@engine/server-kit": "workspace:*",
     "@engine/world": "workspace:*",
-    "@rpg/rpg-schema": "workspace:*"
+    "@rpg/rpg-schema": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "zod": "4.6.7",
+    "@rpg/protocol": "workspace:*"
   },
   "devDependencies": {
     "@engine/content-compiler": "workspace:*",
-    "@rpg/content-plugin": "workspace:*"
+    "@rpg/content-plugin": "workspace:*",
+    "drizzle-kit": "0.31.11",
+    "ws": "8.22.1",
+    "@types/ws": "8.18.2"
   }
 }

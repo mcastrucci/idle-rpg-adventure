@@ -1,7 +1,9 @@
-import { createDatabase, parseServerConfig } from '@engine/server-kit';
+import { parseServerConfig } from '@engine/server-kit';
+
+import { createRpgDatabase } from './migrations.ts';
 
 try {
-  const database = createDatabase(parseServerConfig(process.env));
+  const database = createRpgDatabase(parseServerConfig(process.env));
   try { await database.migrate(); }
   finally { await database.close(); }
   process.stdout.write('Database migrations applied.\n');

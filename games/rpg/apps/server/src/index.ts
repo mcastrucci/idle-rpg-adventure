@@ -1,7 +1,12 @@
-import { createServer } from '@engine/server-kit';
+import { createAuthModule, createCommandMaintenanceModule, createServer } from '@engine/server-kit';
 import type { Clock, ServerConfig, ServerModule } from '@engine/server-kit';
 
 import { validateRpgBundle } from './content.ts';
+import { RPG_MIGRATIONS } from './migrations.ts';
+import { characterModule } from './characters/http.ts';
+import { executeCharacterSocketCommand } from './character-commands.ts';
+
+export { createRpgDatabase, RPG_MIGRATIONS } from './migrations.ts';
 
 export const SERVER_APP = '@rpg/server';
 /** RPG composition: game data stays here; generic infrastructure lives in server-kit. */
@@ -14,6 +19,9 @@ export function createRpgServer(config: ServerConfig, options: { clock?: Clock; 
         format: context.content.format }));
     },
   };
-  return createServer({ config, game: 'rpg', validateContent: validateRpgBundle, ...options,
-    modules: [content, ...(options.modules ?? [])] });
+  return createServer({ config, game: 'rpg', validateContent: validateRpgBundle, ...options, migrationSets: [RPG_MIGRATIONS],
+    modules: [content, createAuthModule({
+      enableHttp: config.roles.includes('api'), enableLive: config.roles.includes('live'),
+      onCommand: (payload, identity, context) => executeCharacterSocketCommand(context, identity.accountId, payload),
+    }), characterModule, createCommandMaintenanceModule(), ...(options.modules ?? [])] });
 }

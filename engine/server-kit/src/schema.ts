@@ -1,6 +1,10 @@
 import { sql } from 'drizzle-orm';
 import { check, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
+export * from './auth/schema.ts';
+export * from './actors/schema.ts';
+export * from './commands/schema.ts';
+
 /** Identifies immutable content versions observed by this deployment; game content stays in compiled bundles. */
 export const contentReleases = pgTable('content_releases', {
   contentHash: text('content_hash').primaryKey(),

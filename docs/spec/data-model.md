@@ -31,20 +31,30 @@ Two kinds of data:
 ## 2. State entities
 
 ### accounts
-`id`, `created_at`, `auth_kind` (`guest`/`email`), `email?`, `device_token_hash?`.
+`id` UUID, `created_at`. Generic engine identity, preserved through guest-to-email upgrades.
+Credentials are separate: `guest_credentials` (purpose-hashed device token, disabled on upgrade),
+`email_credentials` (unique normalized email and salted password hash), and `auth_sessions` (hashed opaque token,
+expiry/revocation). `live_sessions` holds a renewable fenced lease, unique per account. See
+[authentication](../../engine/server-kit/src/auth/README.md) for the HTTP/WS and rotation contract.
 
-### characters
+### actors (engine)
+`actor_id` UUID, `account_id` FK, `game_id`, `activity_state`, `activity_id`, `version`.
+This is the sole physical owner of activity state and mutation version. Database checks enforce the state/null
+invariant; transaction-scoped helpers lock actors in canonical UUID order and compare both prior state and activity ID.
+
+### rpg_characters (game-owned character extension)
 | Field | Notes |
 |---|---|
-| `id` | UUID |
-| `account_id` | 1 character per account in POC |
+| `actor_id` | PK/FK to the generic actor UUID; this is the API character identity |
+| `account_id`, `game_id` | Ownership projection constrained by a composite FK to actors; unique per account/game |
 | `name`, `level`, `xp` | XP is cumulative within level *(provisional)* |
-| `attributes` | JSONB base attributes + unspent points |
+| `attributes`, `unspent_points` | Validated allocated attributes and persisted earned point budget |
 | `skill_loadout` | JSONB: equipped skill IDs (≤4 active slots *(provisional)*) |
 | `automation_rules` | JSONB: ordered rule list (see [combat-engine.md](combat-engine.md#automation-rules)) |
-| `activity_state` | `none` \| `live` \| `expedition` |
-| `activity_id` | instance or expedition ID; null when `none` |
-| `version` | optimistic counter, bumped on every mutation |
+
+Activity and version are joined from actors in API projections; they are never duplicated in RPG storage. A name-only
+creation request provisions the explicitly provisional level-1 Bulwark kit. Configuration can spend persisted points,
+but cannot grant levels, XP, attributes or unknown skills. See [character contracts](../../games/rpg/apps/server/src/characters/README.md).
 
 ### item_instances (equipment, unique items)
 `id` UUID, `character_id`, `def_id`, `container`, `slot?`, `rolls` JSONB, `created_by_source` (ledger key).
@@ -103,7 +113,11 @@ Contents live in the `corpse` container keyed by corpse ID.
 `id`, `expedition_id` or `live_party_id`, `inviter_id`, `invitee_id`, `config_version`, `status`, `expires_at`.
 
 ### command_log
-`account_id`, `command_id`, `result` JSONB, `created_at`. PK `(account_id, command_id)`. Rows expire after 24 h.
+`account_id`, `command_id`, `operation`, `fingerprint`, `created_at`, `expires_at`, `response_status`, `response_body`,
+`tombstoned_at`. PK `(account_id, command_id)`. Public JSON responses are retained for 24 h by default; expiry removes
+the response but retains the key/fingerprint tombstone, so a late retry cannot repeat a committed mutation. The
+shared HTTP/WS runner authenticates/authorizes before replay and commits command plus game changes atomically.
+See [command contract](../../engine/server-kit/src/commands/README.md); auth handshakes never store credential responses here.
 
 ## 3. Invariants
 
