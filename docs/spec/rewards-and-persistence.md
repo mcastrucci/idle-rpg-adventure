@@ -6,16 +6,18 @@
 
 ```
 BEGIN
-  SELECT … FROM characters WHERE id = ANY($ids) ORDER BY id FOR UPDATE;
+  SELECT … FROM actors WHERE actor_id = ANY($ids) ORDER BY actor_id FOR UPDATE;
   -- validate activity_state / ownership / quantities
   INSERT INTO ledger_entries (…) ON CONFLICT (source_type, source_id, seq) DO NOTHING RETURNING id;
   -- only if inserted: update materialized balances / item rows
-  UPDATE characters SET version = version + 1 …;
+  UPDATE actors SET version = version + 1 …;
 COMMIT
 ```
 
 - All in `apps/server` module `ledger`; no other module writes balances.
-- Command endpoints first check `command_log` for `(account_id, command_id)` and return the stored result if present.
+- Authenticated command endpoints use the shared transaction runner: authenticate/authorize, reserve the account/key,
+  compare operation and canonical payload fingerprint, and atomically persist the response with the mutation.
+  Expired keys retain tombstones and never authorize re-execution. See [command contract](../../engine/server-kit/src/commands/README.md).
 
 ## 2. Live rewards
 

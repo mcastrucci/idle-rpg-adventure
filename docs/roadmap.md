@@ -7,14 +7,13 @@ Core loop to validate: **Explore → Conquer → Unlock idle → Farm → Improv
 
 ## Current implementation snapshot
 
-The repository has reusable engine foundations (`sim-core`, `world`, `economy`, `expedition-kernel`), the content
-compiler, and RPG schema, stats, and content-plugin packages. RPG JSON includes the technical seed plus provisional
-Region 1 definitions; [the authoring checkpoint](design/region-1-content.md) lists the remaining runtime and balance
-gaps. The server foundation provides Fastify composition, process roles, injected time, compiled-content boot and
-PostgreSQL migrations; domain services remain separate tasks. The RPG combat simulator, balance simulator and web
-client are not yet a playable vertical slice. The M0 spikes have not supplied validation results, so ADRs that depend
-on them remain proposals. Check the linked GitHub issues for live task status; this section describes the implementation boundary,
-not an issue-by-issue progress mirror.
+The reusable kernels and content pipeline are implemented, along with RPG combat, idle simulators and balance
+reporting. The [Region 1 baseline](design/balance/region-1-baseline.md) measures provisional content and identifies
+tuning gaps; it does not finalize the balance targets. Region 1 still needs interactions, scenes and playtesting.
+The server composes guest/email authentication, fenced live sessions, persisted characters, activity locks and
+transactional HTTP/WS command replay. The ledger/inventory, live exploration host, durable jobs, expedition runtime
+and web client are still separate work. M0 renderer/mobile and hosting spike decisions still need their own evidence.
+Check GitHub claims and PRs before taking work; this snapshot is not an issue-by-issue progress mirror.
 
 ## Dependency guidance
 

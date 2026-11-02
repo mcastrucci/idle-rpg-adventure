@@ -16,7 +16,8 @@
        startExpedition (CAS none→expedition)
 ```
 
-- All transitions are compare-and-set on `characters.activity_state` ([ADR-0007](../adr/0007-ledger-and-activity-lock.md)).
+- All transitions are compare-and-set on the character's generic `actors.activity_state` and exact `activity_id`
+  ([ADR-0007](../adr/0007-ledger-and-activity-lock.md), physical engine/game split in ADR-0017).
 - Inventory/equipment/skill/automation edits are only allowed in `none` (in Sanctuary).
 
 ## 2. Live instance lifecycle

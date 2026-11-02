@@ -6,14 +6,13 @@ shared progression and economy.
 
 > **Status:** pre-production. The repository has working engine and content-tool foundations, but no playable RPG loop yet. Architecture principles are recorded; several implementation choices still need spike evidence.
 
-The implemented foundations include deterministic simulation utilities, world-graph and completion primitives, economy
-types, the expedition kernel, the content compiler, and RPG schema, stats, and content-plugin packages. The RPG content
-includes technical seed data and provisional Region 1 definitions authored from the reviewed paper design. Region 1
-has no scene assets or measured balance yet; its interaction and combat dependencies are recorded in
-[the authoring checkpoint](docs/design/region-1-content.md). A [Fastify/PostgreSQL server foundation](games/rpg/apps/server/README.md)
-provides content boot, migrations, process roles, health and module lifecycle. Authentication and game-state services,
-the RPG combat simulator, balance tool and web client remain implementation work. See the [roadmap](docs/roadmap.md)
-for current dependencies and validation gaps.
+The implemented foundations include the reusable world/expedition kernels, content pipeline, RPG schemas/stats,
+deterministic combat and idle simulators, and [balance tooling with a provisional Region 1 baseline](docs/design/balance/region-1-baseline.md).
+Region 1 has authored structural content; scene assets, interaction effects and balance tuning remain unfinished.
+The [Fastify/PostgreSQL server](games/rpg/apps/server/README.md) now composes guest/email authentication, fenced live
+sessions, persisted RPG characters, activity locks and replay-safe HTTP/WS commands. Inventory/ledger, persistent
+live exploration, expedition hosting/settlement and the web client remain separate work. See the
+[roadmap](docs/roadmap.md) for dependencies and validation gaps.
 
 ## Documentation
 

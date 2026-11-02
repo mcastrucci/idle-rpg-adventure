@@ -6,12 +6,12 @@ import { SystemClock } from './clock.ts';
 import type { ServerConfig, ProcessRole } from './config.ts';
 import type { LoadedContent } from './content.ts';
 import { loadContentBundle } from './content.ts';
-import type { Database } from './database.ts';
+import type { Database, MigrationSet } from './database.ts';
 import { createDatabase } from './database.ts';
 import { contentReleases } from './schema.ts';
 
 /** Domain boundaries are extension points, not preinstalled empty services. Each module owns its routes/state. */
-export const MODULE_NAMES = ['auth', 'character', 'ledger', 'content', 'conquest', 'live-host', 'expeditions', 'party', 'jobs', 'debug'] as const;
+export const MODULE_NAMES = ['auth', 'character', 'commands', 'ledger', 'content', 'conquest', 'live-host', 'expeditions', 'party', 'jobs', 'debug'] as const;
 export type ModuleName = typeof MODULE_NAMES[number];
 export interface ModuleContext {
   readonly clock: Clock;
@@ -29,6 +29,7 @@ export interface ServerOptions {
   readonly game: string;
   readonly clock?: Clock;
   readonly modules?: readonly ServerModule[];
+  readonly migrationSets?: readonly MigrationSet[];
   /** Additional game schema validation runs before database connections are acquired. */
   readonly validateContent?: (content: LoadedContent) => void;
 }
@@ -49,10 +50,13 @@ export async function createServer(options: ServerOptions): Promise<FastifyInsta
   const app = Fastify({ logger: { level: config.logLevel,
     redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie', 'databaseUrl', 'config.databaseUrl'] },
     return503OnClosing: true, forceCloseConnections: 'idle' });
-  const database = createDatabase(config);
+  const database = createDatabase(config, options);
   app.addHook('onClose', async () => { await database.close(); });
   // pg emits idle-client errors outside requests; handle them to prevent an unhandled EventEmitter crash.
-  database.pool.on('error', (error) => app.log.error({ err: error }, 'idle database connection failed'));
+  database.pool.on('error', (error: Error & { code?: string }) => {
+    // pg can attach the client (including connection credentials) to idle errors. Never serialize that object.
+    app.log.error({ code: error.code ?? 'DATABASE_CONNECTION_ERROR' }, 'idle database connection failed');
+  });
   try {
     await database.ping();
     if (config.migrateOnBoot) await database.migrate();

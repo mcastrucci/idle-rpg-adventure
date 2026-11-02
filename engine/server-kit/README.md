@@ -2,7 +2,7 @@
 
 Reusable Fastify/PostgreSQL foundation for game composition roots. It provides validated process configuration,
 injected wall time, a pg pool and typed Drizzle database, checked SQL migrations, compiled-content integrity checks,
-module lifecycle, structured logs, health and shutdown handling. No game schemas or economy/auth behavior lives here.
+module lifecycle, structured logs, health and shutdown handling. Generic authentication and actor activity are engine-owned; RPG attributes, skills, progression and economy behavior remain game-owned or future modules.
 
 `createServer({ config, game, clock?, modules?, validateContent? })` verifies and freezes compiled content, runs the
 game validator, opens PostgreSQL, verifies the migration version, records the observed content version and starts
@@ -59,3 +59,14 @@ a uniquely named disposable database and never clear the URL's existing database
 CI deliberately fails if its URL is missing. The suite covers concurrent/replayed migrations, transaction rollback,
 content identity and first-seen clock, api/live/worker lifecycle, shutdown order, degraded readiness and failed-boot
 pool cleanup. Unit tests separately check config, manual time and hash parity with real compiler output.
+
+## Layer-owned migration sets and domain modules
+
+`createDatabase(config, { migrationSets })` and `createServer({ ..., migrationSets })` accept additional named SQL
+sets, always following the engine set. Each has its own validated journal schema and directory. One advisory lock
+serializes all sets; startup verifies every journal's hashes and timestamps. The game CLI must use the same set list
+as its server. Engine migrations never import game definitions; the RPG owns its character table and journal.
+
+Identity/session APIs live in [auth](src/auth/README.md), generic activity locks in `src/actors`, and replay-safe
+transaction/maintenance APIs in [commands](src/commands/README.md). The game composes these modules and supplies its
+command dispatcher; none of them imports RPG content or grants assets. The HTTP/WS command layer is not the ledger.
