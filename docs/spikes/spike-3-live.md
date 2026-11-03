@@ -98,8 +98,10 @@ batch) and requires the audit to report each one, then restores it. This guards 
 
 ### Results
 
-All runs: Node 22.23.4, PostgreSQL 16.15 on the same machine, default size (30 rounds x 20 operations, 36 players created,
-600 random operations plus the per-round scenarios). Zero violations.
+All runs: Node 22.23.4, PostgreSQL 16.15 on the same machine, default size unless stated (30 rounds x 20 operations, 36
+players created, 600 random operations plus the per-round scenarios). Zero violations. Under the full parallel suite
+(`vitest run`, 118 files, 51 s in total) the fuzz phase took 11.3 s (seed 2491675698). The test timeout is explicit:
+`60 s + 2 s x rounds` (2 min by default).
 
 | Run | Seed | Fuzz phase | File duration (2 tests, incl. setup) | Notable counts |
 |---|---|---|---|---|
