@@ -532,7 +532,7 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
             command.hotspotId === `corpse:${candidate.id}`);
           if (corpse) {
             const key = `${here.id}/corpse:${corpse.id}`;
-            if (state.hotspotsDone.includes(key)) return { state, events: [{ type: 'corpseRecovered', actorId, corpseId: corpse.id, repeat: true }] };
+            if (state.hotspotsDone.includes(key)) return { state, events: [{ type: 'corpseRecovered', actorId, repeat: true }] };
             state.hotspotsDone.push(key);
             const bag = state.runBag[actorId] ?? { items: {}, gold: 0, uniques: [] };
             for (const stack of corpse.stacks) bag.items[stack.item] = (bag.items[stack.item] ?? 0) + stack.qty;
@@ -541,7 +541,7 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
             state.runBag[actorId] = bag;
             const effects: RpgLiveEffect[] = [{ type: 'corpseRecovered', actorId, corpseId: corpse.id,
               areaId: corpse.areaId, locationId: corpse.locationId }];
-            return persist(state, [{ type: 'corpseRecovered', actorId, corpseId: corpse.id, repeat: false }], effects);
+            return persist(state, [{ type: 'corpseRecovered', actorId, repeat: false }], effects);
           }
           const hotspot = here.hotspots.find((h) => h.id === command.hotspotId);
           if (!hotspot) return { rejected: 'unknown_hotspot' };

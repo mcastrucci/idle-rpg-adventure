@@ -30,6 +30,10 @@ describe('live wire protocol', () => {
       event: { type: 'combatRewards', groupId: 'slimes', rewards: [{ actorId, xp: 8, drops: [], gold: 0 }] } })).toMatchObject({ type: 'live.event' });
     expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 10, source: 'game',
       event: { type: 'gathered', nodeId: 'node:one', drops: [{ item: 'item:herb', qty: 2 }], gold: 3 } })).toMatchObject({ type: 'live.event' });
+    expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 11, source: 'game',
+      event: { type: 'corpseRecovered', actorId, repeat: false } })).toMatchObject({ type: 'live.event' });
+    expect(() => parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 12, source: 'game',
+      event: { type: 'corpseRecovered', actorId, corpseId: instanceId, repeat: false } })).toThrow();
     expect(parseLiveServerFrame({ type: 'live.ack', instanceId, commandId: actorId, status: 'applied', duplicate: true }))
       .toMatchObject({ status: 'applied', duplicate: true });
     expect(() => parseLiveServerFrame({ ...snapshot, view: { phase: 'exploring', state: { checkpoint: {} } } })).toThrow();

@@ -156,7 +156,7 @@ function parsePublicEvent(input: LiveJson): LiveJson {
     bossRoomWarning: ['type', 'exitId', 'risk'], hotspotInteracted: ['type', 'hotspotId', 'hotspotType', 'textKey', 'repeat', 'flagsSet', 'revealedExits'],
     gathered: ['type', 'nodeId', 'resource', 'lootTable', 'drops', 'gold'], consumableUsed: ['type', 'actorId', 'itemId', 'hpBefore', 'hp'],
     returned: ['type', 'locationId'], heroLeft: ['type', 'actorId'], heroDied: ['type', 'actorId', 'causes'],
-    corpseRecovered: ['type', 'actorId', 'corpseId', 'repeat'], participant: ['type', 'actorId', 'status'],
+    corpseRecovered: ['type', 'actorId', 'repeat'], participant: ['type', 'actorId', 'status'],
   };
   const allowed = new Set(keys[type] ?? []);
   if (Object.keys(event).some((key) => !allowed.has(key))) throw new TypeError('unknown live event field');

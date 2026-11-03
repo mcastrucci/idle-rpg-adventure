@@ -28,6 +28,7 @@ const ENTRANCE = 'loc:test_grove.entrance';
 const GLADE = 'loc:test_grove.glade';
 const SLIME = { id: 'group:death_slime', enemies: ['enemy:test_grove.slime'] };
 const WARDENS = { id: 'group:death_wardens', enemies: ['enemy:test_grove.warden', 'enemy:test_grove.warden', 'enemy:test_grove.warden'] };
+const RETREATERS = { id: 'group:death_retreaters', enemies: ['enemy:test_grove.retreat_warden', 'enemy:test_grove.retreat_warden', 'enemy:test_grove.retreat_warden'] };
 const HERB = 'item:test_grove.herb';
 const POTION = 'item:minor_healing_potion';
 const SWORD = 'item:rusty_sword';
@@ -73,11 +74,12 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     await writeFile(curvePath, JSON.stringify(curve));
     // Make a predictable partial-party case possible: a low-HP hero can die while a fixture-strength ally clears one turn.
     const wardenPath = join(testContent, 'enemies', 'test_grove_warden.json');
-    const warden = JSON.parse(await readFile(wardenPath, 'utf8')) as { rank: string; stats: { maxHp: number; power: number } };
-    warden.rank = 'normal'; // Allows the surviving ally's retreat checkpoint to race the unresolved enemy pack.
-    warden.stats.maxHp = 100;
-    warden.stats.power = 1_000;
-    await writeFile(wardenPath, JSON.stringify(warden));
+    const warden = JSON.parse(await readFile(wardenPath, 'utf8')) as Record<string, unknown> &
+      { stats: { maxHp: number; power: number }; phases?: unknown };
+    const wardenWithoutPhases = Object.fromEntries(Object.entries(warden).filter(([key]) => key !== 'phases'));
+    const retreater = { ...wardenWithoutPhases, id: 'enemy:test_grove.retreat_warden', rank: 'normal',
+      stats: { ...warden.stats, maxHp: 100, power: 1_000 } };
+    await writeFile(join(testContent, 'enemies', 'test_grove_retreat_warden.json'), JSON.stringify(retreater));
     const compiled = compileContentDirectory(testContent, plugin);
     if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
     content = compiled.bundle;
@@ -248,6 +250,23 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     expect(await issues(who.actorId)).toEqual([]);
   }, 45_000);
 
+  it('still applies the durable death penalty when the player disconnects during a losing fight', async () => {
+    const n = await node('death-disconnected-fight');
+    const who = await player('Disconnected fighter', false);
+    await database.db.update(characters).set({ xp: 20 }).where(eq(characters.actorId, who.actorId));
+    const id = await startRpgLiveInstance(n.live, database, { actorIds: [who.actorId], location: ENTRANCE, groups: [WARDENS] });
+    const transport = await attach(n, who, id);
+    expect((await command(n, who, id, { type: 'engage', groupId: WARDENS.id })).ack.status).toBe('applied');
+    await n.live.host().detach(id, who.actorId, transport.id);
+    await advance(n, id, () => !n.live.host().has(id));
+    expect((await database.db.select().from(liveInstances).where(eq(liveInstances.instanceId, id)))[0])
+      .toMatchObject({ status: 'closed', outcome: 'defeated' });
+    expect(await deathRow(who.actorId)).toMatchObject({ instanceId: id, status: 'active', xpBeforeLevel: 1,
+      xpBeforeIntoLevel: 20, xpBeforeTotal: 20, xpLost: 10, xpAfterLevel: 1, xpAfterIntoLevel: 10, xpAfterTotal: 10 });
+    expect((await database.db.select().from(actors).where(eq(actors.actorId, who.actorId)))[0]?.activityState).toBe('none');
+    expect(await issues(who.actorId)).toEqual([]);
+  }, 45_000);
+
   it('settles one hero death at combat end while a surviving party member wins the fight', async () => {
     const fallen = await player('Fallen fighter', false);
     const survivor = await player('Surviving fighter', false);
@@ -263,14 +282,14 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     await database.db.update(characters).set({ attributes: { STR: 10_000, AGI: 4, INT: 2, VIT: 1_000, SPI: 5 } })
       .where(eq(characters.actorId, survivor.actorId));
     const id = await startRpgLiveInstance(n.live, database, { actorIds: [fallen.actorId, survivor.actorId], location: ENTRANCE,
-      groups: [WARDENS] });
+      groups: [RETREATERS] });
     const frames: unknown[] = [];
     await n.live.host().attach(id, fallen.actorId, fallen.accountId, connection(frames));
     await attach(n, survivor, id);
     const runtime = n.live.host().inspect(id)?.state.heroes.find(hero => hero.actorId === fallen.actorId);
     if (!runtime) throw new Error('fallen party hero snapshot is missing');
     runtime.hp = 1; // Explicit adversarial battle fixture; the enemy pack must kill this hero before the strong ally clears it.
-    expect((await command(n, fallen, id, { type: 'engage', groupId: WARDENS.id })).ack.status).toBe('applied');
+    expect((await command(n, fallen, id, { type: 'engage', groupId: RETREATERS.id })).ack.status).toBe('applied');
     let deathObservedBeforeFightEnd = false;
     for (let elapsed = 0; elapsed < 90_000 && !deathObservedBeforeFightEnd; elapsed += 500) {
       clock.advance(500);
@@ -304,13 +323,13 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     await database.db.update(characters).set({ attributes: { STR: 10_000, AGI: 4, INT: 2, VIT: 1_000, SPI: 5 } })
       .where(eq(characters.actorId, survivor.actorId));
     const id = await startRpgLiveInstance(n.live, database, { actorIds: [fallen.actorId, survivor.actorId], location: ENTRANCE,
-      groups: [WARDENS] });
+      groups: [RETREATERS] });
     await attach(n, fallen, id);
     await attach(n, survivor, id);
     const runtime = n.live.host().inspect(id)?.state.heroes.find(hero => hero.actorId === fallen.actorId);
     if (!runtime) throw new Error('fallen party hero snapshot is missing');
     runtime.hp = 1;
-    expect((await command(n, fallen, id, { type: 'engage', groupId: WARDENS.id })).ack.status).toBe('applied');
+    expect((await command(n, fallen, id, { type: 'engage', groupId: RETREATERS.id })).ack.status).toBe('applied');
     let deathObservedBeforeFightEnd = false;
     for (let elapsed = 0; elapsed < 90_000 && !deathObservedBeforeFightEnd; elapsed += 500) {
       clock.advance(500);
