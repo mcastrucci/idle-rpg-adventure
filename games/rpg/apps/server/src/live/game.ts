@@ -689,17 +689,19 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       const combat = state.combat;
       return {
         phase: state.phase, area: state.area, location: state.location,
-        heroes: state.heroes.map((hero) => ({ actorId: hero.actorId, hp: hero.hp, maxHp: maxHp(hero), present: hero.present,
-          consumables: hero.consumables.map((stack) => ({ ...stack,
+        heroes: state.heroes.map((hero) => {
+          const actor = combat?.actors.find((candidate) => candidate.side === 'hero' && candidate.id === hero.actorId);
+          return { actorId: hero.actorId, hp: actor?.hp ?? hero.hp, maxHp: actor?.stats.maxHp ?? maxHp(hero), present: hero.present,
+          consumables: (actor?.consumables ?? hero.consumables).map((stack) => ({ ...stack,
             ...(combatContent.items[stack.item]?.nameKey ? { labelKey: combatContent.items[stack.item]?.nameKey } : {}) })), level: hero.build.level, xp: hero.xp,
           skills: hero.skills.filter((skill) => skill !== BASIC_ATTACK_SKILL).slice(0, 4).map((id, index) => {
             const skill = combatContent.skills[id];
-            const actor = state.combat?.actors.find((candidate) => candidate.id === hero.actorId);
             const readyAtTick = actor?.cooldowns[id] ?? 0;
             return { id, ...(skill?.nameKey ? { labelKey: skill.nameKey } : {}), slot: index + 1,
               cooldownTicks: skill?.cooldownTicks ?? 0, cooldownRemainingTicks: Math.max(0, readyAtTick - (state.combat?.tick ?? 0)),
               windupTicks: skill?.windupTicks ?? 0 };
-          }), automationEnabled: state.combat?.actors.find((candidate) => candidate.id === hero.actorId)?.auto ?? true })),
+          }), automationEnabled: actor?.auto ?? true };
+        }),
         groups: currentGroups(state).map((group) => ({ id: group.id, enemies: group.enemies, boss: group.boss, defeated: group.defeated })),
         runBag: Object.entries(state.runBag).sort(([a], [b]) => a.localeCompare(b)).map(([actorId, bag]) => ({ actorId,
           items: Object.entries(bag.items).sort(([a], [b]) => a.localeCompare(b)).map(([item, qty]) => ({ item, qty })), gold: bag.gold,

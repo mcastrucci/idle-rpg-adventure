@@ -140,7 +140,9 @@ describe('LiveScreen navigation controller', () => {
       socket.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 1, view: deps.current?.view ?? view(), participants: [{ actorId, status: 'connected' }] });
     });
     expect(await screen.findByRole('alertdialog', { name: 'Boss room risk' })).toBeDefined();
-    expect(screen.getByText(/enemy:guardian · boss rank · level 8/)).toBeDefined();
+    expect(screen.getByText('The server received the command.')).toBeDefined();
+    expect(screen.getByText(/Guardian · boss rank · level 8/)).toBeDefined();
+    expect(screen.getByText(/Server-listed consequences: Run bag moves to a corpse/)).toBeDefined();
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm entry' }));
     await waitFor(() => expect(JSON.parse(socket.sent.at(-1) ?? '{}').command?.command).toMatchObject({ type: 'enterBossRoom', exitId: 'exit:boss', confirm: true }));
     deps.client.stop();

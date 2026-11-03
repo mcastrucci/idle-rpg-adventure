@@ -1,5 +1,5 @@
-import type { LiveJson, LiveServerFrame, LiveViewDto } from '@rpg/protocol';
-import { useState } from 'react';
+import type { LiveJson, LiveViewDto } from '@rpg/protocol';
+import { useEffect, useState } from 'react';
 
 import { displayLabel } from '../../content/labels.ts';
 import type { LiveState } from '../state.ts';
@@ -52,19 +52,20 @@ type CombatView = Omit<LiveViewDto, 'heroes' | 'combat'> & {
   readonly combat?: CombatProjection | null;
 };
 type EventRow = { readonly epoch: number; readonly seq: number; readonly source: 'game' | 'host'; readonly event: LiveJson };
+type FeedbackState = { readonly actorId: string | null; readonly groupId: string | null; readonly cursor: { readonly epoch: number; readonly seq: number } | null; readonly manual: string; readonly activity: string };
 interface Props {
   readonly view: LiveViewDto;
   readonly events: readonly EventRow[];
   readonly actorId: string;
   readonly pendingCommandIds: readonly string[];
-  readonly lastAck: Extract<LiveServerFrame, { readonly type: 'live.ack' }> | null;
   readonly connection: LiveState;
   readonly onSubmit: (command: LiveJson) => string;
 }
 
 /** DOM combat controls and status view; the server remains the only combat authority. */
-export function LiveCombat({ view, events, actorId, pendingCommandIds, lastAck, connection, onSubmit }: Props) {
+export function LiveCombat({ view, events, actorId, pendingCommandIds, connection, onSubmit }: Props) {
   const [logOpen, setLogOpen] = useState(false);
+  const [feedback, setFeedback] = useState<FeedbackState>({ actorId: null, groupId: null, cursor: null, manual: '', activity: '' });
   const combatView = view as CombatView;
   const combat = combatView.combat;
   const me = combatView.heroes?.find((hero) => hero.actorId === actorId);
@@ -74,9 +75,12 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, lastAck, 
   const queued = actors.filter((actor) => actor.queued !== null);
   const windups = actors.filter((actor) => actor.side === 'enemy' && actor.windup !== null);
   const latestEvents = events.slice(-30).reverse();
-  const ackMessage = lastAck?.status === 'rejected'
-    ? `The server rejected the last action (${lastAck.reason ?? 'unknown'}).`
-    : lastAck?.status === 'applied' ? 'Last action accepted by the server.' : '';
+  const currentFeedback = feedback.actorId === actorId && feedback.groupId === (combat?.groupId ?? null) ? feedback : null;
+
+  useEffect(() => {
+    const groupId = combat?.groupId ?? null;
+    setFeedback((previous) => advanceFeedback(events, actorId, groupId, actors, previous));
+  }, [actorId, combat?.groupId, events, actors]);
 
   if (!combat) return <section className="live-combat" aria-label="Combat">No active combat.</section>;
 
@@ -114,26 +118,30 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, lastAck, 
           Auto
         </label>
       </div>
+      <div className="live-combat__feedback" aria-live="polite">
+        {queued.length > 0 && <p className="live-combat__queued" role="status">Queued: {queued.map((actor) => `${actorLabel(actor, actorId)} · ${describeQueued(actor.queued)}`).join('; ')}</p>}
+        {pendingCommandIds.length > 0 && <p className="live-combat__pending" role="status">Command sent; waiting for server receipt.</p>}
+        {currentFeedback?.manual && <p className="live-combat__result" role="status">{currentFeedback.manual}</p>}
+        {currentFeedback?.activity && <p className="live-combat__result" role="status">{currentFeedback.activity}</p>}
+      </div>
       <div className="live-combat__skills" aria-label="Equipped skill slots">
         {Array.from({ length: 4 }, (_, index) => {
           const skill = skills[index];
-          return <button className="live-combat__action" type="button" key={skill?.id ?? `slot-${index + 1}`} disabled={!online || !skill}
+          return <button className="live-combat__action" type="button" key={skill?.id ?? `slot-${index + 1}`} disabled={!online || !skill || (skill?.cooldownRemainingTicks ?? 0) > 0}
             onClick={() => skill && onSubmit({ type: 'useSkill', skill: skill.id })}>
             <span>Slot {index + 1}</span><strong>{skill ? displayLabel(skill.labelKey ?? skill.id) : 'Empty'}</strong>
-            {skill && <small>{skill.cooldownRemainingTicks > 0 ? `Cooldown ${skill.cooldownRemainingTicks} ticks` : 'Ready'} · cooldown {skill.cooldownTicks} ticks</small>}
+            {skill && <small>{skill.cooldownRemainingTicks > 0 ? `Cooldown remaining: ${skill.cooldownRemainingTicks} ticks` : 'Ready'} · duration {skill.cooldownTicks} ticks</small>}
           </button>;
         })}
       </div>
       <div className="live-combat__items" aria-label="Consumables">
-        {me?.consumables.map((item) => <button className="live-combat__item" type="button" key={item.item} disabled={!online}
+        {me?.consumables.map((item) => <button className="live-combat__item" type="button" key={item.item} disabled={!online || item.qty <= 0}
           onClick={() => onSubmit({ type: 'useConsumable', itemId: item.item })}>
           Use {displayLabel(item.item)} <span>Stock {item.qty}</span>
         </button>)}
         {(!me || me.consumables.length === 0) && <p>No consumables in the live loadout.</p>}
       </div>
-      {queued.length > 0 && <p className="live-combat__queued" role="status">Queued: {queued.map((actor) => `${actorLabel(actor, actorId)} · ${describeQueued(actor.queued)}`).join('; ')}</p>}
-      {pendingCommandIds.length > 0 && <p className="live-combat__pending" role="status">Action awaiting server acknowledgement.</p>}
-      {ackMessage && <p className={`live-combat__ack live-combat__ack--${lastAck?.status}`} role="status">{ackMessage}</p>}
+      <p className="live-combat__timing">Actions share your combat action timing. A click replaces your single queued action; cooldown is checked when the action resolves.</p>
     </div>
 
     <div className="live-combat__log">
@@ -141,7 +149,7 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, lastAck, 
         Combat log ({events.length})
       </button>
       {logOpen && <ol aria-label="Combat event log">
-        {latestEvents.map((row) => <li key={`${row.epoch}:${row.seq}`}>{formatEvent(row.event, actorId)}</li>)}
+        {latestEvents.map((row) => <li key={`${row.epoch}:${row.seq}`}>{formatEvent(row.event, actorId, actors)}</li>)}
         {latestEvents.length === 0 && <li>Waiting for combat events.</li>}
       </ol>}
     </div>
@@ -178,15 +186,98 @@ function actorLabel(actor: CombatActorProjection, actorId: string): string {
   return displayLabel(actor.labelKey ?? actor.id);
 }
 function isUuid(value: string): boolean { return /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(value); }
-function formatEvent(value: LiveJson, actorId: string): string {
+function formatEvent(value: LiveJson, actorId: string, actors: readonly CombatActorProjection[]): string {
   if (value === null || Array.isArray(value) || typeof value !== 'object') return 'Combat event received.';
   const event = value as { readonly [key: string]: LiveJson };
   if (event['type'] === 'combat' && event['event'] !== null && !Array.isArray(event['event']) && typeof event['event'] === 'object') {
-    return formatEvent(event['event'], actorId);
+    return formatEvent(event['event'], actorId, actors);
   }
   const type = typeof event['type'] === 'string' ? event['type'] : 'Combat event';
-  const actor = typeof event['actorId'] === 'string' ? ` · ${event['actorId'] === actorId ? 'You' : isUuid(event['actorId']) ? 'Party member' : displayLabel(event['actorId'])}` : '';
-  const skill = typeof event['skill'] === 'string' ? ` · ${displayLabel(event['skill'])}` : '';
-  const reason = typeof event['reason'] === 'string' ? ` · ${event['reason']}` : '';
-  return `${type}${actor}${skill}${reason}`;
+  const actorIdValue = typeof event['actorId'] === 'string' ? event['actorId'] : '';
+  const actor = actorIdValue ? combatantLabel(actorIdValue, actorId, actors) : 'Combatant';
+  if (type === 'ActionStarted') return `${actor} started ${actionLabel(event['action'])}${event['source'] === 'auto' ? ' (auto)' : event['source'] === 'manual' ? ' (manual)' : ''}.`;
+  if (type === 'InputRejected') return `${actorIdValue === actorId ? 'Your' : `${actor}'s`} ${inputLabel(event['kind'])} was rejected: ${reasonLabel(event['reason'])}.`;
+  if (type === 'ConsumableUsed') return `${actor} used ${displayLabel(typeof event['item'] === 'string' ? event['item'] : 'consumable')}; ${Number(event['remaining']) || 0} remaining.`;
+  if (type === 'DamageDealt') return `${combatantLabel(event['sourceId'], actorId, actors)} dealt ${Number(event['amount']) || 0} damage to ${combatantLabel(event['targetId'], actorId, actors)}.`;
+  if (type === 'Healed') return `${event['targetId'] === actorId ? 'You' : actor} healed ${Number(event['amount']) || 0} HP.`;
+  const reason = typeof event['reason'] === 'string' ? ` · ${displayLabel(event['reason'])}` : '';
+  return `${displayLabel(type)}${actorIdValue ? ` · ${actor}` : ''}${reason}`;
+}
+
+function actionLabel(value: LiveJson | undefined): string {
+  if (value !== null && !Array.isArray(value) && typeof value === 'object') {
+    const action = value as { readonly [key: string]: LiveJson };
+    if (action['kind'] === 'skill' && typeof action['skill'] === 'string') return displayLabel(action['skill']);
+    if (action['kind'] === 'consumable' && typeof action['item'] === 'string') return displayLabel(action['item']);
+  }
+  return 'action';
+}
+
+function advanceFeedback(rows: readonly EventRow[], actorId: string, groupId: string | null, actors: readonly CombatActorProjection[], previous: FeedbackState): FeedbackState {
+  let state = previous;
+  if (previous.actorId !== actorId || previous.groupId !== groupId) {
+    let marker: EventRow | undefined;
+    for (const row of rows) if (row.source === 'game' && isCombatStart(unwrapCombat(row.event), groupId)) marker = row;
+    if (!marker) return { actorId, groupId, cursor: latestCursor(rows), manual: '', activity: '' };
+    state = { actorId, groupId, cursor: { epoch: marker.epoch, seq: marker.seq }, manual: '', activity: '' };
+  }
+  for (const row of rows) {
+    if (state.cursor && compareCursor(row, state.cursor) <= 0) continue;
+    const event = unwrapCombat(row.event);
+    if (state.cursor && row.epoch !== state.cursor.epoch) state = { ...state, cursor: { epoch: row.epoch, seq: row.seq }, manual: '', activity: '' };
+    if (event?.['type'] === 'CombatEnded') {
+      state = { ...state, cursor: { epoch: row.epoch, seq: row.seq }, manual: '', activity: '' };
+      continue;
+    }
+    if (row.source === 'game' && isCombatStart(event, groupId)) {
+      state = { actorId, groupId, cursor: { epoch: row.epoch, seq: row.seq }, manual: '', activity: '' };
+      continue;
+    }
+    state = { ...state, cursor: { epoch: row.epoch, seq: row.seq } };
+    if (row.source !== 'game' || !event) continue;
+    if (event['type'] === 'InputRejected' && event['actorId'] === actorId) {
+      state = { ...state, manual: formatEvent(row.event, actorId, actors) };
+    } else if (event['type'] === 'ActionStarted' && event['actorId'] === actorId) {
+      const message = formatEvent(row.event, actorId, actors);
+      state = event['source'] === 'manual' ? { ...state, manual: message } : { ...state, activity: message };
+    } else if ((event['type'] === 'ConsumableUsed' && event['actorId'] === actorId)
+      || (event['type'] === 'DamageDealt' && event['sourceId'] === actorId)
+      || (event['type'] === 'Healed' && event['targetId'] === actorId)) {
+      state = { ...state, activity: formatEvent(row.event, actorId, actors) };
+    } else if (event['type'] === 'DamageDealt' && event['targetId'] === actorId) {
+      state = { ...state, activity: `You took ${Number(event['amount']) || 0} damage; ${Number(event['hpAfter']) || 0} HP remaining.` };
+    }
+  }
+  return state;
+}
+function isCombatStart(event: { readonly [key: string]: LiveJson } | null, groupId: string | null): boolean {
+  return event?.['type'] === 'combatStarted' && (groupId === null || event['groupId'] === groupId);
+}
+function latestCursor(rows: readonly EventRow[]): { readonly epoch: number; readonly seq: number } | null {
+  const row = rows.at(-1);
+  return row ? { epoch: row.epoch, seq: row.seq } : null;
+}
+function compareCursor(row: EventRow, cursor: { readonly epoch: number; readonly seq: number }): number {
+  return row.epoch - cursor.epoch || row.seq - cursor.seq;
+}
+function combatantLabel(value: LiveJson | undefined, actorId: string, actors: readonly CombatActorProjection[]): string {
+  if (typeof value !== 'string') return 'a target';
+  if (value === actorId) return 'You';
+  const projection = actors.find((actor) => actor.id === value);
+  return projection ? actorLabel(projection, actorId) : isUuid(value) ? 'a party member' : displayLabel(value);
+}
+function inputLabel(value: LiveJson | undefined): string {
+  return value === 'useSkill' ? 'skill' : value === 'useConsumable' ? 'item' : displayLabel(typeof value === 'string' ? value : 'action');
+}
+function reasonLabel(value: LiveJson | undefined): string {
+  if (typeof value !== 'string') return 'unknown reason';
+  const readable: Record<string, string> = { onCooldown: 'on cooldown', noConsumable: 'no item remaining', noSkill: 'skill unavailable', invalidTarget: 'invalid target' };
+  return readable[value] ?? displayLabel(value);
+}
+
+function unwrapCombat(value: LiveJson): { readonly [key: string]: LiveJson } | null {
+  if (value === null || Array.isArray(value) || typeof value !== 'object') return null;
+  const event = value as { readonly [key: string]: LiveJson };
+  if (event['type'] === 'combat') return unwrapCombat(event['event'] ?? null);
+  return event;
 }

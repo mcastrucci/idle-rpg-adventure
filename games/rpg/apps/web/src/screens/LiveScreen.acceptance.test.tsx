@@ -223,9 +223,9 @@ describe('LiveScreen fullflow acceptance', () => {
       socket1.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 1, view: nextCombat.view, participants: nextCombat.participants });
       socket1.receive({ type: 'live.ack', instanceId, commandId: stableId, status: 'applied', duplicate: true });
     });
-    await waitFor(() => expect(screen.getByText('The server confirmed the action.')).toBeDefined());
+    await waitFor(() => expect(screen.getByText('The server received the command.')).toBeDefined());
     expect(screen.getByLabelText('Thornback Boar HP 72 of 90')).toBeDefined();
-    expect(screen.getByText('Last action accepted by the server.')).toBeDefined();
+    expect(screen.getByText('The server received the command.')).toBeDefined();
     expect(sentCommands(socket1).filter(command => command.op === 'live.command').map(command => command.commandId)).toEqual([stableId]);
     deps.client.stop();
   });
@@ -262,7 +262,7 @@ describe('LiveScreen fullflow acceptance', () => {
       second.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 1, view: initial.view, participants: initial.participants });
     });
     expect(await screen.findByRole('alertdialog', { name: 'Boss room risk' })).toBeDefined();
-    expect(screen.getByText(/enemy:seed_guardian · boss rank · level 8/)).toBeDefined();
+    expect(screen.getByText(/Seed Guardian · boss rank · level 8/)).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(sentCommands(second).filter(command => command.op === 'live.command' && command.command?.['confirm'] === true)).toHaveLength(0);
@@ -369,7 +369,7 @@ describe('LiveScreen fullflow acceptance', () => {
     } as unknown as LiveViewDto;
     act(() => socket.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 1, view: nextView, participants: initial.participants }));
     expect(await screen.findByText('Resolves in 2 ticks')).toBeDefined();
-    expect(screen.getByText(/Cooldown 3 ticks/)).toBeDefined();
+    expect(screen.getByText(/Cooldown remaining: 3 ticks/)).toBeDefined();
     expect(deps.requests.filter(request => request.path === `/live/current/${actorId}`)).toHaveLength(currentReads);
     // Even a delayed HTTP bootstrap response cannot replace this newer sequenced socket view.
     deps.client.stop();
@@ -394,7 +394,7 @@ describe('LiveScreen fullflow acceptance', () => {
     expect(await screen.findByRole('heading', { name: 'Adventure ended: defeated.' })).toBeDefined();
     await waitFor(() => expect(deps.requests.filter(request => request.path === `/characters/${actorId}/live-death`).length).toBeGreaterThan(1));
     expect(await screen.findByText('Stone Guardian · 50 damage')).toBeDefined();
-    expect(screen.getByText('item:test_grove.herb')).toBeDefined();
+    expect(screen.getByText('Test Grove Herb')).toBeDefined();
     expect(refreshCharacter).toHaveBeenCalledTimes(1);
     deps.client.stop();
   });

@@ -110,6 +110,88 @@ describe('RPG live plugin: combat', () => {
     expect(game.removeParticipant(engaged.state, HERO)).toBeNull();
     expect(game.removeParticipant(state, HERO)?.state.heroes[0]?.present).toBe(false);
   });
+
+  it('projects live combat HP and potion stock, and a carried potion resolves and decrements its stock', () => {
+    const state = start({ location: GLADE, groups: [SLIMES], heroes: [hero(HERO, {
+      rules: [], consumables: [{ item: 'item:minor_healing_potion', qty: 1 }],
+    })] });
+    const engaged = ok(game.applyCommand(state, HERO, { type: 'engage', groupId: SLIMES.id }));
+    let current = game.tick(engaged.state).state;
+    const actor = () => {
+      const found = current.combat?.actors.find(candidate => candidate.id === HERO);
+      if (!found) throw new Error('combat hero is missing');
+      return found;
+    };
+    expect((game.view(current) as { heroes: { actorId: string; automationEnabled: boolean }[] })
+      .heroes.find(candidate => candidate.actorId === HERO)?.automationEnabled).toBe(true);
+    let ticks = 0;
+    while (actor().hp === actor().stats.maxHp && ticks < 100) {
+      current = game.tick(current).state;
+      ticks += 1;
+    }
+    expect(actor()).toBeDefined();
+    expect(actor().hp).toBeLessThan(actor().stats.maxHp);
+    expect((game.view(current) as { heroes: { actorId: string; hp: number | null; consumables: { qty: number }[] }[] })
+      .heroes.find(candidate => candidate.actorId === HERO)).toMatchObject({
+        hp: actor().hp, consumables: [{ qty: 1 }],
+      });
+
+    const queued = ok(game.applyCommand(current, HERO, { type: 'useConsumable', itemId: 'item:minor_healing_potion' }));
+    expect(queued.state.pending).toContainEqual({ actorId: HERO, kind: 'useConsumable', item: 'item:minor_healing_potion' });
+    const resolved = game.tick(queued.state);
+    current = resolved.state;
+    const events = resolved.events as { type: string; event?: { type: string; actorId?: string; targetId?: string; item?: string; remaining?: number; amount?: number } }[];
+    expect(events).toContainEqual(expect.objectContaining({ type: 'combat', event: expect.objectContaining({
+      type: 'ConsumableUsed', actorId: HERO, item: 'item:minor_healing_potion', remaining: 0,
+    }) }));
+    expect(events.some(({ type, event }) => type === 'combat' && event?.type === 'Healed' && event.targetId === HERO && (event.amount ?? 0) > 0)).toBe(true);
+    expect((game.view(resolved.state) as { heroes: { actorId: string; hp: number | null; consumables: { qty: number }[] }[] })
+      .heroes.find(candidate => candidate.actorId === HERO)).toMatchObject({
+        hp: actor().hp, consumables: [{ qty: 0 }],
+      });
+    // The snapshot remains unchanged mid-fight; the public view must use the combat actor as its live source.
+    expect(resolved.state.heroes[0]?.consumables).toEqual([{ item: 'item:minor_healing_potion', qty: 1 }]);
+
+    // The in-combat snapshot still advertises the starting stock, so the host may ack a second queue;
+    // the engine rejects it against live actor stock when the hero next acts.
+    const staleStockQueue = ok(game.applyCommand(current, HERO, { type: 'useConsumable', itemId: 'item:minor_healing_potion' }));
+    current = staleStockQueue.state;
+    let missingStock: { type: string; event?: { type: string; reason?: string } } | undefined;
+    for (let ticks = 0; ticks < 20 && missingStock === undefined; ticks += 1) {
+      const next = game.tick(current);
+      missingStock = (next.events as { type: string; event?: { type: string; reason?: string } }[])
+        .find(({ type, event }) => type === 'combat' && event?.type === 'InputRejected' && event.reason === 'noConsumable');
+      current = next.state;
+    }
+    expect(missingStock?.event).toMatchObject({ type: 'InputRejected', reason: 'noConsumable' });
+  });
+
+  it('reports queued manual skill cooldown rejection without changing the cooldown', () => {
+    const state = start({ location: GLADE, groups: [SLIMES], heroes: [hero(HERO, { rules: [] })] });
+    const engaged = ok(game.applyCommand(state, HERO, { type: 'engage', groupId: SLIMES.id }));
+    const paused = ok(game.applyCommand(engaged.state, HERO, { type: 'setAuto', auto: false }));
+    const firstSkill = ok(game.applyCommand(paused.state, HERO, { type: 'useSkill', skill: 'skill:shield_bash' }));
+    let current = game.tick(firstSkill.state).state;
+    const actor = () => {
+      const found = current.combat?.actors.find(candidate => candidate.id === HERO);
+      if (!found) throw new Error('combat hero is missing');
+      return found;
+    };
+    expect(actor().cooldowns['skill:shield_bash']).toBeGreaterThan(current.combat?.tick ?? 0);
+    const readyAtTick = actor().cooldowns['skill:shield_bash'];
+    const queuedAgain = ok(game.applyCommand(current, HERO, { type: 'useSkill', skill: 'skill:shield_bash' }));
+    expect(queuedAgain.state.pending).toContainEqual({ actorId: HERO, kind: 'useSkill', skill: 'skill:shield_bash' });
+    let rejection: { type: string; event?: { type: string; reason?: string } } | undefined;
+    current = queuedAgain.state;
+    for (let ticks = 0; ticks < 20 && rejection === undefined; ticks += 1) {
+      const next = game.tick(current);
+      rejection = (next.events as { type: string; event?: { type: string; reason?: string } }[])
+        .find(({ type, event }) => type === 'combat' && event?.type === 'InputRejected' && event.reason === 'onCooldown');
+      current = next.state;
+    }
+    expect(rejection?.event).toMatchObject({ type: 'InputRejected', reason: 'onCooldown' });
+    expect(actor().cooldowns['skill:shield_bash']).toBe(readyAtTick);
+  });
 });
 
 describe('RPG live plugin: exploration (#38)', () => {

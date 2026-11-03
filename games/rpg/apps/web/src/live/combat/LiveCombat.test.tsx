@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import type { LiveJson, LiveServerFrame, LiveViewDto } from '@rpg/protocol';
+import type { LiveJson, LiveViewDto } from '@rpg/protocol';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,11 +10,6 @@ const actorId = '0b6f4d1e-8f43-4f1c-9a52-1d6a2f7c9e10';
 const enemyId = 'enemy:ogre';
 const online: LiveState = { status: 'open', attempt: 0, retryInMs: null, lastCloseCode: null, error: null };
 const offline: LiveState = { ...online, status: 'reconnecting', retryInMs: 500 };
-const ack = (status: 'applied' | 'rejected', reason?: string): Extract<LiveServerFrame, { type: 'live.ack' }> => ({
-  type: 'live.ack', instanceId: 'instance', commandId: 'command', status, duplicate: false,
-  ...(status === 'rejected' ? { reason: reason ?? 'onCooldown' } : {}),
-});
-
 function view(overrides: Record<string, unknown> = {}): LiveViewDto {
   return {
     phase: 'combat', heroes: [{ actorId, hp: 60, maxHp: 100, present: true, consumables: [{ item: 'item:potion', qty: 2 }],
@@ -32,10 +27,10 @@ function view(overrides: Record<string, unknown> = {}): LiveViewDto {
   } as unknown as LiveViewDto;
 }
 
-function renderCombat(options: { snapshot?: LiveViewDto; pending?: string[]; ack?: Extract<LiveServerFrame, { type: 'live.ack' }> | null; connection?: LiveState; events?: { epoch: number; seq: number; source: 'game'; event: LiveJson }[] } = {}) {
+function renderCombat(options: { snapshot?: LiveViewDto; pending?: string[]; connection?: LiveState; events?: { epoch: number; seq: number; source: 'game'; event: LiveJson }[] } = {}) {
   const submit = vi.fn(() => 'command-id');
   const props = { view: options.snapshot ?? view(), actorId, events: options.events ?? [], pendingCommandIds: options.pending ?? [],
-    lastAck: options.ack ?? null, connection: options.connection ?? online, onSubmit: submit };
+    connection: options.connection ?? online, onSubmit: submit };
   const result = render(<LiveCombat {...props} />);
   return { ...result, submit, props };
 }
@@ -68,14 +63,19 @@ describe('LiveCombat', () => {
     renderCombat({ snapshot });
     expect(screen.getByText(/4 attacks remaining/)).toBeTruthy();
     expect(screen.getByText(/Queued:/)).toBeTruthy();
-    expect(screen.getByText(/Cooldown 2 ticks/)).toBeTruthy();
+    expect(screen.getByText(/Cooldown remaining: 2 ticks/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Slot 2.*Cleave/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/click replaces your single queued action/i)).toBeTruthy();
   });
 
   it('keeps pending actions visible while disconnected, disables new submits, and reports server rejection', () => {
-    const { submit } = renderCombat({ connection: offline, pending: ['pending-command'], ack: ack('rejected', 'onCooldown') });
+    const { submit } = renderCombat({ connection: offline, pending: ['pending-command'], events: [
+      { epoch: 1, seq: 1, source: 'game', event: { type: 'combatStarted', groupId: 'ogre' } as unknown as LiveJson },
+      { epoch: 1, seq: 2, source: 'game', event: { type: 'combat', event: { type: 'InputRejected', actorId, kind: 'useSkill', reason: 'onCooldown' } } as unknown as LiveJson },
+    ] });
     expect(screen.getByText(/Offline · actions paused/)).toBeTruthy();
-    expect(screen.getByText('Action awaiting server acknowledgement.')).toBeTruthy();
-    expect(screen.getByText(/server rejected.*onCooldown/i)).toBeTruthy();
+    expect(screen.getByText('Command sent; waiting for server receipt.')).toBeTruthy();
+    expect(screen.getByText(/Your skill was rejected: on cooldown/i)).toBeTruthy();
     const skill = screen.getByRole('button', { name: /Slot 1.*Shield Bash/i }) as HTMLButtonElement;
     expect(skill.disabled).toBe(true);
     fireEvent.click(skill);
@@ -91,14 +91,103 @@ describe('LiveCombat', () => {
     expect(submit).toHaveBeenNthCalledWith(1, { type: 'setAuto', auto: true });
     expect(submit).toHaveBeenNthCalledWith(2, { type: 'useConsumable', itemId: 'item:potion' });
     fireEvent.click(screen.getByRole('button', { name: /Combat log/ }));
-    expect(within(screen.getByRole('list', { name: 'Combat event log' })).getByText(/DamageDealt/)).toBeTruthy();
+    expect(within(screen.getByRole('list', { name: 'Combat event log' })).getByText(/Ogre dealt 7 damage to You/)).toBeTruthy();
   });
 
-  it('reports applied acknowledgement and keeps reduced-motion behavior in CSS', () => {
-    renderCombat({ ack: ack('applied') });
-    expect(screen.getByText('Last action accepted by the server.')).toBeTruthy();
+  it('keeps reduced-motion behavior in CSS', () => {
+    renderCombat();
     const css = readFileSync('games/rpg/apps/web/src/live/combat/combat.css', 'utf8');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('transition: none');
+  });
+
+  it('shows actual own-action queue, rejection, and activation from production event wrappers only', () => {
+    const actionEvent = (payload: Record<string, unknown>, seq: number) => ({ epoch: 1, seq, source: 'game' as const,
+      event: { type: 'combat', event: payload } as unknown as LiveJson });
+    const snapshot = view({ combat: { tick: 14, groupId: 'ogre', actors: [
+      { id: actorId, side: 'hero', hp: 60, maxHp: 100, alive: true, effects: [], auto: false,
+        queued: { kind: 'useConsumable', item: 'item:potion', target: null }, windup: null },
+      { id: enemyId, side: 'enemy', hp: 80, maxHp: 100, alive: true, effects: [], queued: null, windup: null },
+    ] } });
+    const { rerender, props } = renderCombat({ snapshot, events: [
+      actionEvent({ type: 'combatStarted', groupId: 'ogre', tick: 1 }, 1),
+      actionEvent({ type: 'InputRejected', actorId, kind: 'useSkill', reason: 'onCooldown', tick: 12 }, 2),
+    ] });
+    expect(screen.getByText(/Queued: You · item Potion/i)).toBeTruthy();
+    expect(screen.getByText(/Your skill was rejected: on cooldown/i)).toBeTruthy();
+    rerender(<LiveCombat {...props} events={[...props.events, actionEvent({ type: 'ActionStarted', actorId,
+      action: { kind: 'skill', skill: 'skill:shield_bash' }, source: 'auto', tick: 14 }, 3)]} />);
+    expect(screen.getByText(/Your skill was rejected: on cooldown/i)).toBeTruthy();
+    expect(screen.getByText(/You started Shield Bash \(auto\)\./)).toBeTruthy();
+  });
+
+  it('retains current fight feedback after its marker leaves the event window and clears it on a new group', () => {
+    const wrapped = (event: Record<string, unknown>, seq: number) => ({ epoch: 1, seq, source: 'game' as const,
+      event: { type: 'combat', event } as unknown as LiveJson });
+    const start = { epoch: 1, seq: 1, source: 'game' as const,
+      event: { type: 'combatStarted', groupId: 'ogre' } as unknown as LiveJson };
+    const first = renderCombat({ events: [start, wrapped({ type: 'InputRejected', actorId, kind: 'useSkill', reason: 'onCooldown' }, 2)] });
+    expect(screen.getByText(/Your skill was rejected: on cooldown/i)).toBeTruthy();
+    first.rerender(<LiveCombat {...first.props} events={[wrapped({ type: 'DamageDealt', sourceId: enemyId, targetId: actorId, amount: 9, hpAfter: 51 }, 3)]} />);
+    expect(screen.getByText(/Your skill was rejected: on cooldown/i)).toBeTruthy();
+    expect(screen.getByText(/You took 9 damage; 51 HP remaining/)).toBeTruthy();
+    first.rerender(<LiveCombat {...first.props} view={view({ combat: { ...(view() as unknown as { combat: object }).combat, groupId: 'new-group' } })}
+      events={[wrapped({ type: 'DamageDealt', sourceId: enemyId, targetId: actorId, amount: 9, hpAfter: 51 }, 3)]} />);
+    expect(screen.queryByText(/Your skill was rejected: on cooldown/i)).toBeNull();
+    expect(screen.queryByText(/You took 9 damage/)).toBeNull();
+  });
+
+  it('clears action feedback when the current combat ends', () => {
+    const { rerender, props } = renderCombat({ events: [
+      { epoch: 1, seq: 1, source: 'game', event: { type: 'combatStarted', groupId: 'ogre' } as unknown as LiveJson },
+      { epoch: 1, seq: 2, source: 'game', event: { type: 'combat', event: { type: 'InputRejected', actorId, kind: 'useSkill', reason: 'onCooldown' } } as unknown as LiveJson },
+    ] });
+    expect(screen.getByText(/Your skill was rejected: on cooldown/i)).toBeTruthy();
+    rerender(<LiveCombat {...props} events={[...props.events, { epoch: 1, seq: 3, source: 'game',
+      event: { type: 'combat', event: { type: 'CombatEnded', outcome: 'defeat' } } as unknown as LiveJson }]} />);
+    expect(screen.queryByText(/Your skill was rejected: on cooldown/i)).toBeNull();
+  });
+
+  it('disables empty stock and does not let prior-combat feedback confirm the current encounter', () => {
+    const snapshot = view({ heroes: [{ ...(view() as unknown as { heroes: Array<Record<string, unknown>> }).heroes[0], consumables: [{ item: 'item:potion', qty: 0 }] }] });
+    const { submit } = renderCombat({ snapshot, events: [
+      { epoch: 1, seq: 1, source: 'game', event: { type: 'combat', event: { type: 'ActionStarted', actorId,
+        action: { kind: 'skill', skill: 'skill:shield_bash' }, source: 'manual', tick: 2 } } as unknown as LiveJson },
+      { epoch: 1, seq: 2, source: 'game', event: { type: 'combatStarted', groupId: 'ogre', tick: 12 } as unknown as LiveJson },
+    ] });
+    expect((screen.getByRole('button', { name: /Use Potion.*Stock 0/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/You started Shield Bash \(manual\)\./)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Slot 1.*Shield Bash/i }));
+    expect(submit).toHaveBeenCalledWith({ type: 'useSkill', skill: 'skill:shield_bash' });
+  });
+
+  it('shows actual potion use and healing with the authoritative zero-stock projection', () => {
+    const queuedSnapshot = view({ combat: { tick: 12, groupId: 'ogre', actors: [
+      { id: actorId, side: 'hero', hp: 40, maxHp: 100, alive: true, effects: [], auto: false,
+        queued: { kind: 'useSkill', skill: 'skill:cleave', target: null }, windup: null },
+      { id: enemyId, side: 'enemy', hp: 80, maxHp: 100, alive: true, effects: [], queued: null, windup: null },
+    ] } });
+    const props = { snapshot: queuedSnapshot, events: [
+      { epoch: 1, seq: 1, source: 'game' as const, event: { type: 'combatStarted', groupId: 'ogre' } as unknown as LiveJson },
+    ] };
+    const { rerender } = renderCombat(props);
+    expect(screen.getByText(/Queued: You · Cleave/)).toBeTruthy();
+    const updatedView = view({ heroes: [{ ...(view() as unknown as { heroes: Array<Record<string, unknown>> }).heroes[0],
+      hp: 65, consumables: [{ item: 'item:potion', qty: 0 }] }], combat: { tick: 14, groupId: 'ogre', actors: [
+      { id: actorId, side: 'hero', hp: 65, maxHp: 100, alive: true, effects: [], auto: false, queued: null, windup: null },
+      { id: enemyId, side: 'enemy', hp: 80, maxHp: 100, alive: true, effects: [], queued: null, windup: null },
+    ] } });
+    rerender(<LiveCombat {...{ view: updatedView, events: [
+      ...props.events,
+      { epoch: 1, seq: 2, source: 'game' as const, event: { type: 'combat', event: { type: 'ConsumableUsed', actorId,
+        item: 'item:potion', remaining: 0, tick: 13 } } as unknown as LiveJson },
+      { epoch: 1, seq: 3, source: 'game' as const, event: { type: 'combat', event: { type: 'Healed', sourceId: actorId,
+        targetId: actorId, origin: 'item:potion', amount: 25, periodic: false, hpAfter: 65, tick: 13 } } as unknown as LiveJson },
+    ], actorId, pendingCommandIds: [], connection: online, onSubmit: vi.fn() }} />);
+    expect(screen.queryByText(/Queued: You · Cleave/)).toBeNull();
+    expect(screen.getByText(/You healed 25 HP/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Combat log/ }));
+    expect(within(screen.getByRole('list', { name: 'Combat event log' })).getByText(/You used Potion; 0 remaining/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Use Potion.*Stock 0/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
