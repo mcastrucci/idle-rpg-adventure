@@ -38,6 +38,7 @@ export function guardLiveSocket(socket: WebSocket, service: AuthService, token: 
   let lease: LiveLease | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let stopping: Promise<void> | undefined;
+  let stopAtMs = 0;
   let working = Promise.resolve();
   let stopped = false;
   let busy = false;
@@ -49,10 +50,10 @@ export function guardLiveSocket(socket: WebSocket, service: AuthService, token: 
     push(message) { if (!stopped && socket.readyState === 1) socket.send(JSON.stringify(message)); },
     onClose(listener) { if (stopped) listener(); else closeListeners.push(listener); },
   };
-  async function emitLifecycle(type: LiveConnectionLifecycleEvent['type']): Promise<void> {
+  async function emitLifecycle(type: LiveConnectionLifecycleEvent['type'], atMs = context.clock.nowMs()): Promise<void> {
     if (!lease || !onLifecycle) return;
     try {
-      await onLifecycle({ type, accountId: lease.accountId, connectionId: connection.id, atMs: context.clock.nowMs() });
+      await onLifecycle({ type, accountId: lease.accountId, connectionId: connection.id, atMs });
     } catch { /* Optional telemetry must never affect authentication, commands, or lease cleanup. */ }
   }
   const close = (code: number, reason: string): void => {
@@ -72,6 +73,8 @@ export function guardLiveSocket(socket: WebSocket, service: AuthService, token: 
   }).catch((error: unknown) => close(error instanceof AuthError && error.code === 'live_session_active' ? 4409 : 4401, 'live authorization rejected'));
   function stop(): Promise<void> {
     if (stopping) return stopping;
+    // Capture when closure is first observed/requested, before draining accepted work.
+    stopAtMs = context.clock.nowMs();
     stopped = true; queue.length = 0;
     if (timer) clearInterval(timer);
     for (const listener of closeListeners.splice(0)) {
@@ -80,7 +83,7 @@ export function guardLiveSocket(socket: WebSocket, service: AuthService, token: 
     if (socket.readyState === 1) socket.terminate();
     stopping = initialized.then(async () => {
       await working; // Drain an accepted command before module shutdown closes the shared database pool.
-      await emitLifecycle('stopped');
+      await emitLifecycle('stopped', stopAtMs);
       if (lease) await service.releaseLive(lease);
     }).finally(onStopped);
     void stopping.catch(() => {});
@@ -94,6 +97,8 @@ export function guardLiveSocket(socket: WebSocket, service: AuthService, token: 
       let pending: PendingFrame | undefined;
       while (!stopped && (pending = queue.shift()) !== undefined) {
         const identity = await service.renewLive(lease);
+        // A renew that finishes after close is only lease maintenance; don't report post-close activity.
+        if (stopped) break;
         await emitLifecycle('heartbeat');
         if (stopped) break;
         if (pending.type === 'ping' && socket.readyState === 1) socket.send('pong');

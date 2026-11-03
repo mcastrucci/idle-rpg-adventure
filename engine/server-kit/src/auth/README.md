@@ -83,10 +83,11 @@ heartbeat work; unsupported/binary/overload frames get a policy close. Command e
 and frames/credentials are never logged by this module.
 
 Optional `onLifecycle(event)` receives only `{ type, accountId, connectionId, atMs }` for `authenticated`, successful
-`heartbeat` renewals (including command renewals), and `stopped`. `atMs` comes from the injected server clock. Events
-are serialized with connection setup and frame work; callback errors are isolated from authentication, commands, and
-lease release. `createLifecycleHandler(context)` can bind a game persistence handler during module registration; the
-event passed to that handler remains limited to those four fields. This is connection telemetry: a successful
+`heartbeat` renewals (including command renewals), and `stopped`. `atMs` comes from the injected server clock; a stop
+event records when closure was first observed/requested, even when accepted work must drain before delivery. A renewal
+that completes after closure does not emit a heartbeat. Callback errors are isolated from authentication, commands,
+and lease release. `createLifecycleHandler(context)` can bind a game persistence handler during module registration;
+the event passed to that handler remains limited to those four fields. This is connection telemetry: a successful
 authenticated socket interval, not foreground presence or gameplay activity.
 
 ## Persistence and validation

@@ -232,7 +232,9 @@ describe.skipIf(!adminUrl)('live rewards and ledger integration (real PostgreSQL
       await expect(database.db.transaction(tx => applyRpgLiveEffects(tx,
         { instanceId, participants: [{ actorId: who.actorId }] },
         [{ type: 'xpGranted', actionId, actorId: who.actorId, xp: 10, xpToNext: progression.xpToNext } as never],
-        clock.nowMs(), { type: 'checkpoint' }))).rejects.toThrow('test forced XP telemetry rollback');
+        clock.nowMs(), { type: 'checkpoint' }))).rejects.toMatchObject({
+          cause: { code: 'P0001', message: 'test forced XP telemetry rollback' },
+        });
     } finally {
       await database.pool.query('DROP TRIGGER fail_live_xp_telemetry ON rpg_live_xp_events');
       await database.pool.query('DROP FUNCTION fail_live_xp_telemetry()');

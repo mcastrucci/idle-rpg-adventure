@@ -56,6 +56,14 @@ Cookie-backed browser requests enforce same-origin checks (use a development pro
 can use Bearer credentials. Configure the auth module's explicit allowed origins when composing a trusted TLS/CDN
 deployment; the server does not enable wildcard CORS.
 
+## Live connection observations
+
+`rpg_connection_sessions` records authenticated socket intervals by connection ID. Each lifecycle event writes only its
+own row, so a replay or delayed event from an older socket cannot close or refresh a newer socket's row. A row left with
+`ended_at IS NULL` after a process crash means the end was not observed; it does not assert that the socket is currently
+connected. Consumers that need an observed-duration bound should use `last_seen_at` for such rows. Explicit stop time
+is captured when closure is first observed, before accepted commands finish draining.
+
 ## Migration ownership
 
 The game migration command applies and verifies the engine journal first (`drizzle`) and the game-owned RPG journal

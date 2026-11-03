@@ -50,13 +50,14 @@ describe.skipIf(!adminUrl)('RPG authenticated connection telemetry (real Postgre
     await persistRpgConnectionLifecycle(database, { type: 'stopped', accountId: session.accountId, connectionId, atMs: clock.nowMs() });
     await persistRpgConnectionLifecycle(database, { type: 'stopped', accountId: session.accountId, connectionId, atMs: clock.nowMs() + 5000 });
     await persistRpgConnectionLifecycle(database, { type: 'heartbeat', accountId: session.accountId, connectionId, atMs: clock.nowMs() + 10000 });
+    await persistRpgConnectionLifecycle(database, { type: 'authenticated', accountId: session.accountId, connectionId, atMs: clock.nowMs() - 20000 });
     const [row] = await database.db.select().from(rpgConnectionSessions).where(eq(rpgConnectionSessions.connectionId, connectionId));
     expect(row).toMatchObject({ connectionId, accountId: session.accountId, endedAt: new Date(clock.nowMs()) });
     expect(row?.lastSeenAt).toEqual(new Date(1_900_000_001_000));
     expect(row?.endedAt?.getTime()).toBeGreaterThanOrEqual(row?.lastSeenAt.getTime() ?? Infinity);
   });
 
-  it('observes abandoned intervals at last_seen_at when a later authenticated connection is acquired', async () => {
+  it('keeps crashed intervals open and bounds observation at last_seen_at without claiming current connection state', async () => {
     const session = await auth.guest(randomBytes(32).toString('base64url'));
     const oldConnectionId = randomUUID(); const newConnectionId = randomUUID();
     const startedAt = clock.nowMs();
@@ -67,7 +68,17 @@ describe.skipIf(!adminUrl)('RPG authenticated connection telemetry (real Postgre
     await persistRpgConnectionLifecycle(database, { type: 'authenticated', accountId: session.accountId, connectionId: newConnectionId, atMs: clock.nowMs() });
     const rows = await database.db.select().from(rpgConnectionSessions).where(eq(rpgConnectionSessions.accountId, session.accountId));
     expect(rows).toHaveLength(2);
-    expect(rows.find(row => row.connectionId === oldConnectionId)?.endedAt).toEqual(new Date(startedAt + 500));
+    expect(rows.find(row => row.connectionId === oldConnectionId)).toMatchObject({ endedAt: null, lastSeenAt: new Date(startedAt + 500) });
     expect(rows.find(row => row.connectionId === newConnectionId)).toMatchObject({ endedAt: null, startedAt: new Date(clock.nowMs()) });
+
+    // Replaying A's authentication after B starts is idempotent and cannot rewrite B.
+    await persistRpgConnectionLifecycle(database, { type: 'authenticated', accountId: session.accountId, connectionId: oldConnectionId, atMs: startedAt - 1000 });
+    const [afterReplay] = await database.db.select().from(rpgConnectionSessions).where(eq(rpgConnectionSessions.connectionId, newConnectionId));
+    expect(afterReplay).toEqual(rows.find(row => row.connectionId === newConnectionId));
+    // Delayed A events are scoped by both account and connection; A cannot mutate B.
+    await persistRpgConnectionLifecycle(database, { type: 'stopped', accountId: session.accountId, connectionId: oldConnectionId, atMs: clock.nowMs() });
+    await persistRpgConnectionLifecycle(database, { type: 'heartbeat', accountId: session.accountId, connectionId: oldConnectionId, atMs: clock.nowMs() + 1000 });
+    const [afterDelayedEvents] = await database.db.select().from(rpgConnectionSessions).where(eq(rpgConnectionSessions.connectionId, newConnectionId));
+    expect(afterDelayedEvents).toEqual(afterReplay);
   });
 });
