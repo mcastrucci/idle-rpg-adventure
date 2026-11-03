@@ -2,8 +2,8 @@ import { randomInt, randomUUID } from 'node:crypto';
 
 import { IncompatibleInstanceError, LiveEffectRejectedError } from './types.ts';
 import type {
-  CommandAck, HostMessage, InstanceLease, InstanceRecord, InstanceStore, JsonValue, LiveClock, LiveConnection, LiveGame,
-  LiveParticipant, LiveStep, ParticipantStatus, ParticipantView, SubmitResult,
+  CommandAck, CreateInstanceInput, HostMessage, InstanceLease, InstanceRecord, InstanceStore, JsonValue, LiveClock, LiveConnection, LiveGame,
+  LiveParticipant, LiveStep, ParticipantStatus, ParticipantView, StoredParticipant, SubmitResult,
 } from './types.ts';
 
 /** Provisional values (open decision #5, ADR-0012); every one is configurable per host. */
@@ -95,6 +95,19 @@ export interface InstanceInspection<S> {
   readonly participants: readonly ParticipantView[];
 }
 
+/** Internal create material split from persistence so a caller can commit it with a larger transaction. */
+export interface PreparedInstanceCreate {
+  readonly token: object;
+  readonly input: CreateInstanceInput;
+}
+
+interface PreparedInstanceData<S> {
+  readonly input: CreateInstanceInput;
+  readonly state: S;
+  readonly commands: Map<string, CommandAck>;
+  readonly participants: readonly StoredParticipant[];
+}
+
 /**
  * In-memory owner of live instances on one node. Each instance's commands, ticks, grace handling and persistence run
  * strictly serialized on its own queue. Persistence goes through the fenced {@link InstanceStore}; losing a fenced write
@@ -117,6 +130,7 @@ export class InstanceHost<S> {
   readonly #seed: () => number;
   readonly #onError: (error: unknown, instanceId: string) => void;
   readonly #instances = new Map<string, Hosted<S>>();
+  readonly #prepared = new WeakMap<object, PreparedInstanceData<S>>();
   #timer: unknown = null;
   #running = false;
 
@@ -138,17 +152,52 @@ export class InstanceHost<S> {
 
   /** Creates an instance: participants' activity CAS `none → live`, initial checkpoint and lease in one transaction. */
   async create(input: { readonly participants: readonly LiveParticipant[]; readonly setup: JsonValue }): Promise<string> {
+    const prepared = this.prepareCreate(input);
+    const lease = await this.#store.create(prepared.input);
+    return this.adoptCreated(prepared, lease);
+  }
+
+  /** Builds initial deterministic state without persistence, for composition with a caller-owned transaction. */
+  prepareCreate(input: { readonly participants: readonly LiveParticipant[]; readonly setup: JsonValue }): PreparedInstanceCreate {
     if (input.participants.length === 0) throw new RangeError('an instance needs participants');
     const instanceId = randomUUID();
     const state = this.#game.init({ instanceId, participants: input.participants, seed: this.#seed(), setup: input.setup });
     const now = this.#clock.nowMs();
     const commands = new Map<string, CommandAck>();
-    const lease = await this.#store.create({ instanceId, gameId: this.#game.id, gameVersion: this.#game.version,
+    // A plugin serializer may return references into its runtime (or into caller-owned setup). Clone the complete
+    // payload before freezing the persistence input, so preparation never freezes caller data as a side effect.
+    const checkpoint = structuredClone(this.#payload(state, 0, commands));
+    const createInput: CreateInstanceInput = freezeJson({ instanceId, gameId: this.#game.id, gameVersion: this.#game.version,
       contentHash: this.#contentHash, participants: input.participants.map((p) => ({ ...p, left: false })),
-      checkpoint: this.#payload(state, 0, commands), nodeId: this.nodeId, nowMs: now, leaseMs: this.#leaseMs });
-    const hosted = this.#host(lease, state, 0, commands, input.participants.map((p) => ({ ...p, left: false })), now);
+      checkpoint, nodeId: this.nodeId, nowMs: now, leaseMs: this.#leaseMs });
+    // Adoption must run from the exact state represented by the prepared checkpoint, with no mutable object shared
+    // with the frozen public input. This also matches crash recovery's restore path.
+    const preparedCheckpoint = checkpoint as unknown as CheckpointPayload;
+    const runtimeState = this.#game.restore(structuredClone(preparedCheckpoint.state));
+    const token = Object.freeze({});
+    this.#prepared.set(token, { input: createInput, state: runtimeState, commands, participants: createInput.participants });
+    return { token, input: createInput };
+  }
+
+  /** Installs runtime only after the caller-owned create transaction has committed. */
+  adoptCreated(prepared: PreparedInstanceCreate, lease: InstanceLease): string {
+    if (lease.instanceId !== prepared.input.instanceId || lease.nodeId !== this.nodeId || lease.generation !== 1 || lease.checkpointSeq !== 0) {
+      throw new Error('prepared instance lease mismatch');
+    }
+    const existing = this.#instances.get(lease.instanceId);
+    if (existing) {
+      if (sameLease(existing.lease, lease)) return lease.instanceId;
+      throw new Error('cannot overwrite hosted instance');
+    }
+    const data = this.#prepared.get(prepared.token);
+    if (!data) throw new Error('unknown or already adopted prepared instance');
+    if (prepared.input !== data.input) throw new Error('prepared instance input was replaced');
+    if (prepared.input.nodeId !== this.nodeId || prepared.input.instanceId !== lease.instanceId) throw new Error('prepared instance owner mismatch');
+    this.#prepared.delete(prepared.token);
+    const now = this.#clock.nowMs();
+    const hosted = this.#host(lease, data.state, 0, data.commands, data.participants, now);
     this.#schedule(hosted);
-    return instanceId;
+    return lease.instanceId;
   }
 
   /** Crash recovery: claims an instance whose lease expired and restores it from its last checkpoint. */
@@ -182,6 +231,13 @@ export class InstanceHost<S> {
   /** Account that may control `actorId` in a hosted instance, if any (transport authorization). */
   participantAccount(instanceId: string, actorId: string): string | null {
     return this.#instances.get(instanceId)?.participants.get(actorId)?.accountId ?? null;
+  }
+
+  /** Fresh in-memory viewer projection for authenticated HTTP navigation refreshes. */
+  currentView(instanceId: string, actorId: string, accountId: string): { readonly view: JsonValue; readonly participants: readonly ParticipantView[] } {
+    const hosted = this.#require(instanceId);
+    this.#participant(hosted, actorId, accountId);
+    return { view: this.#game.view(hosted.state, actorId), participants: this.#views(hosted) };
   }
 
   /**
@@ -465,6 +521,16 @@ export class InstanceHost<S> {
       this.#broadcast(hosted, { type: 'live.event', instanceId: hosted.lease.instanceId, epoch: hosted.epoch,
         seq: eventSeq, source: entry.source, event: entry.event });
     });
+    this.#publishViews(hosted);
+  }
+
+  /** Full authoritative owner projections keep tick-driven presentation fresh without client-side simulation. */
+  #publishViews(hosted: Hosted<S>): void {
+    for (const [actorId, participant] of hosted.participants) {
+      if (!participant.connection || participant.status !== 'connected') continue;
+      participant.connection.push({ type: 'live.snapshot', instanceId: hosted.lease.instanceId, epoch: hosted.epoch, seq: hosted.seq,
+        view: this.#game.view(hosted.state, actorId), participants: this.#views(hosted) });
+    }
   }
 
   /** Re-validates ownership once the locally known lease has run out (e.g. after a long pause of this process). */
@@ -593,5 +659,18 @@ export class InstanceHost<S> {
 
 function positive(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive integer`);
+  return value;
+}
+
+function sameLease(left: InstanceLease, right: InstanceLease): boolean {
+  return left.instanceId === right.instanceId && left.nodeId === right.nodeId && left.generation === right.generation &&
+    left.checkpointSeq === right.checkpointSeq;
+}
+
+function freezeJson<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value as Record<string, unknown>)) freezeJson(nested);
+    Object.freeze(value);
+  }
   return value;
 }

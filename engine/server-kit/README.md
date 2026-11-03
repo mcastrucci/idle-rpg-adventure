@@ -13,7 +13,7 @@ also closes resources. `installShutdownHandlers` adds SIGTERM/SIGINT handling wi
 Modules declare a unique domain name, process roles and `register(app, context)`. Context contains explicit `clock`,
 `database` and immutable `content` dependencies. Fastify encapsulates module decorations/hooks; use explicit service
 interfaces when one module needs another. Register resource cleanup through `onClose`. All named domain boundaries
-(auth, character, ledger, content, conquest, live-host, expeditions, party, jobs, debug) are available; only implemented
+(auth, character, ledger, content, conquest, live-host, expeditions, party, jobs, debug, world) are available; only implemented
 modules are registered. This foundation installs no empty domain modules. Ownership/balances are changed through the
 ledger transaction API, and only activity may change an actor's activity state (ADR-0007).
 

@@ -10,7 +10,7 @@ import { App } from './App.tsx';
 import type { LiveConnection } from './services.ts';
 
 const CHARACTER: CharacterDto = {
-  actorId: 'a', accountId: 'acc', gameId: 'rpg', name: 'Ada', level: 3, xp: 120,
+  actorId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', accountId: 'acc', gameId: 'rpg', name: 'Ada', level: 3, xp: 120,
   attributes: { STR: 9, AGI: 4, INT: 2, VIT: 10, SPI: 5 }, unspentPoints: 0,
   skillLoadout: ['skill:shield_bash', 'skill:guard'], automationRules: [], activityState: 'none', activityId: null, version: 1,
 };
@@ -32,10 +32,27 @@ function fakeLive(): LiveConnection & { set(state: Partial<LiveState>): void; st
   return live;
 }
 
-function services(characters: CharacterDto[]) {
+function services(characters: CharacterDto[], recordPath: (path: string) => void = () => {}) {
+  const world = {
+    hub: { id: 'area:sanctuary', label: 'area.sanctuary.name', position: { x: 0, y: 0 } },
+    areas: [{ id: 'area:region_1', label: 'area.region_1.name', visibility: 'known', position: { x: 0, y: 100 }, lockedReasons: [],
+      completion: { discovered: 3, required: 6, completed: false, mandatoryBosses: { required: 1, defeated: 0, complete: false, bosses: [{ label: 'Mandatory boss', defeated: false }] } },
+      danger: { status: 'known', minLevel: 1, maxLevel: 5 }, idle: { unlocked: true, activities: ['idle:region_1.hunt'] }, actions: { enterLive: true, startIdle: true } }],
+    routes: [{ id: 'route:sanctuary-region1', from: 'area:sanctuary', to: 'area:region_1' }],
+  };
   const fetch: FetchLike = async (input) => {
+    recordPath(input);
     if (input === '/auth/session') return Response.json({ accountId: 'acc', guest: true, email: null, expiresAtMs: 1 });
     if (input === '/characters') return Response.json(characters);
+    if (input.endsWith('/world')) return Response.json(world);
+    if (input.startsWith('/live/current/')) return Response.json({ current: null });
+    if (input.startsWith('/live/options/')) return Response.json({ actorId: input.split('/').at(-1),
+      areas: [{ id: 'area:region_1', label: 'The Verdant Hollow', startLocationId: 'loc:region_1.portal_clearing' }], supplies: [] });
+    if (input.startsWith('/characters/') && input.endsWith('/expedition-options')) return Response.json({
+      actorId: input.split('/')[2], areas: [{ areaId: 'area:region_1', kind: 'explorable',
+        activities: [{ activityId: 'idle:region_1.hunt', simulatorId: 'rpg.hunt', available: true }] }],
+      durationsMin: [30], paceBp: { min: 10_000, max: 10_000, default: 10_000 }, consumables: [],
+    });
     return Response.json({ error: 'not_found' }, { status: 404 });
   };
   return { api: new ApiClient(fetch), live: fakeLive(), storage: { getItem: () => null, setItem: () => {} } };
@@ -47,7 +64,7 @@ describe('App shell', () => {
 
   it('renders the header and navigates between the Sanctuary tabs', async () => {
     const deps = services([CHARACTER]);
-    render(<App services={deps} />);
+    const { container } = render(<App services={deps} />);
     expect(await screen.findByRole('heading', { name: 'Ada' })).toBeDefined();
     expect(screen.getByText('Lv 3')).toBeDefined();
     expect(screen.getByText('No expedition')).toBeDefined();
@@ -63,6 +80,12 @@ describe('App shell', () => {
       act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
       expect(await screen.findByRole('heading', { name: heading })).toBeDefined();
       expect(screen.getByRole('link', { name: label }).getAttribute('aria-current')).toBe('page');
+      if (label === 'Inventory') {
+        const worldTab = container.querySelector('.world-tab');
+        expect(worldTab).not.toBeNull();
+        expect(worldTab?.hasAttribute('hidden')).toBe(true);
+        expect(worldTab?.hasAttribute('inert')).toBe(true);
+      }
     }
     fireEvent.click(screen.getByRole('link', { name: 'Character' }));
     act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
@@ -87,6 +110,31 @@ describe('App shell', () => {
     expect(await screen.findByRole('heading', { name: 'World map' })).toBeDefined();
   });
 
+  it('selecting a map area has no side effect; explicit live and idle actions route with that area', async () => {
+    const paths: string[] = [];
+    render(<App services={services([CHARACTER], (path) => paths.push(path))} />);
+    fireEvent.click(await screen.findByRole('link', { name: 'World map' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    const portal = await screen.findByRole('button', { name: /Verdant Hollow.*Required locations 3 \/ 6/ });
+    fireEvent.click(portal);
+    expect(window.location.hash).toBe('#/world');
+    expect(paths).not.toContain('/live/start');
+    expect(await screen.findByText('Required locations: 3 / 6')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Enter live' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByRole('heading', { name: 'Live adventure' })).toBeDefined();
+    expect(window.location.hash).toBe('#/world/live/area%3Aregion_1');
+    expect((await screen.findByLabelText('Area') as HTMLSelectElement).value).toBe('area:region_1');
+    fireEvent.click(screen.getByRole('link', { name: '← World map' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    fireEvent.click(await screen.findByRole('button', { name: /Verdant Hollow.*Required locations 3 \/ 6/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start expedition' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(window.location.hash).toBe('#/expeditions/area%3Aregion_1');
+    expect(await screen.findByRole('heading', { name: 'Expeditions' })).toBeDefined();
+    expect((await screen.findByLabelText('Conquered area') as HTMLSelectElement).value).toBe('area:region_1');
+  });
+
   it('loads the durable death summary with the character after opening the app', async () => {
     const actorId = '22222222-2222-4222-8222-222222222222';
     const paths: string[] = [];
@@ -103,10 +151,10 @@ describe('App shell', () => {
       if (input === `/characters/${actorId}/live-death`) return Response.json({ death });
       return Response.json({ error: 'not_found' }, { status: 404 });
     };
-    render(<App services={{ api: new ApiClient(fetch), live: fakeLive(), storage: { getItem: () => null, setItem: () => {} } }} />);
-    expect(await screen.findByText('Wraith · 24 damage')).toBeDefined();
+    const { container } = render(<App services={{ api: new ApiClient(fetch), live: fakeLive(), storage: { getItem: () => null, setItem: () => {} } }} />);
+    await waitFor(() => expect(container.querySelector('.death-panel__causes li')?.textContent).toContain('24 damage'));
     expect(paths).toContain(`/characters/${actorId}/live-death`);
-    expect(screen.getByText('The corpse held no loot.')).toBeDefined();
+    expect(screen.getAllByText('The corpse held no loot.').length).toBeGreaterThan(0);
   });
 
   it('shows the connection banner and disables commands while disconnected', async () => {

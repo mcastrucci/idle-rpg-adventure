@@ -3,3 +3,4 @@ export * from './commands.ts';
 export * from './expeditions.ts';
 export * from './inventory.ts';
 export * from './live.ts';
+export * from './world.ts';

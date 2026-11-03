@@ -3,8 +3,10 @@ import { useEffect } from 'react';
 import { CharacterScreen } from '../screens/CharacterScreen.tsx';
 import { ExpeditionScreen } from '../screens/ExpeditionScreen.tsx';
 import { InventoryScreen } from '../screens/InventoryScreen.tsx';
+import { LiveScreen } from '../screens/LiveScreen.tsx';
 import { PlaceholderScreen } from '../screens/Placeholder.tsx';
 import { RulesScreen } from '../screens/RulesScreen.tsx';
+import { WorldMapScreen } from '../screens/WorldMapScreen.tsx';
 import { ConnectionBanner } from './ConnectionBanner.tsx';
 import { Header } from './Header.tsx';
 import type { AppServices } from './services.ts';
@@ -52,8 +54,12 @@ export function App({ services }: { services: AppServices }) {
             <button type="button" className="button" onClick={retry}>Try again</button>
           </div>
         )}
-        {state.phase === 'ready' && <Screen tab={tab} character={character} canCommand={canCommand} run={runCharacterCommand} live={live}
-          subroute={subroute} api={services.api} runExpedition={runExpeditionCommand} refreshCharacter={refreshCharacter} />}
+        {state.phase === 'ready' && <>
+          <Screen tab={tab} character={character} canCommand={canCommand} run={runCharacterCommand} live={live}
+            subroute={subroute} api={services.api} runExpedition={runExpeditionCommand} refreshCharacter={refreshCharacter} />
+          <WorldTab visible={tab === 'world'} subroute={subroute} character={character} canCommand={canCommand} api={services.api}
+            live={live} refreshCharacter={refreshCharacter} />
+        </>}
       </main>
       <TabBar active={tab} onSelect={selectTab} />
     </div>
@@ -78,8 +84,42 @@ function Screen({ tab, subroute, character, canCommand, run, api, live, runExped
     case 'inventory':
       return <InventoryScreen character={character} canCommand={canCommand} api={api} runCommand={runExpedition} refreshCharacter={refreshCharacter} />;
     case 'world':
-      return <PlaceholderScreen title="World map">The world map needs a client content endpoint and the client-kit map.</PlaceholderScreen>;
+      return null;
     case 'expeditions':
-      return <ExpeditionScreen character={character} canCommand={canCommand} api={api} runCommand={runExpedition} refreshCharacter={refreshCharacter} />;
+      return <ExpeditionScreen character={character} canCommand={canCommand} api={api} runCommand={runExpedition} refreshCharacter={refreshCharacter}
+        initialAreaId={decodeRoutePart(subroute)} />;
   }
+}
+
+/** Keep the live session mounted while navigating between the map and adventure subroutes or other tabs. */
+function WorldTab({ visible, subroute, character, canCommand, api, live, refreshCharacter }: {
+  visible: boolean;
+  subroute: string | null;
+  character: Parameters<typeof CharacterScreen>[0]['character'];
+  canCommand: boolean;
+  api: ApiClient;
+  live: AppServices['live'];
+  refreshCharacter: () => Promise<void>;
+}) {
+  const route = subroute?.split('/') ?? [];
+  const inLive = route[0] === 'live';
+  const liveAreaId = inLive ? decodeRoutePart(route[1] ?? null) : undefined;
+  if (!character) return <div hidden={!visible} inert={!visible}><PlaceholderScreen title="World map">Create your character before exploring Sanctuary’s portals.</PlaceholderScreen></div>;
+  return <div className="world-tab" hidden={!visible} inert={!visible}>
+    <div hidden={inLive} inert={inLive}>
+      <WorldMapScreen actorId={character.actorId} characterLevel={character.level} api={api} active={visible && !inLive}
+        liveActive={character.activityState === 'live'} idleActive={character.activityState === 'expedition'}
+        refreshKey={`${inLive ? 'live' : 'map'}:${character.activityState}:${character.level}`}
+        onEnterLive={(areaId) => { window.location.hash = `#/world/live/${encodeURIComponent(areaId)}`; }}
+        onStartIdle={(areaId) => { window.location.hash = `#/expeditions/${encodeURIComponent(areaId)}`; }} />
+    </div>
+    <div hidden={!inLive} inert={!inLive}>
+      <LiveScreen actorId={character.actorId} initialAreaId={liveAreaId} api={api} live={live} canCommand={canCommand} onCharacterRefresh={refreshCharacter} />
+    </div>
+  </div>;
+}
+
+function decodeRoutePart(value: string | null): string | undefined {
+  if (!value) return undefined;
+  try { return decodeURIComponent(value); } catch { return undefined; }
 }

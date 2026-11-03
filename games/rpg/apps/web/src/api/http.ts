@@ -1,7 +1,7 @@
 import type { CharacterDto, ContentInfoDto, IssuedSessionDto, SessionDto } from './types.ts';
 import type { ExpeditionDto, ExpeditionEstimateDto, ExpeditionEstimateRequest, ExpeditionOptionsDto } from '@rpg/protocol';
-import { parseExpeditionDto, parseExpeditionEstimateDto, parseExpeditionOptionsDto, parseLiveDeathResponse } from '@rpg/protocol';
-import type { LiveDeathSummaryDto } from '@rpg/protocol';
+import { parseExpeditionDto, parseExpeditionEstimateDto, parseExpeditionOptionsDto, parseLiveDeathResponse, parseWorldViewDto } from '@rpg/protocol';
+import type { LiveDeathSummaryDto, WorldViewDTO } from '@rpg/protocol';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 export type HttpMethod = 'GET' | 'POST' | 'PATCH';
@@ -85,6 +85,9 @@ export class ApiClient {
   liveDeath(actorId: string): Promise<LiveDeathSummaryDto | null> {
     return this.request<unknown>('GET', `/characters/${encodeURIComponent(actorId)}/live-death`)
       .then((value) => parseLiveDeathResponse(value).death);
+  }
+  getWorldView(actorId: string): Promise<WorldViewDTO> {
+    return this.request<unknown>('GET', `/characters/${encodeURIComponent(actorId)}/world`).then(parseWorldViewDto);
   }
   expedition(expeditionId: string): Promise<ExpeditionDto> {
     return this.request<unknown>('GET', `/expeditions/${encodeURIComponent(expeditionId)}`).then(parseExpeditionDto);

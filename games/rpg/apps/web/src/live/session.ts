@@ -14,6 +14,8 @@ export interface LiveSessionState {
   readonly baselineSeq: number | null;
   readonly view: LiveViewDto | null;
   readonly events: readonly { readonly epoch: number; readonly seq: number; readonly source: 'game' | 'host'; readonly event: LiveJson }[];
+  /** Bounded history of accepted, deduplicated event frames; unlike `events`, snapshots do not clear this log. */
+  readonly recentEvents: readonly { readonly epoch: number; readonly seq: number; readonly source: 'game' | 'host'; readonly event: LiveJson }[];
   readonly pendingCommandIds: readonly string[];
   readonly pendingCount: number;
   readonly lastAck: Extract<LiveServerFrame, { readonly type: 'live.ack' }> | null;
@@ -23,18 +25,21 @@ export interface LiveSessionState {
 
 interface PendingCommand { readonly commandId: string; readonly command: LiveJson; sent: boolean }
 export interface LiveSessionOptions {
-  readonly client: LiveClient;
+  readonly client: LiveSessionClient;
   readonly instanceId: string;
   readonly actorId: string;
   readonly newId?: () => string;
 }
+
+/** Minimal surface of the app-wide authenticated socket needed by a game session. */
+export type LiveSessionClient = Pick<LiveClient, 'state' | 'subscribe' | 'subscribeFrames' | 'sendFrame' | 'start' | 'stop'>;
 
 /**
  * Game-session state layered on the app's single authenticated LiveClient socket. Commands remain pending with the
  * same ID until a live.ack arrives, so reconnect can safely replay an ambiguous send through the server dedupe log.
  */
 export class LiveSession {
-  readonly #client: LiveClient;
+  readonly #client: LiveSessionClient;
   readonly #instanceId: string;
   readonly #actorId: string;
   readonly #newId: () => string;
@@ -51,6 +56,7 @@ export class LiveSession {
   #baselineSeq: number | null = null;
   #view: LiveViewDto | null = null;
   #events: LiveSessionState['events'] = [];
+  #recentEvents: LiveSessionState['recentEvents'] = [];
   #closed: LiveSessionState['closed'] = null;
   #error: string | null = null;
   #terminal = false;
@@ -122,7 +128,9 @@ export class LiveSession {
       }
       if (this.#events.length >= 256) { this.#attached = false; this.#attach(true); return; }
       this.#seq = frame.seq;
-      this.#events = [...this.#events, { epoch: frame.epoch, seq: frame.seq, source: frame.source, event: frame.event }];
+      const accepted = { epoch: frame.epoch, seq: frame.seq, source: frame.source, event: frame.event };
+      this.#events = [...this.#events, accepted];
+      this.#recentEvents = [...this.#recentEvents, accepted].slice(-256);
       this.#publish(); return;
     }
     if (frame.type === 'live.attached' && frame.instanceId === this.#instanceId) {
@@ -181,6 +189,7 @@ export class LiveSession {
   #snapshot(): LiveSessionState {
     return { connection: this.#connection, instanceId: this.#instanceId, attached: this.#attached, epoch: this.#epoch,
       seq: this.#seq, baselineEpoch: this.#baselineEpoch, baselineSeq: this.#baselineSeq, view: this.#view, events: this.#events,
+      recentEvents: this.#recentEvents,
       pendingCommandIds: [...this.#pending.keys()], pendingCount: this.#pending.size,
       lastAck: this.#lastAck, closed: this.#closed, error: this.#error };
   }

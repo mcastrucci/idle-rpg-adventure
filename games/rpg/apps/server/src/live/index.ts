@@ -3,7 +3,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { createLiveHostModule, getHoldings, itemInstances, actors, lockActors } from '@engine/server-kit';
 import type { ActorTransaction, Clock, Database, LiveHostHandle, LiveHostModuleOptions, LoadedContent } from '@engine/server-kit';
 import { ActivityConflictError } from '@engine/live-kernel';
-import type { CreateInstanceInput, JsonValue } from '@engine/live-kernel';
+import type { CreateInstanceInput, JsonValue, PreparedInstanceCreate } from '@engine/live-kernel';
 import type { ConsumableStack } from '@rpg/rpg-sim';
 import { InstanceHost } from '@engine/live-kernel';
 import { ItemSchema } from '@rpg/rpg-schema';
@@ -12,6 +12,7 @@ import type { Item } from '@rpg/rpg-schema';
 import { characters } from '../characters/schema.ts';
 import { BASIC_ATTACK } from '../characters/validation.ts';
 import { readRpgEvalContext } from '../expeditions/progress.ts';
+import { requireRpgAreaAccessible } from '../world/access.ts';
 import { expireRpgCorpse, rpgLiveStoreHooks } from './effects.ts';
 import { liveDeaths } from './death-schema.ts';
 import { createRpgLiveGame } from './game.ts';
@@ -98,6 +99,31 @@ export async function startRpgLiveInstance(host: RpgLiveHost | InstanceHost<RpgL
     }
   }
   throw new Error('live start retry exhausted');
+}
+
+/** Prepares a solo region start inside the shared command transaction, with actor lock held through create/CAS. */
+export async function prepareRpgLiveStart(tx: ActorTransaction, host: RpgLiveHost, accountId: string,
+  input: { readonly actorId: string; readonly areaId: string; readonly supplies: readonly ConsumableStack[] }): Promise<PreparedInstanceCreate> {
+  const actorId = input.actorId.toLowerCase();
+  const instanceHost = host.host();
+  const content = host.content();
+  const clock = hostClocks.get(instanceHost);
+  if (!clock) throw new Error('live start needs the server-injected clock');
+  const nowMs = clock.nowMs();
+  const [actor] = await lockActors(tx, [actorId]);
+  if (!actor || actor.accountId !== accountId || actor.gameId !== 'rpg') throw new RangeError('unknown character');
+  if (actor.activityState !== 'none' || actor.activityId !== null) throw new ActivityConflictError();
+  const [character] = await tx.select().from(characters).where(eq(characters.actorId, actorId));
+  if (!character) throw new RangeError('unknown character');
+  const holdings = await getHoldings(tx, actorId);
+  const progress = await readRpgEvalContext(tx, actorId, character.level, holdings);
+  requireRpgAreaAccessible(content, progress, input.areaId);
+  const corpora = await tx.select().from(liveDeaths).where(and(eq(liveDeaths.actorId, actorId), eq(liveDeaths.status, 'active')));
+  for (const corpse of corpora.filter(row => row.expiresAt.getTime() <= nowMs)) await expireRpgCorpse(tx, actorId, corpse.deathId);
+  const hero = await readHeroSetup(tx, actorId, input.supplies, content, nowMs);
+  const setup = JSON.parse(JSON.stringify({ area: input.areaId, heroes: [hero] })) as JsonValue;
+  const prepared = instanceHost.prepareCreate({ participants: [{ actorId, accountId }], setup });
+  return prepared;
 }
 
 class StaleRpgLiveStartError extends Error { readonly code = 'stale_start_snapshot'; }

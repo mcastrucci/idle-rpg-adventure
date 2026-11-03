@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseLiveClientRequest, parseLiveDeathResponse, parseLiveServerFrame } from './live.ts';
+import { ZodError } from 'zod';
+import { parseLiveClientRequest, parseLiveCurrent, parseLiveDeathResponse, parseLiveOptions, parseLiveServerFrame,
+  parseLiveStartRequest, parseLiveStartResponse } from './live.ts';
 
 const actorId = '11111111-1111-4111-8111-111111111111';
 const instanceId = '22222222-2222-4222-8222-222222222222';
@@ -32,6 +34,14 @@ describe('live wire protocol', () => {
       event: { type: 'gathered', nodeId: 'node:one', drops: [{ item: 'item:herb', qty: 2 }], gold: 3 } })).toMatchObject({ type: 'live.event' });
     expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 11, source: 'game',
       event: { type: 'corpseRecovered', actorId, repeat: false } })).toMatchObject({ type: 'live.event' });
+    const bossRisk = { locationId: 'location:boss', enemies: [{ enemy: 'enemy:warden', rank: 'boss', level: 5 }],
+      heroes: [{ actorId, hp: 20, maxHp: 30, healingConsumables: 1 }], retreatAllowed: false,
+      onDeath: ['live.death.run_bag_to_corpse', 'live.death.xp_penalty'], deathConsequences: [{ actorId, xpLost: 4, xpBeforeTotal: 40,
+        runBag: { items: [{ item: 'item:herb', qty: 2 }], gold: 3, uniques: [{ itemId: instanceId, definition: 'iron_sabre', slot: null, rolls: {} }] } }] };
+    expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 12, source: 'game',
+      event: { type: 'bossRoomWarning', exitId: 'exit:boss', risk: bossRisk } })).toMatchObject({ type: 'live.event' });
+    expect(() => parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 13, source: 'game',
+      event: { type: 'bossRoomWarning', exitId: 'exit:boss', risk: { ...bossRisk, retreatAllowed: true } } })).toThrow();
     expect(() => parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 12, source: 'game',
       event: { type: 'corpseRecovered', actorId, corpseId: instanceId, repeat: false } })).toThrow();
     expect(parseLiveServerFrame({ type: 'live.ack', instanceId, commandId: actorId, status: 'applied', duplicate: true }))
@@ -50,5 +60,19 @@ describe('live wire protocol', () => {
     expect(response.death?.corpse.contents.uniques[0]?.itemId).toBe(actorId);
     expect(parseLiveDeathResponse({ death: null })).toEqual({ death: null });
     expect(() => parseLiveDeathResponse({ death: { corpse: { status: 'unknown' } } })).toThrow();
+  });
+
+  it('validates the owner-scoped solo entry DTOs and rejects client-supplied setup fields', () => {
+    expect(parseLiveOptions({ actorId, areas: [{ id: 'area:region_1', label: 'The Green March', startLocationId: 'location:gate' }],
+      supplies: [{ item: 'item:potion', label: 'Healing draught', availableQty: 3 }] })).toMatchObject({ actorId });
+    expect(parseLiveStartRequest({ commandId: instanceId, actorId, areaId: 'area:region_1',
+      supplies: [{ item: 'item:potion', qty: 2 }] })).toMatchObject({ actorId, areaId: 'area:region_1' });
+    expect(() => parseLiveStartRequest({ commandId: instanceId, actorId, areaId: 'area:region_1', supplies: [], seed: 1 })).toThrow();
+    expect(() => parseLiveStartRequest({ commandId: instanceId, actorId, areaId: 'area:region_1',
+      supplies: [{ item: 'item:potion', qty: 1 }, { item: 'item:potion', qty: 1 }] })).toThrow(ZodError);
+    expect(parseLiveStartResponse({ instanceId })).toEqual({ instanceId });
+    expect(parseLiveCurrent({ current: null })).toEqual({ current: null });
+    expect(parseLiveCurrent({ current: { instanceId, actorId, view: { phase: 'exploring', heroes: [], groups: [] },
+      participants: [{ actorId, status: 'connected' }] } })).toMatchObject({ current: { instanceId, actorId } });
   });
 });

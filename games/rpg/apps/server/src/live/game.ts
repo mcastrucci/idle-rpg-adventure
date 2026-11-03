@@ -27,6 +27,8 @@ import type { RpgLiveEffect } from './effects.ts';
 import { BOSS_ROOM_TAG, buildLiveWorld, SAFE_TAG, SECRET_TAG } from './world.ts';
 import type { LiveLocation, LiveWorld } from './world.ts';
 
+const BASIC_ATTACK_SKILL = 'skill:basic_attack';
+
 export const RPG_LIVE_GAME_ID = 'rpg.live';
 /** Bumped for owner corpse snapshots, death evidence/summary and unique corpse bag projection; old checkpoints are refused. */
 export const RPG_LIVE_VERSION = `rpg.live@0.5.0+${ENGINE_VERSION}`;
@@ -684,10 +686,20 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       const corpseHotspots = viewer?.corpses.filter(corpse => corpse.areaId === state.area && corpse.locationId === state.location)
         .map(corpse => ({ id: `corpse:${corpse.id}`, type: 'corpse', textKey: 'live.corpse',
           done: state.hotspotsDone.includes(`${here.id}/corpse:${corpse.id}`) })) ?? [];
+      const combat = state.combat;
       return {
         phase: state.phase, area: state.area, location: state.location,
         heroes: state.heroes.map((hero) => ({ actorId: hero.actorId, hp: hero.hp, maxHp: maxHp(hero), present: hero.present,
-          consumables: hero.consumables, level: hero.build.level, xp: hero.xp })),
+          consumables: hero.consumables.map((stack) => ({ ...stack,
+            ...(combatContent.items[stack.item]?.nameKey ? { labelKey: combatContent.items[stack.item]?.nameKey } : {}) })), level: hero.build.level, xp: hero.xp,
+          skills: hero.skills.filter((skill) => skill !== BASIC_ATTACK_SKILL).slice(0, 4).map((id, index) => {
+            const skill = combatContent.skills[id];
+            const actor = state.combat?.actors.find((candidate) => candidate.id === hero.actorId);
+            const readyAtTick = actor?.cooldowns[id] ?? 0;
+            return { id, ...(skill?.nameKey ? { labelKey: skill.nameKey } : {}), slot: index + 1,
+              cooldownTicks: skill?.cooldownTicks ?? 0, cooldownRemainingTicks: Math.max(0, readyAtTick - (state.combat?.tick ?? 0)),
+              windupTicks: skill?.windupTicks ?? 0 };
+          }), automationEnabled: state.combat?.actors.find((candidate) => candidate.id === hero.actorId)?.auto ?? true })),
         groups: currentGroups(state).map((group) => ({ id: group.id, enemies: group.enemies, boss: group.boss, defeated: group.defeated })),
         runBag: Object.entries(state.runBag).sort(([a], [b]) => a.localeCompare(b)).map(([actorId, bag]) => ({ actorId,
           items: Object.entries(bag.items).sort(([a], [b]) => a.localeCompare(b)).map(([item, qty]) => ({ item, qty })), gold: bag.gold,
@@ -702,8 +714,27 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
         resources: here.resources.map((r) => ({ nodeId: r.nodeId, resource: r.resource, gathered: state.gathered.includes(`${here.id}/${r.nodeId}`) })),
         flags: state.flags,
         canReturn: state.phase === 'exploring' && mayReturn(state),
-        combat: state.combat === null ? null : { tick: state.combat.tick, groupId: state.combatGroup,
-          actors: state.combat.actors.map((actor) => ({ id: actor.id, side: actor.side, hp: actor.hp, alive: actor.alive })) },
+        combat: combat === null ? null : { tick: combat.tick, groupId: state.combatGroup,
+          actors: combat.actors.map((actor) => {
+            const enemy = actor.enemy ? combatContent.enemies[actor.enemy] : undefined;
+            const queued = actor.queued === null ? null : actor.queued.kind === 'useSkill' ? { ...actor.queued,
+              ...(combatContent.skills[actor.queued.skill]?.nameKey ? { labelKey: combatContent.skills[actor.queued.skill]?.nameKey } : {}) } : { ...actor.queued,
+              ...(combatContent.items[actor.queued.item]?.nameKey ? { labelKey: combatContent.items[actor.queued.item]?.nameKey } : {}) };
+            return { id: actor.id, side: actor.side, hp: actor.hp, maxHp: actor.stats.maxHp, alive: actor.alive,
+              ...(enemy?.nameKey ? { labelKey: enemy.nameKey } : {}), ...(actor.side === 'hero' ? { auto: actor.auto } : {}),
+              queued, windup: actor.windup === null ? null : { skill: actor.windup.skill,
+                ...(combatContent.skills[actor.windup.skill]?.nameKey ? { labelKey: combatContent.skills[actor.windup.skill]?.nameKey } : {}),
+                targetIds: actor.windup.targetIds, startedTick: actor.windup.startedTick, resolveAtTick: actor.windup.resolveAtTick },
+              cooldowns: actor.skills.map((skill) => ({ skill, readyAtTick: actor.cooldowns[skill] ?? 0,
+                remainingTicks: Math.max(0, (actor.cooldowns[skill] ?? 0) - combat.tick) })),
+              effects: combat.effects.filter((effect) => effect.holderId === actor.id).map((effect) => ({ id: effect.uid,
+                origin: effect.origin, ...((combatContent.skills[effect.origin]?.nameKey ?? combatContent.items[effect.origin]?.nameKey)
+                  ? { originLabelKey: combatContent.skills[effect.origin]?.nameKey ?? combatContent.items[effect.origin]?.nameKey } : {}),
+                sourceId: effect.sourceId, remaining: effect.remaining, unit: effect.unit, type: effect.type,
+                ...('amount' in effect ? { amount: effect.amount } : 'perTick' in effect ? { amount: effect.perTick } : {}),
+                ...('school' in effect ? { school: effect.school } : {}), ...('stat' in effect ? { stat: effect.stat } : {}) })),
+            };
+          }) },
       } as unknown as JsonValue;
     },
   };

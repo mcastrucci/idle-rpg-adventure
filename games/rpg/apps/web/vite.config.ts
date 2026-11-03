@@ -19,6 +19,7 @@ export default defineConfig({
       '/auth': { ...proxied, ws: true },
       '/characters': proxied,
       '/expeditions': proxied,
+      '/live': proxied,
       '/merchant': proxied,
       '/content': proxied,
       '/health': proxied,

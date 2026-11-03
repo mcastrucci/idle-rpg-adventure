@@ -21,6 +21,8 @@ interface Props {
   readonly api: ApiClient;
   readonly runCommand: <T,>(request: CommandRequest<T>) => Promise<T>;
   readonly refreshCharacter: () => Promise<void>;
+  /** Optional area selected from the world map; server expedition options decide whether it is usable. */
+  readonly initialAreaId?: string | undefined;
   /** Quiet period after the last setup change before an estimate is requested. */
   readonly estimateDebounceMs?: number;
 }
@@ -29,7 +31,7 @@ const POLL_MS = 15_000;
 const ESTIMATE_DEBOUNCE_MS = 400;
 const RULES_PREVIEW = 4;
 
-export function ExpeditionScreen({ character, canCommand, api, runCommand, refreshCharacter, estimateDebounceMs = ESTIMATE_DEBOUNCE_MS }: Props) {
+export function ExpeditionScreen({ character, canCommand, api, runCommand, refreshCharacter, initialAreaId, estimateDebounceMs = ESTIMATE_DEBOUNCE_MS }: Props) {
   const actorId = character?.actorId ?? null;
   const activeId = character?.activityState === 'expedition' ? character.activityId : null;
   const [options, setOptions] = useState<ExpeditionOptionsDto | null>(null);
@@ -58,14 +60,15 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
       const value = await api.expeditionOptions(actorId);
       setOptions(value);
       const allowedAreas = value.areas.filter((area) => area.activities.some((activity) => activity.available));
-      setAreaId((current) => allowedAreas.some((area) => area.areaId === current) ? current : allowedAreas[0]?.areaId ?? '');
+      setAreaId((current) => allowedAreas.find((area) => area.areaId === initialAreaId)?.areaId
+        ?? allowedAreas.find((area) => area.areaId === current)?.areaId ?? allowedAreas[0]?.areaId ?? '');
       setDurationMin((current) => value.durationsMin.includes(current) ? current : value.durationsMin[0] ?? 0);
       setPaceBp((current) => Math.min(value.paceBp.max, Math.max(value.paceBp.min, current || value.paceBp.default)));
     } catch (failure) {
       setOptions(null);
       setOptionsError(describeError(failure));
     }
-  }, [actorId, api]);
+  }, [actorId, api, initialAreaId]);
 
   const trackingId = activeId ?? (expedition?.state === 'running' ? expedition.id : null);
   const loadExpedition = useCallback(async () => {
@@ -212,6 +215,7 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
 
   return (
     <section className="screen" aria-labelledby="expedition-title">
+      {initialAreaId && <a className="back-link" href="#/world">← World map</a>}
       <h1 id="expedition-title" className="screen__title">Expeditions</h1>
       {!character && <p className="muted">Create a character before starting an expedition.</p>}
       {optionsError && <p className="form__error" role="alert">Could not load available expeditions ({optionsError}).</p>}

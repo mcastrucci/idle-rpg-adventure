@@ -1,0 +1,259 @@
+.world-map {
+  --world-map-accent: #8fd5c3;
+  --world-map-accent-contrast: #102520;
+  --world-map-surface: #10191b;
+  --world-map-raised: #1b292b;
+  --world-map-text: #f1f5ee;
+  --world-map-muted: #a8b8b2;
+  --world-map-route: #65857e;
+  --world-map-locked: #87918f;
+  --world-map-border: #314344;
+  position: relative;
+  display: grid;
+  gap: 0.75rem;
+  width: 100%;
+  color: var(--world-map-text);
+  font: inherit;
+}
+
+.world-map__canvas-wrap {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--world-map-border);
+  border-radius: 1.1rem;
+  background:
+    radial-gradient(ellipse at 52% 42%, color-mix(in srgb, var(--world-map-accent) 9%, transparent), transparent 55%),
+    linear-gradient(155deg, color-mix(in srgb, var(--world-map-surface) 94%, white), var(--world-map-surface) 72%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
+}
+
+.world-map__canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1000 / 620;
+  color: var(--world-map-text);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.world-map__route {
+  fill: none;
+  stroke: var(--world-map-route);
+  stroke-dasharray: 6 9;
+  stroke-linecap: round;
+  stroke-width: 3;
+  opacity: 0.78;
+  vector-effect: non-scaling-stroke;
+}
+
+.world-map__hub,
+.world-map__area {
+  cursor: pointer;
+  outline: none;
+}
+
+.world-map__hub:focus-visible .world-map__hub-core,
+.world-map__area:focus-visible .world-map__area-core,
+.world-map__hub[aria-pressed="true"] .world-map__hub-core,
+.world-map__area[aria-pressed="true"] .world-map__area-core {
+  stroke: #fff;
+  stroke-width: 4;
+}
+
+.world-map__node-halo {
+  opacity: 0.76;
+}
+
+.world-map__hit-area {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.world-map__hub-core {
+  fill: var(--world-map-accent);
+  stroke: color-mix(in srgb, var(--world-map-accent) 52%, white);
+  stroke-width: 2;
+}
+
+.world-map__hub-mark {
+  fill: var(--world-map-accent-contrast);
+}
+
+.world-map__area-core {
+  fill: var(--world-map-raised);
+  stroke: var(--world-map-accent);
+  stroke-width: 2;
+}
+
+.world-map__area-dot {
+  fill: var(--world-map-accent);
+}
+
+.world-map__area.is-locked .world-map__area-core {
+  stroke: var(--world-map-locked);
+  stroke-dasharray: 3 3;
+}
+
+.world-map__lock {
+  fill: none;
+  stroke: var(--world-map-locked);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+}
+
+.world-map__completion-ring {
+  fill: none;
+  stroke: var(--world-map-accent);
+  stroke-linecap: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.world-map__badge {
+  fill: var(--world-map-accent);
+  font-size: 18px;
+}
+
+.world-map__node-label {
+  fill: var(--world-map-text);
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: var(--world-map-surface);
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.world-map__zoom-controls {
+  position: absolute;
+  inset: auto 0.65rem 0.65rem auto;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.world-map__zoom-controls button,
+.world-map__actions button,
+.world-map__close {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--world-map-border);
+  border-radius: 0.75rem;
+  color: var(--world-map-text);
+  background: var(--world-map-raised);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.world-map__zoom-controls button {
+  width: 44px;
+  padding: 0;
+  font-size: 1.25rem;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 22%);
+}
+
+.world-map__zoom-controls button:focus-visible,
+.world-map__actions button:focus-visible,
+.world-map__close:focus-visible {
+  outline: 3px solid var(--world-map-accent);
+  outline-offset: 2px;
+}
+
+.world-map__details {
+  position: relative;
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+  border: 1px solid var(--world-map-border);
+  border-radius: 1rem;
+  background: var(--world-map-raised);
+  box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 18%);
+}
+
+.world-map__details h2,
+.world-map__details p {
+  margin: 0;
+}
+
+.world-map__details h2 {
+  padding-right: 3rem;
+  font-size: 1.15rem;
+}
+
+.world-map__close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.world-map__locked-copy strong,
+.world-map__idle-badge {
+  color: var(--world-map-accent);
+}
+
+.world-map__locked-copy ul,
+.world-map__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.2rem;
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.world-map__badges li {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--world-map-border);
+  border-radius: 999px;
+  color: var(--world-map-muted);
+  list-style: none;
+}
+
+.world-map__completion-copy {
+  color: var(--world-map-muted);
+}
+
+.world-map__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.world-map__actions button {
+  flex: 1 1 10rem;
+  padding: 0.55rem 0.85rem;
+  color: var(--world-map-accent-contrast);
+  border-color: transparent;
+  background: var(--world-map-accent);
+}
+
+.world-map__actions button:disabled {
+  color: var(--world-map-muted);
+  border-color: var(--world-map-border);
+  background: var(--world-map-surface);
+  cursor: not-allowed;
+  opacity: 0.88;
+}
+
+@media (max-width: 420px) {
+  .world-map__details {
+    padding: 0.85rem;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .world-map__area-core,
+  .world-map__hub-core {
+    transition: stroke-width 140ms ease, fill 140ms ease;
+  }
+
+  .world-map__area:hover .world-map__area-core,
+  .world-map__hub:hover .world-map__hub-core {
+    stroke-width: 3.5;
+  }
+}

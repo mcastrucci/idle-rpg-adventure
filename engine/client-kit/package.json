@@ -5,6 +5,17 @@
   "type": "module",
   "description": "Themeable client shell pieces and screens.",
   "exports": "./src/index.ts",
+  "peerDependencies": {
+    "react": "^19.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "happy-dom": "21.0.1",
+    "react-dom": "19.3.1"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }

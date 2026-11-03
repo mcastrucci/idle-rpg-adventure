@@ -7,7 +7,7 @@ import {
   KERNEL_VERSION, assertEscrow, checkStart, placeSegments, settleAt, timelineHash, visibleView,
 } from '@engine/expedition-kernel';
 import type { ActivityRegistry, PlacedTimeline, Timeline } from '@engine/expedition-kernel';
-import { applyLedgerDeltas, getHoldings, requireOwnedActor, scheduleJobInTransaction, transitionActivity } from '@engine/server-kit';
+import { actors, applyLedgerDeltas, getHoldings, requireOwnedActor, scheduleJobInTransaction, transitionActivity } from '@engine/server-kit';
 import type { ActorTransaction, Clock, LoadedContent } from '@engine/server-kit';
 import { validateWorld } from '@engine/world';
 import type { AreaId, World } from '@engine/world';
@@ -190,9 +190,15 @@ export function gateStart(content: LoadedContent, request: { areaId: string; act
   return { simulator, gate };
 }
 
-async function loadCharacter(tx: ActorTransaction, actorId: string, accountId: string) {
-  await requireOwnedActor(tx, actorId, accountId, RPG_GAME_ID);
-  const [character] = await tx.select().from(characters).where(and(eq(characters.actorId, actorId), eq(characters.accountId, accountId))).for('update');
+async function loadCharacter(tx: ActorTransaction, actorId: string, accountId: string, lock = true) {
+  if (lock) await requireOwnedActor(tx, actorId, accountId, RPG_GAME_ID);
+  else {
+    const [actor] = await tx.select({ actorId: actors.actorId }).from(actors)
+      .where(and(eq(actors.actorId, actorId), eq(actors.accountId, accountId), eq(actors.gameId, RPG_GAME_ID)));
+    if (!actor) throw new ExpeditionError('not_found', 404);
+  }
+  const query = tx.select().from(characters).where(and(eq(characters.actorId, actorId), eq(characters.accountId, accountId)));
+  const [character] = lock ? await query.for('update') : await query;
   if (!character) throw new ExpeditionError('not_found', 404);
   return character;
 }
@@ -207,7 +213,7 @@ export function createExpeditionService(tx: ActorTransaction, clock: Clock, cont
       const registry = simulators(content);
       const predicates = createRpgPredicateRegistry();
       const idleContent = rpgIdleContentFromBundle(content);
-      const character = await loadCharacter(tx, actorId, accountId);
+      const character = await loadCharacter(tx, actorId, accountId, false);
       const holdings = await getHoldings(tx, actorId);
       const snapshot = snapshotRpgActor(character, holdings, content);
       const context = await readRpgEvalContext(tx, actorId, character.level, holdings);

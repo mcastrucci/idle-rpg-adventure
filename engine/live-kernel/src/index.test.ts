@@ -86,6 +86,48 @@ describe('@engine/live-kernel InstanceHost', () => {
     await expect(host.create({ participants: [A], setup: null })).rejects.toBeInstanceOf(ActivityConflictError);
   });
 
+  it('separates preparation, durable create, and idempotent post-commit adoption', async () => {
+    const { host, store } = setup();
+    const prepared = host.prepareCreate({ participants: [A], setup: null });
+    expect(Object.isFrozen(prepared.input)).toBe(true);
+    expect(host.has(prepared.input.instanceId)).toBe(false);
+    expect(store.rows.has(prepared.input.instanceId)).toBe(false);
+    const lease = await store.create(prepared.input);
+    expect(host.adoptCreated(prepared, lease)).toBe(prepared.input.instanceId);
+    expect(host.has(prepared.input.instanceId)).toBe(true);
+    expect(host.adoptCreated(prepared, lease)).toBe(prepared.input.instanceId);
+    expect(host.inspect(prepared.input.instanceId)?.state).toMatchObject({ counter: 0 });
+    expect(() => host.adoptCreated(prepared, { ...lease, generation: 2 })).toThrow('prepared instance lease mismatch');
+  });
+
+  it('keeps the prepared checkpoint immutable and adopts an isolated restore of that snapshot', async () => {
+    const setupMembers = ['prepared-member'];
+    const game: LiveGame<CounterState> = { ...counterGame,
+      init: ({ participants, setup }) => ({ counter: 0, ticksLeft: 0,
+        members: (setup as unknown as { members: string[] } | null)?.members ?? participants.map((p) => p.actorId), log: [] }),
+    };
+    const store = new MemoryInstanceStore();
+    const host = new InstanceHost({ game, store, clock: new TestClock(), nodeId: 'node-1', contentHash: 'c'.repeat(64),
+      leaseMs: 30_000, graceMs: 60_000, seed: () => 7 });
+    const prepared = host.prepareCreate({ participants: [A], setup: { members: setupMembers } });
+    const checkpoint = prepared.input.checkpoint as unknown as { state: CounterState };
+
+    expect(Object.isFrozen(prepared.input.checkpoint)).toBe(true);
+    expect(Object.isFrozen(checkpoint.state.members)).toBe(true);
+    expect(Reflect.set(checkpoint.state, 'counter', 99)).toBe(false);
+    expect(Object.isFrozen(setupMembers)).toBe(false);
+    setupMembers.push('caller-mutation');
+    expect(checkpoint.state.members).toEqual(['prepared-member']);
+
+    const lease = await store.create(prepared.input);
+    host.adoptCreated(prepared, lease);
+    const runtime = host.inspect(prepared.input.instanceId)?.state;
+    expect(runtime?.members).toEqual(['prepared-member']);
+    expect(runtime?.members).not.toBe(checkpoint.state.members);
+    runtime?.members.push('runtime-mutation');
+    expect(checkpoint.state.members).toEqual(['prepared-member']);
+  });
+
   it('ticks only while the game is ticking, on a drift-free schedule, with bounded catch-up', async () => {
     const { host, clock } = setup();
     const id = await host.create({ participants: [A], setup: null });
@@ -103,6 +145,17 @@ describe('@engine/live-kernel InstanceHost', () => {
     const ticks = host.stats.ticks;
     clock.now += 500; await host.pump();
     expect(host.stats.ticks).toBe(ticks + 1);
+  });
+
+  it('publishes a fresh owner view after each authoritative tick', async () => {
+    const { host, clock } = setup();
+    const id = await host.create({ participants: [A], setup: null });
+    const client = connection('view-client');
+    await host.attach(id, A.actorId, A.accountId, client);
+    await host.submit(id, A.actorId, A.accountId, 'run-view', { op: 'run', ticks: 2 });
+    clock.now += 500; await host.pump();
+    const views = client.messages.filter((message) => message.type === 'live.snapshot');
+    expect(views.at(-1)).toMatchObject({ type: 'live.snapshot', instanceId: id, seq: host.inspect(id)?.seq, view: { counter: 10, ticksLeft: 1 } });
   });
 
   it('applies a replayed command_id once, including after a crash restore', async () => {

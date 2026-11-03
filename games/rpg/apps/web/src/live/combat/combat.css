@@ -1,0 +1,37 @@
+.live-combat { display: grid; gap: 14px; padding: 16px; color: var(--text); }
+.live-combat__header, .live-combat__actor-title, .live-combat__control-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.live-combat__header h2 { font-size: 1.15rem; }
+.live-combat__header p, .live-combat__actor-title span, .live-combat__action small, .live-combat__item span { color: var(--muted); font-size: .82rem; }
+.live-combat__connection { font-size: .78rem; }
+.live-combat__connection--offline { color: var(--warn); }
+.live-combat__connection--online { color: var(--ok); }
+.live-combat__telegraph { display: grid; gap: 3px; padding: 11px 12px; border: 1px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); }
+.live-combat__telegraph span { font-variant-numeric: tabular-nums; }
+.live-combat__frames { display: grid; gap: 12px; }
+.live-combat__side { display: grid; gap: 8px; }
+.live-combat__side h3, .live-combat__control-heading h3 { font-size: .95rem; }
+.live-combat__actor { display: grid; gap: 7px; padding: 11px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.live-combat__actor--down { opacity: .62; }
+.live-combat__hp { height: 8px; overflow: hidden; border-radius: 99px; background: var(--surface-2); }
+.live-combat__hp span { display: block; height: 100%; background: var(--ok); transition: width 180ms ease-out; }
+.live-combat__actor--down .live-combat__hp span { background: var(--danger); }
+.live-combat__effects { display: flex; flex-wrap: wrap; gap: 5px; padding: 0; list-style: none; }
+.live-combat__effects li { padding: 3px 7px; border-radius: 99px; background: var(--surface-2); color: var(--muted); font-size: .75rem; }
+.live-combat__actor-queued, .live-combat__queued, .live-combat__pending, .live-combat__ack { font-size: .84rem; }
+.live-combat__controls { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.live-combat__auto { display: inline-flex; align-items: center; gap: 7px; }
+.live-combat__auto input { width: 20px; height: 20px; accent-color: var(--accent); }
+.live-combat__skills { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.live-combat__action, .live-combat__item, .live-combat__log-toggle { min-height: 44px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); color: var(--text); font: inherit; text-align: left; }
+.live-combat__action { display: grid; gap: 2px; }
+.live-combat__action > span { color: var(--muted); font-size: .75rem; }
+.live-combat__action small { line-height: 1.25; }
+.live-combat__action:disabled, .live-combat__item:disabled { opacity: .55; }
+.live-combat__items { display: grid; gap: 6px; }
+.live-combat__item { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.live-combat__log { border-top: 1px solid var(--border); padding-top: 10px; }
+.live-combat__log-toggle { width: 100%; }
+.live-combat__log ol { display: grid; gap: 5px; max-height: 220px; overflow: auto; margin: 8px 0 0; padding-left: 24px; color: var(--muted); font-size: .84rem; }
+.live-combat__ack--rejected { color: var(--danger); }
+.live-combat__ack--applied { color: var(--ok); }
+@media (prefers-reduced-motion: reduce) { .live-combat__hp span { transition: none; } }
