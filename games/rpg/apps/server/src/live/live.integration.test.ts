@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { compileContentDirectory } from '@engine/content-compiler';
 import { ActivityConflictError } from '@engine/live-kernel';
 import {
-  actors, AuthService, createDatabase, liveInstances, ManualClock, parseServerConfig, PostgresInstanceStore, transitionActivity,
+  actors, AuthService, createDatabase, liveInstances, liveSessions, ManualClock, parseServerConfig, PostgresInstanceStore, transitionActivity,
 } from '@engine/server-kit';
 import type { Database, ServerConfig } from '@engine/server-kit';
 import plugin from '@rpg/content-plugin';
@@ -182,7 +182,13 @@ describe.skipIf(!adminUrl)('live instance hosting under adversarial conditions (
     }
     async drop(): Promise<void> {
       const closed = once(this.socket, 'close');
-      this.socket.terminate(); await closed; await delay(20);
+      this.socket.terminate(); await closed;
+      for (let attempt = 0; attempt < 200; attempt++) {
+        const rows = await database.db.select().from(liveSessions).where(eq(liveSessions.accountId, this.who.accountId));
+        if (rows.length === 0) return;
+        await delay(10);
+      }
+      throw new Error(`live session lease did not release for account ${this.who.accountId}`);
     }
   }
   const connect = (n: Node, who: Player) => new Client(n.url, who).ready();
