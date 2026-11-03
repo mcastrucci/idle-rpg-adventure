@@ -12,7 +12,7 @@ import type { Item } from '@rpg/rpg-schema';
 import { characters } from '../characters/schema.ts';
 import { BASIC_ATTACK } from '../characters/validation.ts';
 import { readRpgEvalContext } from '../expeditions/progress.ts';
-import { requireRpgAreaAccessible } from '../world/access.ts';
+import { getRpgLiveStartArea, requireRpgLiveStartAccessible } from '../world/access.ts';
 import { expireRpgCorpse, rpgLiveStoreHooks } from './effects.ts';
 import { liveDeaths } from './death-schema.ts';
 import { createRpgLiveGame } from './game.ts';
@@ -115,13 +115,15 @@ export async function prepareRpgLiveStart(tx: ActorTransaction, host: RpgLiveHos
   if (actor.activityState !== 'none' || actor.activityId !== null) throw new ActivityConflictError();
   const [character] = await tx.select().from(characters).where(eq(characters.actorId, actorId));
   if (!character) throw new RangeError('unknown character');
+  const startArea = getRpgLiveStartArea(content, input.areaId);
+  if (!startArea) throw new RangeError('invalid live start area');
   const holdings = await getHoldings(tx, actorId);
   const progress = await readRpgEvalContext(tx, actorId, character.level, holdings);
-  requireRpgAreaAccessible(content, progress, input.areaId);
+  requireRpgLiveStartAccessible(content, progress, input.areaId);
   const corpora = await tx.select().from(liveDeaths).where(and(eq(liveDeaths.actorId, actorId), eq(liveDeaths.status, 'active')));
   for (const corpse of corpora.filter(row => row.expiresAt.getTime() <= nowMs)) await expireRpgCorpse(tx, actorId, corpse.deathId);
   const hero = await readHeroSetup(tx, actorId, input.supplies, content, nowMs);
-  const setup = JSON.parse(JSON.stringify({ area: input.areaId, heroes: [hero] })) as JsonValue;
+  const setup = JSON.parse(JSON.stringify({ area: startArea.id, heroes: [hero] })) as JsonValue;
   const prepared = instanceHost.prepareCreate({ participants: [{ actorId, accountId }], setup });
   return prepared;
 }

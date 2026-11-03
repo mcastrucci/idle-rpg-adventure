@@ -11,14 +11,12 @@ import { publicCommandError } from '../character-commands.ts';
 import { characters } from '../characters/schema.ts';
 import { readRpgEvalContext } from '../expeditions/progress.ts';
 import { rpgLiveEntries } from '../telemetry/schema.ts';
-import { isRpgAreaAccessible, RpgAreaLockedError } from '../world/access.ts';
+import { computeRpgWorldView, getRpgLiveStartAreas, RpgAreaLockedError } from '../world/access.ts';
 import type { RpgLiveHost } from './index.ts';
 import { prepareRpgLiveStart } from './index.ts';
 
 const ActorParamsSchema = z.strictObject({ actorId: z.uuid().transform((id) => id.toLowerCase()) });
-const REGION_ONE = 'area:region_1';
-
-/** Owner-scoped solo live entry routes. The client chooses only the authored region and carried supplies. */
+/** Owner-scoped solo live entry routes. The client chooses only a known authored area and carried supplies. */
 export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
   return {
     name: 'live-entry', roles: ['api'],
@@ -36,7 +34,7 @@ export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
             if (actor.activityState !== 'none') throw new Error('live_actor_busy');
             const holdings = await getHoldings(tx, actorId);
             const [character] = await tx.select({ level: characters.level }).from(characters).where(eq(characters.actorId, actorId));
-            if (!character) throw new Error('region_1_start_unavailable');
+            if (!character) throw new Error('live_start_unavailable');
             const progress = await readRpgEvalContext(tx, actorId, character.level, holdings);
             const itemDefinitions = new Map((context.content.collections['items'] ?? []).map((raw) => {
               const item = ItemSchema.parse(raw); return [item.id, item] as const;
@@ -48,12 +46,10 @@ export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
                 if (itemDefinitions.get(itemId as `item:${string}`)?.kind === 'consumable') stock.set(itemId, (stock.get(itemId) ?? 0) + holding.qty);
               }
             }
-            const world = context.content.world as { areas?: readonly { id: string; kind: string; startLocation?: string; nameKey?: string }[] };
-            const region = world.areas?.find((area) => area.id === REGION_ONE && area.kind === 'explorable' && area.startLocation);
-            if (!region?.startLocation) throw new Error('region_1_start_unavailable');
-            const areas = isRpgAreaAccessible(context.content, progress, region.id)
-              ? [{ id: region.id, label: region.nameKey ?? region.id, startLocationId: region.startLocation }]
-              : [];
+            const known = new Set(computeRpgWorldView(context.content, progress).areas
+              .filter((area) => area.visibility === 'known').map((area) => area.id));
+            const areas = getRpgLiveStartAreas(context.content).filter(area => known.has(area.id))
+              .map(area => ({ id: area.id, label: area.nameKey ?? area.id, startLocationId: area.startLocation as string }));
             return [areas,
               [...stock.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([item, availableQty]) => ({
                 item, label: itemDefinitions.get(item as `item:${string}`)?.nameKey ?? item, availableQty,
@@ -70,7 +66,6 @@ export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
           const start = parseLiveStartRequest(request.body);
           // Reauthorize before the shared idempotency lookup, including on replay after the first run has ended.
           await context.database.db.transaction(async (tx) => { await requireOwnedActor(tx, start.actorId, accountId, 'rpg'); });
-          if (start.areaId !== REGION_ONE) return reply.code(400).send({ error: 'unknown_live_region' });
           const response = await runCommand(context.database, context.clock, accountId,
             { commandId: start.commandId, operation: 'live.start', payload: { actorId: start.actorId, areaId: start.areaId, supplies: start.supplies } },
             async (tx) => {

@@ -1,6 +1,6 @@
 import { computeWorldView, validateWorld } from '@engine/world';
 import type { EvalContext } from '@engine/world';
-import { createRpgPredicateRegistry } from '@rpg/rpg-schema';
+import { createRpgPredicateRegistry, RpgAreaSchema, RpgLocationSchema } from '@rpg/rpg-schema';
 import type { RpgGameContext } from '@rpg/rpg-schema';
 import type { LoadedContent } from '@engine/server-kit';
 
@@ -25,4 +25,26 @@ export function isRpgAreaAccessible(content: LoadedContent, context: EvalContext
 
 export function requireRpgAreaAccessible(content: LoadedContent, context: EvalContext<RpgGameContext>, areaId: string): void {
   if (!isRpgAreaAccessible(content, context, areaId)) throw new RpgAreaLockedError();
+}
+
+/** Makes truly hidden and absent IDs indistinguishable while retaining the public locked-area response. */
+export function requireRpgLiveStartAccessible(content: LoadedContent, context: EvalContext<RpgGameContext>, areaId: string): void {
+  const area = computeRpgWorldView(content, context).areas.find(candidate => candidate.id === areaId);
+  if (!area || area.visibility === 'hidden') throw new RangeError('invalid live start area');
+  if (area.visibility !== 'known') throw new RpgAreaLockedError();
+}
+
+/** Returns only a validated, authored explorable area that can be used as a live start. */
+export function getRpgLiveStartArea(content: LoadedContent, areaId: string) {
+  return getRpgLiveStartAreas(content).find(area => area.id === areaId);
+}
+
+/** Returns startable areas in authored order, excluding hubs and areas without a start location. */
+export function getRpgLiveStartAreas(content: LoadedContent) {
+  const world = content.world as { readonly areas?: readonly unknown[]; readonly locations?: readonly unknown[] };
+  const locationIds = new Set((world.locations ?? []).map(raw => RpgLocationSchema.parse(raw).id));
+  return (world.areas ?? [])
+    .map(raw => RpgAreaSchema.parse(raw))
+    .filter(area => area.kind === 'explorable' && !area.tags?.includes('technical_seed') && area.startLocation !== undefined &&
+      area.locations.includes(area.startLocation) && locationIds.has(area.startLocation));
 }

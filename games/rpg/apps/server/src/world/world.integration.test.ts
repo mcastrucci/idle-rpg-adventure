@@ -31,7 +31,7 @@ describe.skipIf(!adminUrl)('server-owned world view (real PostgreSQL)', () => {
 
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), 'world-view-'));
-    const bundle = await compileWorldViewFixture(directory);
+    const bundle = await compileWorldViewFixture(directory, { gateRegionOne: true });
     const bundlePath = join(directory, 'bundle.json');
     await writeFile(bundlePath, JSON.stringify(bundle));
     const base = parseServerConfig({ DATABASE_URL: adminUrl, CONTENT_BUNDLE_PATH: bundlePath, LOG_LEVEL: 'silent', ROLES: 'api,live' });
