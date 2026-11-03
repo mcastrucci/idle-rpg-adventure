@@ -36,7 +36,7 @@ const envelope = (payload: unknown = {}) => ({ command_id: id, operation: 'chara
 describe('@rpg/protocol command envelope', () => {
   it('exports the package and an explicit operation allowlist', () => {
     expect(PROTOCOL_PACKAGE).toBe('@rpg/protocol');
-    expect(COMMAND_OPERATIONS).toEqual(['character.create', 'character.configure', 'inventory.usePotion', 'inventory.equip', 'inventory.unequip', 'inventory.move', 'inventory.buy', 'expedition.start', 'expedition.cancel', 'expedition.recoverUnavailable']);
+    expect(COMMAND_OPERATIONS).toEqual(['character.create', 'character.configure', 'inventory.usePotion', 'inventory.equip', 'inventory.unequip', 'inventory.move', 'inventory.buy', 'inventory.claimStarterKit', 'expedition.start', 'expedition.cancel', 'expedition.recoverUnavailable']);
   });
   it('shares strict parsing for HTTP and WS JSON and detaches/freeze payloads', () => {
     const input = envelope({ name: 'Ada', nested: { values: [1, true, null] } });

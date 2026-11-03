@@ -6,7 +6,7 @@ import { ApiError } from '../api/http.ts';
 import type { CharacterDto } from '../api/types.ts';
 import type { CommandRequest } from '../api/commands.ts';
 import { CommandRejectedError, CommandUnconfirmedError } from '../api/commands.ts';
-import { buyInventoryCommand, equipInventoryCommand, moveInventoryCommand, unequipInventoryCommand } from '../inventory/api.ts';
+import { buyInventoryCommand, claimStarterKitCommand, equipInventoryCommand, moveInventoryCommand, unequipInventoryCommand } from '../inventory/api.ts';
 import { useInventoryState } from './inventory/useInventoryState.ts';
 import { InventoryDetail } from './inventory/InventoryDetail.tsx';
 import { InventoryItemGrid } from './inventory/InventoryItemGrid.tsx';
@@ -42,6 +42,7 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
   const [actionError, setActionError] = useState<string | null>(() => pendingInventoryCommand(actorId) ? 'A previous change is still awaiting confirmation. Retry the exact request before making another change.' : null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [activeOperation, setActiveOperation] = useState<string | null>(null);
   const [unconfirmed, setUnconfirmed] = useState<CommandRequest<unknown> | null>(() => pendingInventoryCommand(actorId));
   const [quantity, setQuantity] = useState(1);
   const actionLock = useRef(false);
@@ -83,6 +84,7 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
     if (!retryingPending && (!snapshot || snapshot.actorId !== actorId || snapshot.activityState !== 'none')) return;
     rememberInventoryCommand(actorId, request);
     actionLock.current = true;
+    setActiveOperation(request.envelope.operation);
     setBusy(true); setActionError(null); setRefreshError(null);
     try {
       await runCommand(request);
@@ -90,7 +92,7 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
       if (activeActor.current !== actorId) return;
       setUnconfirmed(null);
       setSelected(null);
-      setActionError('Change committed.');
+      setActionError(request.envelope.operation === 'inventory.claimStarterKit' ? 'Claim saved; loading the updated inventory…' : 'Change committed.');
       const [inventoryRead, characterRead] = await Promise.allSettled([reloadInventory(), refreshCharacter()]);
       if (activeActor.current !== actorId) return;
       const failedRead = inventoryRead.status === 'rejected' ? inventoryRead.reason : characterRead.status === 'rejected' ? characterRead.reason : null;
@@ -110,6 +112,7 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
       if ((error instanceof ApiError && error.status === 409) || (error instanceof CommandRejectedError && error.status === 409)) void reloadInventory().catch(() => undefined);
     } finally {
       actionLock.current = false;
+      setActiveOperation(null);
       setBusy(false);
     }
   }, [actorId, canCommand, refreshCharacter, reloadInventory, runCommand, snapshot]);
@@ -155,6 +158,11 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
     void execute(unconfirmed ?? buyInventoryCommand(actorId, offerId, quantity));
   }
 
+  function claimStarterKit() {
+    if (!actorId) return;
+    void execute(unconfirmed ?? claimStarterKitCommand(actorId));
+  }
+
   const selectedDefinition = definitionFor(snapshot, selected);
   const merchantOffers = merchant?.merchants.flatMap((entry) => entry.offers.map((offer) => ({ ...offer, merchantName: humanize(entry.id) }))) ?? [];
   const conquestLocked = Boolean(snapshot && merchantOffers.length && merchantOffers.every((offer) => offer.requiresCompletedArea && !snapshot.completedAreas.includes(offer.requiresCompletedArea)));
@@ -197,6 +205,14 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
             </article>;
           })}</div>
         </> : <>
+          {tab === 'inventory' && snapshot?.starterKit && <StarterKitCard
+            kit={snapshot.starterKit}
+            snapshot={snapshot}
+            busy={busy && activeOperation === 'inventory.claimStarterKit'}
+            awaiting={unconfirmed?.envelope.operation === 'inventory.claimStarterKit'}
+            disabled={!canMutate || snapshot.starterKit.claimed || snapshot.activityState !== 'none'}
+            onClaim={claimStarterKit}
+          />}
           <div className="inventory-tools">
             <label className="inventory-search"><span className="visually-hidden">Search {currentTab.toLocaleLowerCase()}</span>
               <input className="form__input" type="search" placeholder={`Search ${currentTab.toLocaleLowerCase()}`} value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -220,6 +236,30 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
       {snapshot?.activityState !== 'none' && snapshot && <p className="muted" role="status">Inventory changes are available in the Sanctuary while your character is idle.</p>}
       <InventoryDetail holding={selected} definition={selectedDefinition} snapshot={snapshot} canMutate={canMutate} busy={busy}
         quantity={quantity} onQuantityChange={setQuantity} onClose={() => setSelected(null)} onEquip={equip} onUnequip={unequip} onMove={move} />
+    </>}
+  </section>;
+}
+
+function StarterKitCard({ kit, snapshot, busy, awaiting, disabled, onClaim }: {
+  readonly kit: NonNullable<InventorySnapshotDto['starterKit']>;
+  readonly snapshot: InventorySnapshotDto;
+  readonly busy: boolean;
+  readonly awaiting: boolean;
+  readonly disabled: boolean;
+  readonly onClaim: () => void;
+}) {
+  const names = kit.items.map((id) => {
+    const definition = snapshot.catalog.items.find((entry) => entry.id === id);
+    return definition ? itemName(definition.nameKey, definition.id) : humanize(id);
+  });
+  return <section className="inventory-message" aria-labelledby="starter-kit-title">
+    <h2 id="starter-kit-title">Starter equipment kit</h2>
+    <p>{names.join(' · ')}</p>
+    {kit.claimed ? <p className="inventory-success" role="status">Starter kit claimed. Equip items from your inventory when you are ready.</p> : <>
+      {snapshot.activityState !== 'none' && <p className="muted" role="status">Return to Sanctuary and become idle to claim your kit.</p>}
+      {busy && <p className="muted" role="status">Claiming starter kit…</p>}
+      {awaiting && <p className="muted" role="status">Starter kit claim awaiting confirmation. Retry the exact request to confirm it.</p>}
+      {!awaiting && <button type="button" className="button" disabled={disabled || busy} onClick={onClaim}>{busy ? 'Claiming…' : 'Claim starter kit'}</button>}
     </>}
   </section>;
 }

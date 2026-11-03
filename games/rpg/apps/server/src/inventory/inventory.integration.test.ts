@@ -18,6 +18,9 @@ import WebSocket from 'ws';
 import { createRpgDatabase, createRpgServer } from '../index.ts';
 import { validateRpgBundle } from '../content.ts';
 import { expeditions } from '../expeditions/schema.ts';
+import { characters } from '../characters/schema.ts';
+import { recordAreaCompletion } from '../expeditions/progress.ts';
+import { STARTER_KIT_ITEMS, createInventoryService } from './service.ts';
 
 const adminUrl = process.env['TEST_DATABASE_URL'];
 if (process.env['CI'] && !adminUrl) throw new Error('CI must supply TEST_DATABASE_URL for real PostgreSQL inventory acceptance tests');
@@ -170,6 +173,7 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
     ]) })] });
     const snapshot = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
     expect(snapshot).toMatchObject({ actorId: character.actorId, actorVersion: 0, activityState: 'none', level: 1,
+      starterKit: { claimed: false, items: STARTER_KIT_ITEMS },
       attributes: { STR: expect.any(Number), AGI: expect.any(Number), INT: expect.any(Number), VIT: expect.any(Number), SPI: expect.any(Number) },
       completedAreas: [], catalog: { contentHash: content.contentHash, items: expect.arrayContaining([
         expect.objectContaining({ id: 'item:rusty_sword', kind: 'equipment', slot: 'weapon', stackable: false }),
@@ -187,6 +191,98 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
     expect(swordDefinition).not.toHaveProperty('use');
     const stranger = await guest();
     expect((await inventory(stranger, character.actorId)).statusCode).toBe(404);
+  });
+
+  it('claims one stable starter kit for new and existing characters without resetting progress', async () => {
+    const { session, character } = await fixture({ gold: 60, potion: 2, sword: true });
+    const existingSword = (await database.db.select().from(itemInstances).where(eq(itemInstances.actorId, character.actorId)))
+      .find(item => item.definition === 'item:rusty_sword');
+    if (!existingSword) throw new Error('existing sword fixture is missing');
+    expect((await command(session, character.actorId, envelope('equip', { actorId: character.actorId,
+      itemId: existingSword.id, slot: 'weapon' }))).statusCode).toBe(200);
+    await database.db.update(characters).set({ level: 3, xp: 77, unspentPoints: 2,
+      attributes: { STR: 7, AGI: 6, INT: 5, VIT: 8, SPI: 5 } }).where(eq(characters.actorId, character.actorId));
+    await database.db.transaction(tx => recordAreaCompletion(tx, clock, character.actorId, 'area:region_1'));
+    const before = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    const characterBefore = (await database.db.select().from(characters).where(eq(characters.actorId, character.actorId)))[0];
+    if (!characterBefore) throw new Error('character progress fixture is missing');
+    expect(before.starterKit).toEqual({ claimed: false, items: STARTER_KIT_ITEMS });
+    const claimId = randomUUID();
+    const claim = await command(session, character.actorId, envelope('claimStarterKit', { actorId: character.actorId }, claimId));
+    expect(claim.statusCode).toBe(200);
+    expect(claim.json()).toEqual({ actorId: character.actorId, version: before.actorVersion + 1 });
+    let after = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    expect(after.starterKit).toEqual({ claimed: true, items: STARTER_KIT_ITEMS });
+    expect(after).toMatchObject({ level: before.level, attributes: before.attributes, completedAreas: before.completedAreas });
+    expect(after.holdings.filter(row => row.definition && STARTER_KIT_ITEMS.includes(row.definition as typeof STARTER_KIT_ITEMS[number])))
+      .toHaveLength(4);
+    expect(after.holdings).toEqual(expect.arrayContaining([expect.objectContaining({ itemId: existingSword.id,
+      container: 'equipped', slot: 'weapon', rolls: { power: 7, affix: 'steady' } }),
+    ...before.holdings.map(holding => expect.objectContaining(holding))]));
+    const characterAfter = (await database.db.select().from(characters).where(eq(characters.actorId, character.actorId)))[0];
+    expect(characterAfter).toEqual(characterBefore);
+    const sameCommandReplay = await command(session, character.actorId,
+      envelope('claimStarterKit', { actorId: character.actorId }, claimId));
+    expect(sameCommandReplay.json()).toEqual(claim.json());
+    const repeat = await command(session, character.actorId, envelope('claimStarterKit', { actorId: character.actorId }));
+    expect(repeat.statusCode).toBe(200);
+    expect(repeat.json()).toEqual({ actorId: character.actorId, version: before.actorVersion + 1 });
+    const sword = after.holdings.find(row => row.definition === 'item:rusty_sword' && row.itemId !== existingSword.id);
+    if (!sword?.itemId) throw new Error('starter sword is missing its unique instance id');
+    expect((await command(session, character.actorId, envelope('move', { actorId: character.actorId, itemId: sword.itemId,
+      from: 'inventory', to: 'storage' }))).statusCode).toBe(200);
+    after = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    expect(after.starterKit?.claimed).toBe(true);
+    const replayWithNewCommand = await command(session, character.actorId, envelope('claimStarterKit', { actorId: character.actorId }));
+    expect(replayWithNewCommand.json()).toEqual({ actorId: character.actorId, version: before.actorVersion + 2 });
+    expect((await inventory(session, character.actorId)).json<InventorySnapshotDto>().holdings
+      .filter(row => row.definition && STARTER_KIT_ITEMS.includes(row.definition as typeof STARTER_KIT_ITEMS[number]))).toHaveLength(4);
+  });
+
+  it('serializes concurrent starter kit claims with different command ids', async () => {
+    const { session, character } = await fixture();
+    const claims = await Promise.all([1, 2].map(() => command(session, character.actorId,
+      envelope('claimStarterKit', { actorId: character.actorId }))));
+    expect(claims.map(result => result.statusCode)).toEqual([200, 200]);
+    expect(claims.map(result => result.json<{ version: number }>().version).sort()).toEqual([1, 1]);
+    const snapshot = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    expect(snapshot.starterKit?.claimed).toBe(true);
+    expect(snapshot.holdings.filter(row => row.definition && STARTER_KIT_ITEMS.includes(row.definition as typeof STARTER_KIT_ITEMS[number])))
+      .toHaveLength(3);
+  });
+
+  it('denies starter kit claims for foreign or busy actors and rolls back an uncommitted claim', async () => {
+    const owner = await fixture();
+    const stranger = await guest();
+    expect((await command(stranger, owner.character.actorId, envelope('claimStarterKit', { actorId: owner.character.actorId }))).statusCode).toBe(404);
+    for (const state of ['live', 'expedition'] as const) {
+      const activityId = randomUUID();
+      await database.db.transaction(tx => transitionActivity(tx, owner.character.actorId,
+        { state: 'none', activityId: null }, { state, activityId }));
+      expect((await command(owner.session, owner.character.actorId, envelope('claimStarterKit', { actorId: owner.character.actorId }))).statusCode).toBe(409);
+      await database.db.transaction(tx => transitionActivity(tx, owner.character.actorId,
+        { state, activityId }, { state: 'none', activityId: null }));
+    }
+    await expect(database.db.transaction(async tx => {
+      await createInventoryService(tx, content).claimStarterKit(owner.session.accountId, owner.character.actorId);
+      throw new Error('rollback fixture');
+    })).rejects.toThrow('rollback fixture');
+    const afterRollback = (await inventory(owner.session, owner.character.actorId)).json<InventorySnapshotDto>();
+    expect(afterRollback.starterKit?.claimed).toBe(false);
+    expect(afterRollback.holdings.filter(row => row.definition && STARTER_KIT_ITEMS.includes(row.definition as typeof STARTER_KIT_ITEMS[number]))).toHaveLength(0);
+    await expect(database.db.transaction(tx => createInventoryService(tx, { collections: { items: [] } } as never)
+      .claimStarterKit(owner.session.accountId, owner.character.actorId))).rejects.toThrow('starter_kit_unavailable');
+    const invalidContent = (await inventory(owner.session, owner.character.actorId)).json<InventorySnapshotDto>();
+    expect(invalidContent.starterKit?.claimed).toBe(false);
+    expect(invalidContent.actorVersion).toBe(afterRollback.actorVersion);
+    expect(invalidContent.holdings.filter(row => row.definition && STARTER_KIT_ITEMS.includes(row.definition as typeof STARTER_KIT_ITEMS[number]))).toHaveLength(0);
+    expect((await command(owner.session, owner.character.actorId, envelope('claimStarterKit', { actorId: owner.character.actorId }))).statusCode).toBe(200);
+    const activeId = randomUUID();
+    await database.db.transaction(tx => transitionActivity(tx, owner.character.actorId,
+      { state: 'none', activityId: null }, { state: 'live', activityId: activeId }));
+    expect((await command(owner.session, owner.character.actorId, envelope('claimStarterKit', { actorId: owner.character.actorId }))).statusCode).toBe(409);
+    await database.db.transaction(tx => transitionActivity(tx, owner.character.actorId,
+      { state: 'live', activityId: activeId }, { state: 'none', activityId: null }));
   });
 
   it('returns an empty inventory for a fresh character without granting defaults', async () => {

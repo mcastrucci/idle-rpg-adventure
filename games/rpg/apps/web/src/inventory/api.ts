@@ -15,7 +15,7 @@ export function getMerchantCatalog(api: ApiClient): Promise<MerchantCatalogDto> 
 
 type MovePayload = { readonly itemId: string; readonly from: 'inventory' | 'storage'; readonly to: 'inventory' | 'storage' } |
   { readonly item: string; readonly quantity: number; readonly from: 'inventory' | 'storage'; readonly to: 'inventory' | 'storage' };
-function command(operation: 'inventory.equip' | 'inventory.unequip' | 'inventory.move' | 'inventory.buy',
+function command(operation: 'inventory.equip' | 'inventory.unequip' | 'inventory.move' | 'inventory.buy' | 'inventory.claimStarterKit',
   actorId: string, payload: CommandPayload, newId?: () => string): CommandRequest<{ actorId: string; version: number }> {
   return { method: 'POST', path: `/characters/${encodeURIComponent(actorId)}/inventory/commands`,
     envelope: buildEnvelope(operation, { actorId, ...payload }, newId) };
@@ -32,6 +32,9 @@ export function moveInventoryCommand(actorId: string, payload: MovePayload, newI
 }
 export function buyInventoryCommand(actorId: string, offerId: string, quantity: number, newId?: () => string) {
   return command('inventory.buy', actorId, { offerId, quantity }, newId);
+}
+export function claimStarterKitCommand(actorId: string, newId?: () => string) {
+  return command('inventory.claimStarterKit', actorId, {}, newId);
 }
 
 export function sendInventoryCommand(api: ApiClient, request: CommandRequest<{ actorId: string; version: number }>, options?: SendCommandOptions) {

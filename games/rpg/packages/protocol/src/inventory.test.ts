@@ -19,6 +19,14 @@ describe('inventory protocol DTOs', () => {
     expect(Object.isFrozen(parsed)).toBe(true);
   });
 
+  it('accepts optional starter kit status and validates it when present', () => {
+    expect(parseInventorySnapshotDto(snapshot).starterKit).toBeUndefined();
+    expect(parseInventorySnapshotDto({ ...snapshot, starterKit: { claimed: false, items: ['item:rusty_sword'] } }).starterKit)
+      .toEqual({ claimed: false, items: ['item:rusty_sword'] });
+    expect(() => parseInventorySnapshotDto({ ...snapshot, starterKit: { claimed: 'no', items: [] } })).toThrow('invalid starter kit state');
+    expect(() => parseInventorySnapshotDto({ ...snapshot, starterKit: { claimed: false, items: [4] } })).toThrow('invalid starter kit state');
+  });
+
   it('rejects unknown or secret catalog fields', () => {
     const unsafe = structuredClone(snapshot) as { catalog: { items: Record<string, unknown>[]; contentHash: string } };
     const firstItem = unsafe.catalog.items[0];
