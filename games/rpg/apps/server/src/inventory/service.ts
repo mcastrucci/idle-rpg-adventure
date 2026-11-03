@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { LedgerDelta } from '@engine/economy';
-import { ActorError, applyLedgerDeltas, getHoldings, itemInstances, requireSanctuaryMutation, actors } from '@engine/server-kit';
+import { ActorError, applyLedgerDeltas, getHoldings, itemInstances, ledgerBatches, requireSanctuaryMutation, actors } from '@engine/server-kit';
 import type { ApplyLedgerOptions } from '@engine/server-kit';
 import type { ActorTransaction, LoadedContent } from '@engine/server-kit';
 import type { MerchantOffer, Item } from '@rpg/rpg-schema';
@@ -22,6 +22,19 @@ export const MovePayloadSchema = z.union([
   z.strictObject({ actorId: UUID, item: z.string().regex(/^item:[a-z0-9_.]+$/), quantity: z.number().int().min(1).max(10_000), from: Containers, to: Containers }).refine(value => value.from !== value.to),
 ]);
 export const BuyPayloadSchema = z.strictObject({ actorId: UUID, offerId: z.string().regex(/^offer:[a-z0-9_.]+$/), quantity: z.number().int().min(1).max(100) });
+export const ClaimStarterKitPayloadSchema = z.strictObject({ actorId: UUID });
+export const STARTER_KIT_ITEMS = ['item:rusty_sword', 'item:padded_vest', 'item:wooden_buckler'] as const;
+const STARTER_KIT_SOURCE = 'rpg_starter_kit';
+const STARTER_KIT_SLOTS = ['weapon', 'chest', 'offhand'] as const;
+
+export function validateStarterKitContent(content: LoadedContent): void {
+  for (const [index, id] of STARTER_KIT_ITEMS.entries()) {
+    const item = getItem(content, id);
+    if (!item || item.kind !== 'equipment' || item.stackable || item.slot !== STARTER_KIT_SLOTS[index]) {
+      throw new InventoryError('starter_kit_unavailable', 409);
+    }
+  }
+}
 
 export class InventoryError extends Error {
   readonly code: string;
@@ -57,6 +70,8 @@ export async function inventorySnapshot(tx: ActorTransaction, accountId: string,
   const [character] = await tx.select().from(characters).where(eq(characters.actorId, actor.actorId));
   if (!character) throw new InventoryError('not_found', 404);
   const progress = await readRpgEvalContext(tx, actor.actorId, character.level, holdings);
+  const [starterKitBatch] = await tx.select({ sourceId: ledgerBatches.sourceId }).from(ledgerBatches)
+    .where(and(eq(ledgerBatches.sourceType, STARTER_KIT_SOURCE), eq(ledgerBatches.sourceId, actor.actorId)));
   const catalogItems = items(content);
   return { actorId: actor.actorId, holdings, actorVersion: actor.version, activityState: actor.activityState,
     level: character.level, attributes: character.attributes, completedAreas: [...progress.actor.completedAreas],
@@ -65,7 +80,8 @@ export async function inventorySnapshot(tx: ActorTransaction, accountId: string,
       ...(item.kind === 'equipment' ? { slot: item.slot } : {}),
       ...('levelRequired' in item && item.levelRequired !== undefined ? { levelRequired: item.levelRequired } : {}),
       ...(item.kind === 'equipment' && item.stats && Object.keys(item.stats).length ? { stats: item.stats } : {}),
-      stackable: item.stackable })) } };
+      stackable: item.stackable })) },
+    starterKit: { claimed: Boolean(starterKitBatch), items: [...STARTER_KIT_ITEMS] } };
 }
 
 /** Public offer catalog is an explicit content allowlist; purchase gates are re-evaluated from persisted progress. */
@@ -84,6 +100,20 @@ export function createInventoryService(tx: ActorTransaction, content: LoadedCont
     return { actorId: actor.actorId, version: versioned.version };
   }
   return {
+    async claimStarterKit(accountId: string, actorId: string) {
+      const actor = await requireSanctuaryMutation(tx, actorId, accountId, RPG_GAME_ID);
+      const [existingBatch] = await tx.select({ sourceId: ledgerBatches.sourceId }).from(ledgerBatches)
+        .where(and(eq(ledgerBatches.sourceType, STARTER_KIT_SOURCE), eq(ledgerBatches.sourceId, actor.actorId)));
+      if (!existingBatch) validateStarterKitContent(content);
+      const deltas: LedgerDelta[] = STARTER_KIT_ITEMS.map(item => ({
+        actorId: actor.actorId, asset: { kind: 'unique_mint', item }, qty: 1, to: 'inventory',
+      }));
+      const { applied } = await applyLedgerDeltas(tx, { type: STARTER_KIT_SOURCE, id: actor.actorId }, deltas);
+      if (!applied) return { actorId: actor.actorId, version: actor.version };
+      const [versioned] = await tx.update(actors).set({ version: sql`${actors.version} + 1` }).where(eq(actors.actorId, actor.actorId)).returning({ version: actors.version });
+      if (!versioned) throw new InventoryError('not_found', 404);
+      return { actorId: actor.actorId, version: versioned.version };
+    },
     async equip(accountId: string, commandId: string, input: z.output<typeof EquipPayloadSchema>) {
       const actor = await requireSanctuaryMutation(tx, input.actorId, accountId, RPG_GAME_ID);
       const [character] = await tx.select().from(characters).where(eq(characters.actorId, actor.actorId));

@@ -47,6 +47,9 @@ function snapshot(actorId = ACTOR, holdings: readonly InventoryHoldingDto[] = [G
   return { actorId, holdings, actorVersion: 7, activityState: 'none', level: 3, attributes: ATTRIBUTES,
     completedAreas: [], catalog: { contentHash: HASH, items: ITEMS } };
 }
+function withStarterKit(value: InventorySnapshotDto, claimed = false): InventorySnapshotDto {
+  return { ...value, starterKit: { claimed, items: ['item:rusty_sword', 'item:padded_vest', 'item:wooden_buckler'] } };
+}
 
 const MERCHANT: MerchantCatalogDto = { merchants: [{ id: 'merchant:sanctuary', offers: [
   { id: 'offer:minor_healing_potion', item: 'item:minor_healing_potion', buyPrice: { currency: 'gold', amount: 12 }, stock: 'infinite' },
@@ -83,6 +86,9 @@ function harness(options: HarnessOptions = {}) {
     const outcome = outcomes.shift() ?? 'ok';
     if (outcome === 'unknown') throw new CommandUnconfirmedError(request, new Error('connection lost'));
     if (outcome instanceof Error) throw outcome;
+    if (request.envelope.operation === 'inventory.claimStarterKit') {
+      current = withStarterKit(current, true);
+    }
     return { actorId: current.actorId, version: current.actorVersion + 1 } as T;
   });
   const refreshCharacter = vi.fn(async () => {});
@@ -105,6 +111,101 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('InventoryScreen', () => {
+  it('hides the starter kit when the server does not support the optional contract', async () => {
+    const { view } = harness();
+    view();
+    await screen.findByRole('list', { name: 'Items' });
+    expect(screen.queryByRole('heading', { name: 'Starter equipment kit' })).toBeNull();
+  });
+
+  it('claims once, shows the pending state, and displays claimed only after the authoritative refresh', async () => {
+    let finish: (() => void) | undefined;
+    const requests: CommandRequest<unknown>[] = [];
+    const runCommand = <T,>(request: CommandRequest<T>) => {
+      requests.push(request as CommandRequest<unknown>);
+      return new Promise<T>((resolve) => { finish = () => resolve({ actorId: ACTOR, version: 8 } as T); });
+    };
+    let current = withStarterKit(snapshot(), false);
+    const options: HarnessOptions = { initial: current, runCommand };
+    const h = harness(options);
+    const read = h.api.request as ReturnType<typeof vi.fn>;
+    read.mockImplementation(async (_method: string, path: string) => {
+      const actorId = decodeURIComponent(path.match(/^\/characters\/([^/]+)\/inventory$/)?.[1] ?? '');
+      return actorId === current.actorId ? current : snapshot(actorId, []);
+    });
+    h.view();
+    const claim = await screen.findByRole('button', { name: 'Claim starter kit' });
+    expect(screen.getByText('Rusty Sword · Padded Vest · Wooden Buckler')).toBeDefined();
+    fireEvent.click(claim);
+    fireEvent.click(claim);
+    expect(await screen.findByText('Claiming starter kit…')).toBeDefined();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.envelope).toMatchObject({ operation: 'inventory.claimStarterKit', payload: { actorId: ACTOR } });
+    expect(screen.getByRole('button', { name: 'Claiming…' })).toBeDefined();
+    current = withStarterKit(current, true);
+    await act(async () => { finish?.(); });
+    expect(await screen.findByText('Starter kit claimed. Equip items from your inventory when you are ready.')).toBeDefined();
+  });
+
+  it('retries an unconfirmed starter kit claim with the same command id and preserves server claimed state', async () => {
+    const { view, requests } = harness({ initial: withStarterKit(snapshot(), false), outcomes: ['unknown', 'ok'] });
+    view();
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim starter kit' }));
+    const retry = await screen.findByRole('button', { name: 'Retry exact request' });
+    expect(screen.getByText(/result is unknown/i)).toBeDefined();
+    fireEvent.click(retry);
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[0]?.envelope.command_id).toBe(requests[1]?.envelope.command_id);
+    expect(await screen.findByText('Starter kit claimed. Equip items from your inventory when you are ready.')).toBeDefined();
+  });
+
+  it('disables starter kit claims while the character is in a live activity', async () => {
+    const { view } = harness({ initial: withStarterKit({ ...snapshot(), activityState: 'live' }) });
+    view();
+    expect(await screen.findByRole('button', { name: 'Claim starter kit' })).toHaveProperty('disabled', true);
+    expect(screen.getByText('Return to Sanctuary and become idle to claim your kit.')).toBeDefined();
+  });
+
+  it('does not show starter kit claiming while a different inventory command is pending', async () => {
+    let finish: (() => void) | undefined;
+    const { view } = harness({ initial: withStarterKit(snapshot()), runCommand: async <T,>() => new Promise<T>((resolve) => {
+      finish = () => resolve({ actorId: ACTOR, version: 8 } as T);
+    }) });
+    view();
+    const dialog = await openItem('Sapforged Blade');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Equip Sapforged Blade' }));
+    expect(await screen.findByRole('button', { name: 'Claim starter kit' })).toBeDefined();
+    expect(screen.queryByText('Claiming starter kit…')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Claiming…' })).toBeNull();
+    await act(async () => { finish?.(); });
+  });
+
+  it('waits for a successful authoritative refresh before showing claimed after a read failure', async () => {
+    let current = withStarterKit(snapshot(), false);
+    const { view } = harness({ initial: current, inventoryRead: async (actorId, count) => {
+      if (count === 2) throw new Error('temporary read error');
+      return actorId === current.actorId ? current : snapshot(actorId, []);
+    } });
+    view();
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim starter kit' }));
+    await screen.findByRole('button', { name: 'Refresh state' });
+    expect(screen.queryByText('Starter kit claimed. Equip items from your inventory when you are ready.')).toBeNull();
+    current = withStarterKit(current, true);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh state' }));
+    expect(await screen.findByText('Starter kit claimed. Equip items from your inventory when you are ready.')).toBeDefined();
+  });
+
+  it('allows a fresh claim attempt after a terminal rejection', async () => {
+    const { view, requests } = harness({ initial: withStarterKit(snapshot()), outcomes: [new ApiError(409, 'starter_kit_unavailable'), 'ok'] });
+    view();
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim starter kit' }));
+    await screen.findByText(/starter_kit_unavailable/);
+    fireEvent.click(screen.getByRole('button', { name: 'Claim starter kit' }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[0]?.envelope.command_id).not.toBe(requests[1]?.envelope.command_id);
+    expect(await screen.findByText('Starter kit claimed. Equip items from your inventory when you are ready.')).toBeDefined();
+  });
+
   it('filters server holdings by search and kind, and coalesces same stack rows into the displayed count', async () => {
     const duplicatePotion = { ...POTION, qty: 2 };
     const { view } = harness({ initial: snapshot(ACTOR, [GOLD, POTION, duplicatePotion, { ...POTION, asset: { kind: 'stack', item: 'item:boar_hide' }, definition: 'item:boar_hide', qty: 3 }]) });

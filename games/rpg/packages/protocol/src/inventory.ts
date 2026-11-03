@@ -40,6 +40,7 @@ export interface InventorySnapshotDto {
   readonly attributes: InventoryAttributes;
   readonly completedAreas: readonly string[];
   readonly catalog: { readonly contentHash: string; readonly items: readonly InventoryItemDto[] };
+  readonly starterKit?: { readonly claimed: boolean; readonly items: readonly string[] };
 }
 
 export interface MerchantOfferDto {
@@ -82,7 +83,7 @@ const safeInt = (value: unknown, min = 0): value is number => Number.isSafeInteg
 const str = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 
 export function parseInventorySnapshotDto(input: unknown): InventorySnapshotDto {
-  const root = object(input, ['actorId', 'holdings', 'actorVersion', 'activityState', 'level', 'attributes', 'completedAreas', 'catalog'],
+  const root = object(input, ['actorId', 'holdings', 'actorVersion', 'activityState', 'level', 'attributes', 'completedAreas', 'catalog', 'starterKit'],
     ['actorId', 'holdings', 'actorVersion', 'activityState', 'level', 'attributes', 'completedAreas', 'catalog']);
   if (typeof root['actorId'] !== 'string' || !uuid.test(root['actorId']) || !Array.isArray(root['holdings']) || !safeInt(root['actorVersion']) || !activityStates.includes(String(root['activityState'])) ||
       !safeInt(root['level'], 1) || !Array.isArray(root['completedAreas']) || !root['completedAreas'].every(str)) throw new TypeError('invalid inventory snapshot');
@@ -132,10 +133,17 @@ export function parseInventorySnapshotDto(input: unknown): InventorySnapshotDto 
       ...(holding['slot'] === undefined ? {} : { slot: holding['slot'] as string | null }),
       ...(holding['rolls'] === undefined ? {} : { rolls: cloneJson(holding['rolls']) }) });
   });
+  let starterKit: InventorySnapshotDto['starterKit'];
+  if (root['starterKit'] !== undefined) {
+    const kit = object(root['starterKit'], ['claimed', 'items'], ['claimed', 'items']);
+    if (typeof kit['claimed'] !== 'boolean' || !Array.isArray(kit['items']) || !kit['items'].every(str)) throw new TypeError('invalid starter kit state');
+    starterKit = Object.freeze({ claimed: kit['claimed'], items: Object.freeze([...(kit['items'] as string[])]) });
+  }
   return Object.freeze({ actorId: (root['actorId'] as string).toLowerCase(), holdings: Object.freeze(holdings), actorVersion: root['actorVersion'] as number,
     activityState: root['activityState'] as InventoryActivityState, level: root['level'] as number,
     attributes: Object.freeze({ ...attributes }) as InventoryAttributes, completedAreas: Object.freeze([...(root['completedAreas'] as string[])]),
-    catalog: Object.freeze({ contentHash: catalog['contentHash'], items: Object.freeze(items) }) });
+    catalog: Object.freeze({ contentHash: catalog['contentHash'], items: Object.freeze(items) }),
+    ...(starterKit === undefined ? {} : { starterKit }) });
 }
 
 export function parseMerchantCatalogDto(input: unknown): MerchantCatalogDto {

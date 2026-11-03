@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm';
 import { createCharacterService } from './characters/service.ts';
 import { CharacterError, ConfigureCharacterSchema, CreateCharacterSchema } from './characters/validation.ts';
 import { createExpeditionService, ExpeditionError } from './expeditions/service.ts';
-import { createInventoryService, InventoryError, EquipPayloadSchema, UnequipPayloadSchema, MovePayloadSchema, BuyPayloadSchema } from './inventory/service.ts';
+import { createInventoryService, InventoryError, EquipPayloadSchema, UnequipPayloadSchema, MovePayloadSchema, BuyPayloadSchema, ClaimStarterKitPayloadSchema } from './inventory/service.ts';
 import { expeditions } from './expeditions/schema.ts';
 import { supportedSettlementPolicies } from './expeditions/policy.ts';
 import type { SettlementPolicy } from './expeditions/policy.ts';
@@ -41,13 +41,14 @@ export async function executeCharacterCommand(context: ModuleContext, accountId:
       status: 201, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).start(accountId, payload)),
     }));
   }
-  if (command.operation === 'inventory.equip' || command.operation === 'inventory.unequip' || command.operation === 'inventory.move' || command.operation === 'inventory.buy') {
+  if (command.operation === 'inventory.equip' || command.operation === 'inventory.unequip' || command.operation === 'inventory.move' || command.operation === 'inventory.buy' || command.operation === 'inventory.claimStarterKit') {
     let payload: ReturnType<typeof EquipPayloadSchema.parse> | ReturnType<typeof UnequipPayloadSchema.parse> |
-      ReturnType<typeof MovePayloadSchema.parse> | ReturnType<typeof BuyPayloadSchema.parse>;
+      ReturnType<typeof MovePayloadSchema.parse> | ReturnType<typeof BuyPayloadSchema.parse> | ReturnType<typeof ClaimStarterKitPayloadSchema.parse>;
     try {
       payload = command.operation === 'inventory.equip' ? EquipPayloadSchema.parse(command.payload)
         : command.operation === 'inventory.unequip' ? UnequipPayloadSchema.parse(command.payload)
-          : command.operation === 'inventory.move' ? MovePayloadSchema.parse(command.payload) : BuyPayloadSchema.parse(command.payload);
+          : command.operation === 'inventory.move' ? MovePayloadSchema.parse(command.payload)
+            : command.operation === 'inventory.buy' ? BuyPayloadSchema.parse(command.payload) : ClaimStarterKitPayloadSchema.parse(command.payload);
     } catch { throw new InvalidCommandError('invalid_command'); }
     await context.database.db.transaction(tx => requireOwnedActor(tx, payload.actorId, accountId, 'rpg'));
     const canonical = { ...command, payload: json(payload) };
@@ -56,7 +57,8 @@ export async function executeCharacterCommand(context: ModuleContext, accountId:
       const result = command.operation === 'inventory.equip' ? await service.equip(accountId, command.commandId, payload as ReturnType<typeof EquipPayloadSchema.parse>)
         : command.operation === 'inventory.unequip' ? await service.unequip(accountId, command.commandId, payload as ReturnType<typeof UnequipPayloadSchema.parse>)
           : command.operation === 'inventory.move' ? await service.move(accountId, command.commandId, payload as ReturnType<typeof MovePayloadSchema.parse>)
-            : await service.buy(accountId, command.commandId, payload as ReturnType<typeof BuyPayloadSchema.parse>);
+            : command.operation === 'inventory.buy' ? await service.buy(accountId, command.commandId, payload as ReturnType<typeof BuyPayloadSchema.parse>)
+              : await service.claimStarterKit(accountId, (payload as ReturnType<typeof ClaimStarterKitPayloadSchema.parse>).actorId);
       return { status: 200, body: json(result) };
     });
   }
