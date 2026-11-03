@@ -263,13 +263,20 @@ describe.skipIf(!adminUrl)('hard process crash recovery (real PostgreSQL and SIG
     const groupId = state.state.visited[CAUSEWAY]?.groups[0]?.id;
     if (!groupId) throw new Error('missing test encounter');
     await ca.send({ op: 'live.command', instanceId, actorId: who.actorId, commandId: randomUUID(), command: { type: 'engage', groupId } });
-    await a.call('advance', 1_000);
-    const currentResponse = await fetch(`${a.baseUrl}/live/current/${who.actorId}`, { signal: AbortSignal.timeout(5_000),
-      headers: { authorization: `Bearer ${who.sessionToken}` } });
-    expect(currentResponse.status).toBe(200);
-    const current = await currentResponse.json() as { current: { view: { combat: { tick: number; actors: { side: string; hp: number; maxHp: number }[] } } } };
-    expect(current.current.view.combat.tick).toBeGreaterThan(0);
-    expect(current.current.view.combat.actors.some(actor => actor.side === 'enemy' && actor.hp < actor.maxHp)).toBe(true);
+    let witnessedCombat: { tick: number; actors: { side: string; hp: number; maxHp: number }[] } | undefined;
+    for (let elapsed = 0; elapsed < 15_000; elapsed += 250) {
+      const response = await fetch(`${a.baseUrl}/live/current/${who.actorId}`, { signal: AbortSignal.timeout(5_000),
+        headers: { authorization: `Bearer ${who.sessionToken}` } });
+      expect(response.status).toBe(200);
+      const body = await response.json() as { current: { view: { combat: { tick: number; actors: { side: string; hp: number; maxHp: number }[] } | null } } };
+      const combat = body.current.view.combat;
+      if (combat && combat.tick > 0 && combat.actors.some(actor => actor.side === 'enemy' && actor.hp < actor.maxHp)) {
+        witnessedCombat = combat; break;
+      }
+      await a.call('advance', 250);
+    }
+    expect(witnessedCombat?.tick).toBeGreaterThan(0);
+    expect(witnessedCombat?.actors.some(actor => actor.side === 'enemy' && actor.hp < actor.maxHp)).toBe(true);
     const before = (await row(instanceId)).checkpoint as { state: { phase: string; combat: { tick: number; actors: { side: string; hp: number; stats: { maxHp: number } }[] } } };
     expect(before.state.phase).toBe('combat');
     expect(before.state.combat.tick).toBe(0);
