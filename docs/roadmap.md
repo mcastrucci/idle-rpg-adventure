@@ -7,18 +7,24 @@ Core loop to validate: **Explore → Conquer → Unlock idle → Farm → Improv
 
 ## Current implementation snapshot
 
-The reusable kernels and content pipeline are implemented, along with RPG combat, idle simulators and balance
-reporting. The [Region 1 baseline](design/balance/region-1-baseline.md) measures provisional content and identifies
-tuning gaps; it does not finalize the balance targets. Region 1 still needs interactions, scenes and playtesting.
-The server composes guest/email authentication, fenced live sessions, persisted characters, activity locks and
-transactional HTTP/WS command replay. The generic ledger transaction core is implemented; authenticated inventory
-commands and the periodic invariant job remain separate work. The solo expedition lifecycle is implemented for
-characters with a persisted area completion, including server-validated start, transactional escrow, durable settlement,
-reveal, cancellation and the current setup/progress client flow. The conquest read gate has an internal server write
-seam, but live exploration does not yet record that progress, so ordinary gameplay cannot unlock idle yet. Estimate
-caching and follow-on expedition UI/report scope remain separately tracked (#53/#54). Live exploration hosting and M0
-renderer/mobile evidence also remain outstanding. Check GitHub claims and PRs before taking work; this snapshot is not
-an issue-by-issue progress mirror.
+The browser client and Fastify/PostgreSQL server support guest authentication, character creation, and
+server-authoritative character commands. Inventory includes an explicit one-time starter-kit claim (new characters are
+not auto-equipped), inventory/storage/equipment moves, equip/unequip, and merchant purchases. The worker runs a
+recurring read-only ledger audit. See the [server guide](../games/rpg/apps/server/README.md) and [inventory
+contract](../games/rpg/apps/server/src/inventory/README.md).
+
+Live exploration is persisted and supports movement, encounters, rewards, death and return; server-recorded area
+completion unlocks eligible idle expeditions. The solo lifecycle includes transactional escrow, settlement,
+cancellation, unavailable-policy recovery and terminal reports. The web flow includes live exploration, expedition
+setup/progress/results, and server-computed estimates. See [live server
+behavior](../games/rpg/apps/server/src/live/README.md) and [web client](../games/rpg/apps/web/README.md).
+
+The local Compose setup for PostgreSQL and API/live/worker roles is documented in
+[docs/ops/container.md](ops/container.md). Region content, balance measurements and simulation reports are evidence
+for continued tuning, not final balance decisions or human playtest results. Human playtesting, public hosting, and
+real-device renderer validation remain outstanding. Process-crash recovery validation is tracked in
+[#37](https://github.com/mcastrucci/idle-rpg-adventure/issues/37). Open progression decisions remain in [open decisions](open-decisions.md); this snapshot does not close milestones
+or infer final art readiness.
 
 ## Dependency guidance
 
@@ -106,10 +112,10 @@ Tiled import, 10 locations, enemies/loot/mini-boss, discovery + conquest evaluat
 
 Epic: [#7](https://github.com/mcastrucci/idle-rpg-adventure/issues/7)
 
-Start transaction + precompute, reveal API + progress screen, settlement and cancellation are implemented for actors
-whose area completion is already persisted. The options endpoint enforces that completion gate, but ordinary playable
-conquest records still depend on the live exploration milestone. The current Web screen covers setup, progress,
-cancellation and a basic result summary. Estimates and the follow-on UI/report scope remain separate work (#53/#54).
+Start transaction + precompute, reveal API + progress screen, settlement, cancellation, unavailable-policy recovery,
+terminal reports and server-computed estimates are implemented for actors whose area completion is persisted. Live
+exploration now records area completion, and ordinary gameplay can unlock eligible idle activities. Human playtesting
+and final balance decisions remain pending.
 
 **Exit:** expeditions of 15–180 min complete/cancel/die correctly with app closed (success criterion 4).
 
