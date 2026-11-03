@@ -166,6 +166,14 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
     const startBody = { commandId, actorId: character.actorId, areaId: REGION, supplies: [] };
     expect((await n.app.inject({ method: 'POST', url: '/live/start', payload: startBody })).statusCode).toBe(401);
     expect((await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(stranger), payload: startBody })).statusCode).toBe(404);
+    const duplicateSupplyId = randomUUID();
+    const duplicateSupply = await start(n, session, character, duplicateSupplyId, { supplies: [
+      { item: POTION, qty: 1 }, { item: POTION, qty: 1 },
+    ] });
+    expect(duplicateSupply.statusCode).toBe(400);
+    expect(duplicateSupply.json()).toEqual({ error: 'invalid_command' });
+    expect(await activity(character.actorId)).toMatchObject({ activityState: 'none', activityId: null });
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, duplicateSupplyId))).toEqual([]);
     const forged = await start(n, session, character, commandId, { location: 'loc:region_1.seed_vault_heart', seed: 9,
       equipment: [{ item: 'item:mythic_sword' }] });
     expect(forged.statusCode).toBe(400);

@@ -1,4 +1,5 @@
 import { ActivityConflictError } from '@engine/live-kernel';
+import { eq } from 'drizzle-orm';
 import type { PreparedInstanceCreate } from '@engine/live-kernel';
 import { checkOrigin, getHoldings, requireAccount, requireOwnedActor, runCommand } from '@engine/server-kit';
 import type { ServerModule } from '@engine/server-kit';
@@ -7,6 +8,9 @@ import { parseLiveCurrent, parseLiveOptions, parseLiveStartRequest, parseLiveSta
 import { z } from 'zod';
 
 import { publicCommandError } from '../character-commands.ts';
+import { characters } from '../characters/schema.ts';
+import { readRpgEvalContext } from '../expeditions/progress.ts';
+import { isRpgAreaAccessible, RpgAreaLockedError } from '../world/access.ts';
 import type { RpgLiveHost } from './index.ts';
 import { prepareRpgLiveStart } from './index.ts';
 
@@ -30,6 +34,9 @@ export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
             const actor = await requireOwnedActor(tx, actorId, accountId, 'rpg');
             if (actor.activityState !== 'none') throw new Error('live_actor_busy');
             const holdings = await getHoldings(tx, actorId);
+            const [character] = await tx.select({ level: characters.level }).from(characters).where(eq(characters.actorId, actorId));
+            if (!character) throw new Error('region_1_start_unavailable');
+            const progress = await readRpgEvalContext(tx, actorId, character.level, holdings);
             const itemDefinitions = new Map((context.content.collections['items'] ?? []).map((raw) => {
               const item = ItemSchema.parse(raw); return [item.id, item] as const;
             }));
@@ -43,7 +50,10 @@ export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
             const world = context.content.world as { areas?: readonly { id: string; kind: string; startLocation?: string; nameKey?: string }[] };
             const region = world.areas?.find((area) => area.id === REGION_ONE && area.kind === 'explorable' && area.startLocation);
             if (!region?.startLocation) throw new Error('region_1_start_unavailable');
-            return [[{ id: region.id, label: region.nameKey ?? region.id, startLocationId: region.startLocation }],
+            const areas = isRpgAreaAccessible(context.content, progress, region.id)
+              ? [{ id: region.id, label: region.nameKey ?? region.id, startLocationId: region.startLocation }]
+              : [];
+            return [areas,
               [...stock.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([item, availableQty]) => ({
                 item, label: itemDefinitions.get(item as `item:${string}`)?.nameKey ?? item, availableQty,
               }))] as const;
@@ -98,6 +108,7 @@ export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
 }
 
 function sendEntryError(error: unknown, reply: { code(status: number): { send(body: unknown): unknown } }): unknown {
+  if (error instanceof RpgAreaLockedError) return reply.code(error.statusCode).send({ error: error.code });
   if (error instanceof z.ZodError) return reply.code(400).send({ error: 'invalid_command' });
   if (error instanceof RangeError) return reply.code(400).send({ error: 'invalid_live_start' });
   if (error instanceof ActivityConflictError) return reply.code(409).send({ error: 'activity_conflict' });

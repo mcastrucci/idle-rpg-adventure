@@ -11,7 +11,7 @@ import { createDatabase } from './database.ts';
 import { contentReleases } from './schema.ts';
 
 /** Domain boundaries are extension points, not preinstalled empty services. Each module owns its routes/state. */
-export const MODULE_NAMES = ['auth', 'character', 'commands', 'ledger', 'content', 'conquest', 'live-host', 'live-entry', 'expeditions', 'party', 'jobs', 'debug'] as const;
+export const MODULE_NAMES = ['auth', 'character', 'commands', 'ledger', 'content', 'conquest', 'live-host', 'live-entry', 'expeditions', 'party', 'jobs', 'debug', 'world'] as const;
 export type ModuleName = typeof MODULE_NAMES[number];
 export interface ModuleContext {
   readonly clock: Clock;

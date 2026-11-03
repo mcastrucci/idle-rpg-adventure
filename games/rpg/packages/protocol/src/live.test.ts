@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ZodError } from 'zod';
 import { parseLiveClientRequest, parseLiveCurrent, parseLiveDeathResponse, parseLiveOptions, parseLiveServerFrame,
   parseLiveStartRequest, parseLiveStartResponse } from './live.ts';
 
@@ -68,7 +69,7 @@ describe('live wire protocol', () => {
       supplies: [{ item: 'item:potion', qty: 2 }] })).toMatchObject({ actorId, areaId: 'area:region_1' });
     expect(() => parseLiveStartRequest({ commandId: instanceId, actorId, areaId: 'area:region_1', supplies: [], seed: 1 })).toThrow();
     expect(() => parseLiveStartRequest({ commandId: instanceId, actorId, areaId: 'area:region_1',
-      supplies: [{ item: 'item:potion', qty: 1 }, { item: 'item:potion', qty: 1 }] })).toThrow();
+      supplies: [{ item: 'item:potion', qty: 1 }, { item: 'item:potion', qty: 1 }] })).toThrow(ZodError);
     expect(parseLiveStartResponse({ instanceId })).toEqual({ instanceId });
     expect(parseLiveCurrent({ current: null })).toEqual({ current: null });
     expect(parseLiveCurrent({ current: { instanceId, actorId, view: { phase: 'exploring', heroes: [], groups: [] },

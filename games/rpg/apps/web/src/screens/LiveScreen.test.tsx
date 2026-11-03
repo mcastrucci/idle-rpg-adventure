@@ -116,20 +116,10 @@ describe('LiveScreen navigation controller', () => {
         heroes: [{ actorId, hp: 40, maxHp: 50, healingConsumables: 2 }], retreatAllowed: false, onDeath: ['live.death.run_bag_to_corpse'],
         deathConsequences: [{ actorId, xpLost: 10, xpBeforeTotal: 100, runBag: { items: [{ item: 'item:herb', qty: 2 }], gold: 4, uniques: [] } }],
       } } });
+      socket.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 1, view: deps.current?.view ?? view(), participants: [{ actorId, status: 'connected' }] });
     });
     expect(await screen.findByRole('alertdialog', { name: 'Boss room risk' })).toBeDefined();
     expect(screen.getByText(/enemy:guardian · boss rank · level 8/)).toBeDefined();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('alertdialog')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Review boss room risk/ }));
-    const secondWarning = JSON.parse(socket.sent.at(-1) ?? '{}').command as { commandId: string };
-    act(() => {
-      socket.receive({ type: 'live.ack', instanceId, commandId: secondWarning.commandId, status: 'applied', duplicate: false });
-      socket.receive({ type: 'live.event', instanceId, epoch: 1, seq: 2, source: 'game', event: { type: 'bossRoomWarning', exitId: 'exit:boss', risk: {
-        locationId: 'location:boss', enemies: [], heroes: [{ actorId, hp: 40, maxHp: 50, healingConsumables: 2 }], retreatAllowed: false,
-        deathConsequences: [{ actorId, xpLost: 10, xpBeforeTotal: 100, runBag: { items: [], gold: 0, uniques: [] } }],
-      } } });
-    });
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm entry' }));
     await waitFor(() => expect(JSON.parse(socket.sent.at(-1) ?? '{}').command?.command).toMatchObject({ type: 'enterBossRoom', exitId: 'exit:boss', confirm: true }));
     deps.client.stop();

@@ -161,7 +161,13 @@ const supplyOptionSchema = z.strictObject({ item: boundedText, label: boundedTex
 const liveOptionsSchema = z.strictObject({ actorId: uuidSchema, areas: z.array(areaOptionSchema).max(64),
   supplies: z.array(supplyOptionSchema).max(512) });
 const liveStartSchema = z.strictObject({ commandId: uuidSchema, actorId: uuidSchema, areaId: boundedText,
-  supplies: z.array(z.strictObject({ item: boundedText, qty: positiveCounterSchema })).max(256) });
+  supplies: z.array(z.strictObject({ item: boundedText, qty: positiveCounterSchema })).max(256) }).superRefine((value, ctx) => {
+  const seen = new Set<string>();
+  value.supplies.forEach((supply, index) => {
+    if (seen.has(supply.item)) ctx.addIssue({ code: 'custom', path: ['supplies', index, 'item'], message: 'duplicate supply item' });
+    seen.add(supply.item);
+  });
+});
 const runBagSchema = z.strictObject({ actorId: uuidSchema, items: z.array(z.strictObject({ item: z.string().min(1).max(128), qty: z.number().int().min(1).max(1_000_000) })).max(256),
   gold: z.number().int().safe().nonnegative(), uniques: z.array(z.strictObject({ itemId: uuidSchema, definition: z.string().min(1).max(128),
     slot: z.string().max(64).nullable(), rolls: jsonSchema })).max(256).optional() });
@@ -242,13 +248,7 @@ export function parseLiveOptions(input: unknown): LiveOptionsDto {
 }
 
 export function parseLiveStartRequest(input: unknown): LiveStartRequestDto {
-  const parsed = liveStartSchema.parse(input) as LiveStartRequestDto;
-  const seen = new Set<string>();
-  for (const supply of parsed.supplies) {
-    if (seen.has(supply.item)) throw new TypeError('duplicate live supply');
-    seen.add(supply.item);
-  }
-  return parsed;
+  return liveStartSchema.parse(input) as LiveStartRequestDto;
 }
 
 export function parseLiveStartResponse(input: unknown): LiveStartResponseDto {

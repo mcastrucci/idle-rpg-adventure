@@ -18,8 +18,9 @@ export function tabFromHash(hash: string): TabId {
 
 /** Sub-page inside a tab: `#/character/rules` → `rules`; `null` on the tab's main page. */
 export function subrouteFromHash(hash: string): string | null {
-  const [, sub] = hash.replace(/^#\/?/, '').split('/');
-  return sub === undefined || sub === '' ? null : sub;
+  const parts = hash.replace(/^#\/?/, '').split('/').slice(1);
+  const sub = parts.join('/');
+  return sub === '' ? null : sub;
 }
 
 function subscribe(listener: () => void): () => void {
