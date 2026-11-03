@@ -4,19 +4,19 @@ A mobile-first fantasy RPG that combines **Live Adventure** (exploring illustrat
 bosses) with **Idle Expeditions** (server-side automatic expeditions in regions you have conquered). One character, one
 shared progression and economy.
 
-> **Status:** pre-production. The repository has working engine and content-tool foundations, but the complete new-player RPG loop is not playable yet. Architecture principles are recorded; several implementation choices still need spike evidence.
+> **Status:** pre-production vertical slice. The repository now has a playable browser path for guest sign-in, character
+> setup, inventory/equipment/storage, merchant purchases, live exploration and solo expeditions. Newly created
+> characters start empty; players can explicitly claim the one-time starter kit from Inventory. See the [web
+> client](games/rpg/apps/web/README.md), [server](games/rpg/apps/server/README.md), and [roadmap](docs/roadmap.md) for
+> the implementation boundary.
 
-The implemented foundations include the reusable world/expedition kernels, content pipeline, RPG schemas/stats,
-deterministic combat and idle simulators, and [balance tooling with a provisional Region 1 baseline](docs/design/balance/region-1-baseline.md).
-Region 1 has authored structural content; scene assets, interaction effects and balance tuning remain unfinished.
-The [Fastify/PostgreSQL server](games/rpg/apps/server/README.md) now composes guest/email authentication, fenced live
-sessions, persisted RPG characters, activity locks and replay-safe HTTP/WS commands. The solo expedition lifecycle is
-implemented for characters with a persisted area completion, including transactional escrow, durable settlement,
-progress/reveal, cancellation and a client flow. The live exploration path does not yet write conquest records, so a
-new character cannot unlock expeditions through ordinary gameplay; the completion write seam is internal and has no
-public bypass. The generic ledger transaction core is implemented, while authenticated inventory commands and a
-periodic invariant job remain separate work. Estimate caching and follow-on expedition UI/report scope remain tracked
-separately (#53/#54). See the [roadmap](docs/roadmap.md) for dependencies and remaining scope.
+The server persists live exploration, rewards, death outcomes and area completion; completed areas unlock eligible
+idle activities. Expedition start, cancellation, settlement, recovery, reports and Monte Carlo estimates are
+implemented. Local PostgreSQL and API/live/worker startup is documented in the [container
+guide](docs/ops/container.md). Region 1 and Region 2 content and balance evidence remain provisional; human
+playtesting, final balance decisions, public hosting and real-device renderer validation remain outstanding.
+Process-crash recovery validation is tracked in [#37](https://github.com/mcastrucci/idle-rpg-adventure/issues/37). This status does not imply final art readiness or
+resolve open progression decisions.
 
 ## Documentation
 
