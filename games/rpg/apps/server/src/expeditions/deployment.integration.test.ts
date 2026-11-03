@@ -45,6 +45,11 @@ interface DeploymentDto {
   startsAtMs: number; plannedEndsAtMs: number;
   segments: readonly { index: number; revealAtMs: number; events: readonly Record<string, unknown>[] }[];
   revealedDeltas: unknown; endsAtMs?: number; outcome?: unknown; recoveryAvailable?: boolean; terminalReport?: TerminalReport | null;
+  report?: { availability: string; effectiveDurationMs: number | null; outcome: string | null; enemiesDefeated: number | null;
+    xp: { earned: number | null; penaltyLost: number | null; net: number | null };
+    gold: { earned: number | null; lost: number | null; secured: number | null };
+    loot: readonly unknown[] | null; consumables: readonly { item: string; used: number | null; returned: number | null }[] | null;
+    events: readonly string[] | null; finalState: { hp: number | null; maxHp: number | null; xpTotal: number | null }; death: unknown };
   [key: string]: unknown;
 }
 interface TerminalReport {
@@ -365,14 +370,23 @@ describe.skipIf(!adminUrl)('expedition deployment compatibility against real Pos
     expect(syntheticSettleCalls).toBe(1); // final lazy settlement also selects the registered compatible tuple
     expect(syntheticSummaryCalls).toBe(2);
 
-    // A legacy terminal without a migrated report remains visible as a safe null report, even if its old timeline
-    // cannot be read. This covers rows that predate the report column/backfill.
-    await database.pool.query("UPDATE rpg_expeditions SET terminal_report=NULL, timeline_compressed='legacy damaged timeline' WHERE id=$1", [started.id]);
+    // A legacy terminal without a migrated report can still expose the immutable, already-settled timeline prefix
+    // when its frozen producer tuple and compressed timeline remain readable. It does not invent settlement facts.
+    await database.pool.query('UPDATE rpg_expeditions SET terminal_report=NULL WHERE id=$1', [started.id]);
     const legacy = await get(session, started.id);
     expect(legacy.statusCode).toBe(200);
-    expect(legacy.json<DeploymentDto>().terminalReport).toBeNull();
+    expect(legacy.json<DeploymentDto>()).toMatchObject({ terminalReport: null, report: { availability: 'legacy_unavailable',
+      effectiveDurationMs: null, enemiesDefeated: null, loot: null, consumables: null, events: null } });
+    expect(legacy.json<DeploymentDto>().segments).toEqual(settled.json<DeploymentDto>().segments);
     expect((await list(session, character.actorId)).statusCode).toBe(200);
     expect(syntheticSummaryCalls).toBe(2);
+
+    // Unreadable legacy timelines keep the safe minimal projection.
+    await database.pool.query("UPDATE rpg_expeditions SET timeline_compressed='legacy damaged timeline' WHERE id=$1", [started.id]);
+    const unreadableLegacy = await get(session, started.id);
+    expect(unreadableLegacy.statusCode).toBe(200);
+    expect(unreadableLegacy.json<DeploymentDto>()).toMatchObject({ state: 'completed', segments: [], terminalReport: null,
+      report: { availability: 'legacy_unavailable', effectiveDurationMs: null, enemiesDefeated: null } });
 
     // A valid compressed JSON payload with a matching hash can still be structurally invalid for placement. Legacy
     // terminal projection catches failures after inflation/hash validation too, without trying current simulators.
@@ -440,6 +454,11 @@ describe.skipIf(!adminUrl)('expedition deployment compatibility against real Pos
 
     const recovered = firstRecovery.json<DeploymentDto>();
     expect(recovered.terminalReport).toMatchObject({ version: 1, kind: 'escrow_returned', reason: 'version_unavailable', summary: null, xp: [], cutoff: null });
+    expect(recovered.report).toMatchObject({ availability: 'returned_escrow', outcome: 'version_unavailable',
+      effectiveDurationMs: null, enemiesDefeated: null,
+      xp: { earned: null, penaltyLost: null, net: null }, gold: { earned: null, lost: null, secured: null },
+      loot: null, events: null, finalState: { hp: null, maxHp: null, xpTotal: null } });
+    expect(recovered.report?.consumables).toEqual([{ item: POTION, used: null, returned: 2 }]);
     const report = await terminalReport(started.id);
     expect(report).toEqual(recovered.terminalReport);
     const expectedRefund = (row.escrow as readonly { actorId: string; asset: unknown; qty: number; from: string; to: string }[])

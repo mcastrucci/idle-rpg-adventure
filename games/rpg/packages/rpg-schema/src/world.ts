@@ -83,11 +83,11 @@ export type Hotspot = z.output<typeof HotspotSchema>;
 
 export const rpgLocationFields = {
   nameKey: TextKeySchema.optional(),
-  /** Tiled scene path relative to the area folder, e.g. `scenes/old_well.tmj`. */
-  scene: z.string().regex(/^[a-z0-9_/.-]+\.tmj$/, 'must be a .tmj path').optional(),
   encounters: EncounterTableIdSchema.optional(),
   resources: z.array(LocationResourceSchema).default([]),
   hotspots: z.array(HotspotSchema).default([]),
+  /** Stable names for the scene's foe placement anchors; only required when a scene is authored. */
+  enemyAnchors: z.array(LocalIdSchema).optional(),
 };
 
 export const RpgLocationSchema = z
@@ -97,6 +97,11 @@ export const RpgLocationSchema = z
     location.hotspots.forEach((hotspot, i) => {
       if (seen.has(hotspot.id)) ctx.addIssue({ code: 'custom', path: ['hotspots', i, 'id'], message: `duplicate hotspot "${hotspot.id}"` });
       seen.add(hotspot.id);
+    });
+    const anchors = new Set<string>();
+    location.enemyAnchors?.forEach((id, i) => {
+      if (anchors.has(id)) ctx.addIssue({ code: 'custom', path: ['enemyAnchors', i], message: `duplicate enemy anchor "${id}"` });
+      anchors.add(id);
     });
   });
 export type RpgLocation = z.output<typeof RpgLocationSchema>;

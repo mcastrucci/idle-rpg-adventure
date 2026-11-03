@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { CSSProperties } from 'react';
 
+import { parseExpeditionDto } from '@rpg/protocol';
 import type { ExpeditionDto, ExpeditionEstimateRequest, ExpeditionOptionsDto, ExpeditionStartPayload } from '@rpg/protocol';
 import { cancelExpeditionCommand, CommandUnconfirmedError, recoverUnavailableExpeditionCommand, startExpeditionCommand } from '../api/commands.ts';
 import type { CommandRequest } from '../api/commands.ts';
@@ -14,6 +15,7 @@ import { EstimateCard } from './expedition/EstimateCard.tsx';
 import type { EstimateState } from './expedition/EstimateCard.tsx';
 import { lastExpeditionProblem, loadLastExpedition, saveLastExpedition } from './expedition/lastExpedition.ts';
 import type { LastExpedition } from './expedition/lastExpedition.ts';
+import { ExpeditionResultReport } from './expedition/report/ExpeditionResultReport.tsx';
 
 interface Props {
   readonly character: CharacterDto | null;
@@ -26,16 +28,23 @@ interface Props {
   /** Quiet period after the last setup change before an estimate is requested. */
   readonly estimateDebounceMs?: number;
 }
-
 const POLL_MS = 15_000;
 const ESTIMATE_DEBOUNCE_MS = 400;
 const RULES_PREVIEW = 4;
 
-export function ExpeditionScreen({ character, canCommand, api, runCommand, refreshCharacter, initialAreaId, estimateDebounceMs = ESTIMATE_DEBOUNCE_MS }: Props) {
+export function ExpeditionScreen(props: Props) {
+  // Keep actor-specific state and in-flight reads in a keyed subtree. Switching actors immediately unmounts the
+  // old screen state, so late responses and unconfirmed command IDs cannot appear under or be reused by the new actor.
+  const actorKey = props.character?.actorId ?? 'no-actor';
+  return <ExpeditionScreenForActor key={actorKey} {...props} />;
+}
+
+function ExpeditionScreenForActor({ character, canCommand, api, runCommand, refreshCharacter, initialAreaId, estimateDebounceMs = ESTIMATE_DEBOUNCE_MS }: Props) {
   const actorId = character?.actorId ?? null;
   const activeId = character?.activityState === 'expedition' ? character.activityId : null;
   const [options, setOptions] = useState<ExpeditionOptionsDto | null>(null);
   const [expedition, setExpedition] = useState<ExpeditionDto | null>(null);
+  const [latestTerminal, setLatestTerminal] = useState<ExpeditionDto | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -85,6 +94,21 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
   }, [api, loadOptions, refreshCharacter, trackingId]);
 
   useEffect(() => { void loadOptions(); }, [loadOptions]);
+  // Terminal reports are server-owned durable records. Load the newest terminal DTO on each screen entry so a
+  // reload never reconstructs a report from the device's cached start configuration or revealed feed.
+  useEffect(() => {
+    let cancelled = false;
+    setLatestTerminal(null);
+    if (!actorId || typeof api.request !== 'function') return () => { cancelled = true; };
+    void api.request<unknown>('GET', `/characters/${encodeURIComponent(actorId)}/expeditions`).then((value) => {
+      if (!Array.isArray(value)) throw new TypeError('invalid expedition history');
+      const history = value.map(parseExpeditionDto);
+      if (!cancelled) setLatestTerminal(history.find((row) => row.state !== 'running') ?? null);
+    }).catch((failure: unknown) => {
+      if (!cancelled) setReadError(describeError(failure));
+    });
+    return () => { cancelled = true; };
+  }, [actorId, api]);
   useEffect(() => { void loadExpedition(); }, [loadExpedition]);
   useEffect(() => { if (activeId && unconfirmed?.envelope.operation === 'expedition.start') setUnconfirmed(null); }, [activeId, unconfirmed]);
   useEffect(() => { if (expedition?.state !== 'running' && (unconfirmed?.envelope.operation === 'expedition.cancel' || unconfirmed?.envelope.operation === 'expedition.recoverUnavailable')) setUnconfirmed(null); }, [expedition, unconfirmed]);
@@ -145,11 +169,30 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [actorId, api, estimateKey, estimateNonce, estimateDebounceMs, characterVersion]);
 
-  // "Repeat last expedition": the last started request, per character on this device.
+  // Saved per-device settings are conveniences; the newest server history selects the area/activity and current
+  // options decide whether the prefill is still startable.
   const [lastExpedition, setLastExpedition] = useState<LastExpedition | null>(null);
   useEffect(() => { setLastExpedition(actorId ? loadLastExpedition(actorId) : null); }, [actorId]);
-  const lastProblem = lastExpedition && options ? lastExpeditionProblem(lastExpedition, options) : null;
-  const canRepeat = Boolean(lastExpedition && options && !lastProblem && !activeId && canCommand && !pending && !unconfirmed);
+  const latestServerArea = latestTerminal && options?.areas.find((area) => area.areaId === latestTerminal.areaId);
+  const latestServerActivity = latestServerArea?.activities.find((activity) => activity.activityId === latestTerminal?.activityId);
+  const serverTerminal = latestTerminal;
+  const repeatCandidate: LastExpedition | null = serverTerminal
+    ? {
+      request: {
+        areaId: serverTerminal.areaId,
+        activityId: serverTerminal.activityId,
+        durationMin: lastExpedition && options?.durationsMin.includes(lastExpedition.request.durationMin) ? lastExpedition.request.durationMin : options?.durationsMin[0] ?? 0,
+        paceBp: lastExpedition && options && lastExpedition.request.paceBp >= options.paceBp.min && lastExpedition.request.paceBp <= options.paceBp.max
+          ? lastExpedition.request.paceBp : options?.paceBp.default ?? 0,
+      },
+      config: lastExpedition && options && lastExpedition.config.consumables.every((item) => (options.consumables.find((row) => row.item === item.item)?.availableQty ?? 0) >= item.qty)
+        ? lastExpedition.config : { consumables: [], retreat: { belowHpBp: 0, onlyWhenNoHealing: false } },
+    }
+    : lastExpedition;
+  const repeatProblem = repeatCandidate && options
+    ? lastExpeditionProblem(repeatCandidate, options) ?? (!latestServerActivity?.available && serverTerminal ? 'The latest server expedition area or activity is no longer available.' : null)
+    : null;
+  const canRepeat = Boolean(repeatCandidate && options && !repeatProblem && !activeId && canCommand && !pending && !unconfirmed);
   const rulePreview = useMemo(() => toDraft(character?.automationRules ?? []).map(({ rule }) => {
     try { return describeRule(rule); } catch { return 'Custom rule'; }
   }), [character?.automationRules]);
@@ -165,10 +208,9 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
     setOnlyWhenNoHealing(last.config.retreat.onlyWhenNoHealing);
   }
 
-  function repeatLast() {
-    if (!actorId || !lastExpedition || !canRepeat) return;
-    applySetup(lastExpedition);
-    void send(startExpeditionCommand({ actorId, request: lastExpedition.request, config: lastExpedition.config }), 'start');
+  function goAgain() {
+    if (!repeatCandidate || !canRepeat) return;
+    applySetup(repeatCandidate);
   }
 
   async function send(request: CommandRequest<ExpeditionDto>, action: 'start' | 'cancel' | 'recover') {
@@ -179,6 +221,7 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
       setExpedition(result);
       setCancelOpen(false);
       if (action === 'start' && actorId) {
+        setLatestTerminal(null);
         const started = request.envelope.payload as unknown as ExpeditionStartPayload;
         const last: LastExpedition = { request: started.request, config: started.config };
         saveLastExpedition(actorId, last);
@@ -208,7 +251,9 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
     void send(unconfirmed ?? startExpeditionCommand(payload), 'start');
   }
 
-  const currentExpedition = expedition && (!activeId || expedition.id === activeId) ? expedition : null;
+  const currentExpedition = expedition && (!activeId || expedition.id === activeId) ? expedition
+    : !activeId && expedition && expedition.state !== 'running' ? expedition : !activeId ? latestTerminal : null;
+  const terminalExpedition = currentExpedition && isTerminalExpedition(currentExpedition) ? currentExpedition : null;
   const elapsed = currentExpedition?.state === 'running'
     ? Math.min(1, Math.max(0, (now - currentExpedition.startsAtMs) / Math.max(1, currentExpedition.plannedEndsAtMs - currentExpedition.startsAtMs))) : 0;
   const ringStyle = useMemo(() => ({ '--expedition-progress': `${elapsed * 100}%` } as CSSProperties), [elapsed]);
@@ -224,18 +269,19 @@ export function ExpeditionScreen({ character, canCommand, api, runCommand, refre
         onRecover={() => currentExpedition.recoveryAvailable && void send(unconfirmed?.envelope.operation === 'expedition.recoverUnavailable' ? unconfirmed : recoverUnavailableExpeditionCommand(currentExpedition.id), 'recover')}
         canCancel={canCommand && !pending && (!unconfirmed || (currentExpedition.recoveryAvailable === true && unconfirmed.envelope.operation === 'expedition.recoverUnavailable'))}
         retryRecovery={unconfirmed?.envelope.operation === 'expedition.recoverUnavailable'} loading={loading} />}
-      {currentExpedition && currentExpedition.state !== 'running' && <CompletedExpedition expedition={currentExpedition} />}
+      {terminalExpedition && <CompletedExpedition expedition={terminalExpedition} />}
       {readError && <p className="form__error" role="alert">Could not refresh expedition status ({readError}).</p>}
       {trackingId && <button type="button" className="button button--secondary" disabled={loading} onClick={() => void loadExpedition()}>{loading ? 'Refreshing…' : 'Refresh status'}</button>}
       {character && !activeId && <form className="form expedition-form" onSubmit={start}>
         <h2 className="screen__subtitle">Start an expedition</h2>
         {!options && !optionsError && <p className="muted">Checking conquered activities…</p>}
-        {options && lastExpedition && <section className="repeat-card" aria-labelledby="repeat-title">
-          <h3 id="repeat-title">Last expedition</h3>
-          <p>{label(lastExpedition.request.activityId)} · {label(lastExpedition.request.areaId)} · {formatDuration(lastExpedition.request.durationMin)}
-            {lastExpedition.config.consumables.length ? ` · ${formatItems(lastExpedition.config.consumables)}` : ''}</p>
-          {lastProblem && <p className="muted">{lastProblem}</p>}
-          <button type="button" className="button" disabled={!canRepeat} onClick={repeatLast}>Repeat last expedition</button>
+        {options && repeatCandidate && <section className="repeat-card" aria-labelledby="repeat-title">
+          <h3 id="repeat-title">Go again</h3>
+          <p className="muted">Prefills this setup. Review it, then choose Start to begin.</p>
+          <p>{label(repeatCandidate.request.activityId)} · {label(repeatCandidate.request.areaId)} · {formatDuration(repeatCandidate.request.durationMin)}
+            {repeatCandidate.config.consumables.length ? ` · ${formatItems(repeatCandidate.config.consumables)}` : ''}</p>
+          {repeatProblem && <p className="muted">{repeatProblem}</p>}
+          <button type="button" className="button" disabled={!canRepeat} onClick={goAgain}>Go again</button>
         </section>}
         {options && availableAreas.length > 0 && <>
           <label className="form__label" htmlFor="expedition-area">Conquered area</label>
@@ -313,18 +359,15 @@ function CancelDialog({ expedition, pending, canCommand, onClose, onConfirm }: {
   </section></div>;
 }
 
-function CompletedExpedition({ expedition }: { expedition: ExpeditionDto }) {
-  const escrowReturned = isEscrowReturnedReport(expedition.terminalReport);
-  if (escrowReturned) return <section className="expedition-card" aria-labelledby="expedition-result-title"><h2 id="expedition-result-title" className="screen__subtitle">Expedition ended</h2>
-    <p>{label(expedition.activityId)} · {label(expedition.areaId)}</p><p>Consumables returned. No rewards or XP were awarded.</p></section>;
-  return <section className="expedition-card" aria-labelledby="expedition-result-title"><h2 id="expedition-result-title" className="screen__subtitle">{expedition.state === 'completed' ? 'Expedition completed' : 'Expedition cancelled'}</h2>
-    <p>{label(expedition.activityId)} · {label(expedition.areaId)}</p><p className="muted">Outcome: {typeof expedition.outcome === 'string' ? label(expedition.outcome) : eventText(expedition.outcome ?? null)}</p>
-    {expedition.summary && <div className="expedition-feed"><h3>Summary</h3><ul>{summaryFacts(expedition.summary, expedition.actorId).map((fact) => <li key={fact}>{fact}</li>)}</ul></div>}
-    <p className="muted">{expedition.progress.revealed} revealed segments</p></section>;
+function CompletedExpedition({ expedition }: { expedition: Omit<ExpeditionDto, 'state'> & { readonly state: 'completed' | 'cancelled' } }) {
+  return <>
+    <p className="muted">{label(expedition.activityId)} · {label(expedition.areaId)}</p>
+    <ExpeditionResultReport report={expedition.report} state={expedition.state} />
+  </>;
 }
 
-function isEscrowReturnedReport(value: unknown): boolean {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) && (value as Record<string, unknown>)['kind'] === 'escrow_returned';
+function isTerminalExpedition(expedition: ExpeditionDto): expedition is Omit<ExpeditionDto, 'state'> & { readonly state: 'completed' | 'cancelled' } {
+  return expedition.state !== 'running';
 }
 
 function label(id: string): string {
@@ -363,36 +406,4 @@ function eventText(value: unknown): string {
     return type === undefined ? 'Event' : label(String(type));
   }
   return 'Event';
-}
-
-function summaryFacts(value: unknown, actorId: string): readonly string[] {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return [eventText(value)];
-  const report = value as Record<string, unknown>;
-  const facts: string[] = [];
-  if (Number.isFinite(report['segments'])) facts.push(`${report['segments']} revealed segments`);
-  if (Number.isFinite(report['encounters'])) facts.push(`${report['encounters']} encounters, ${String(report['victories'] ?? 0)} victories`);
-  if (Number.isFinite(report['gold']) && Number(report['gold']) > 0) facts.push(`Gross gold found: ${report['gold']}`);
-  facts.push(...namedCounts(report['xp'], 'XP', actorId));
-  facts.push(...namedCounts(report['kills'], 'kills'));
-  facts.push(...namedCounts(report['loot'], 'loot'));
-  facts.push(...namedCounts(report['consumablesUsed'], 'used'));
-  if (report['retreat']) facts.push(`Retreated: ${label(String(report['retreat']))}`);
-  if (report['deathLog'] && typeof report['deathLog'] === 'object') {
-    const death = report['deathLog'] as Record<string, unknown>;
-    facts.push(`Death revealed: ${death['actorId'] === actorId ? 'your character' : label(String(death['actorId'] ?? 'character'))}, segment ${String(death['encounter'] ?? '?')}`);
-    if (Array.isArray(death['causes'])) facts.push(...death['causes'].flatMap((cause) => {
-      if (cause === null || typeof cause !== 'object') return [];
-      const key = (cause as Record<string, unknown>)['key'];
-      return typeof key === 'string' ? [label(key.replace(/^idle\.death\./, '').replaceAll('.', '_'))] : [];
-    }));
-  }
-  if (report['outcome'] === 'failed') facts.push('Totals above are before death losses: 50% of the expedition bag is lost (loss rounded down), and the fallen character’s XP penalty applies.');
-  return facts.length ? facts : ['No rewards or encounters recorded'];
-}
-function namedCounts(value: unknown, unit: string, actorId?: string): string[] {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return [];
-  return Object.entries(value as Record<string, unknown>).filter(([, count]) => Number.isFinite(count) && Number(count) > 0)
-    .map(([name, count]) => unit === 'XP'
-      ? `${name === actorId ? 'Character' : label(name)}: ${count} gross XP before penalties`
-      : unit === 'loot' ? `Gross loot found: ${label(name)} ×${count}` : `${label(name)}: ${count} ${unit}`);
 }

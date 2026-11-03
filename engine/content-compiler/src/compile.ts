@@ -16,6 +16,8 @@ import {
   LocationSchema,
   NAMESPACED_ID_PATTERN,
   RouteSchema,
+  type SceneGeometry,
+  SceneGeometrySchema,
   validateWorld,
   WorldSchema,
   type World,
@@ -27,6 +29,7 @@ import { contentHashOf } from './canonical.ts';
 import type { ContentError, JsonPath } from './errors.ts';
 import type { ContentFile } from './load.ts';
 import { loadContentFiles } from './load.ts';
+import { importTiledMap } from './tiled.ts';
 import type {
   CollectionDefinition,
   CompiledContent,
@@ -38,6 +41,7 @@ import type {
 
 /** Version of the bundle layout; bump when the bundle shape changes. */
 export const BUNDLE_FORMAT = 1 as const;
+export const BUNDLE_FORMAT_WITH_SCENES = 2 as const;
 
 /** Engine-owned collections and their directories under the content root. */
 export const WORLD_COLLECTIONS: Readonly<Record<WorldCollectionName, CollectionDefinition>> = {
@@ -53,13 +57,15 @@ function isWorldCollection(name: string): name is WorldCollectionName {
 }
 
 export interface ContentBundle {
-  readonly format: typeof BUNDLE_FORMAT;
+  readonly format: typeof BUNDLE_FORMAT | typeof BUNDLE_FORMAT_WITH_SCENES;
   readonly game: string;
-  /** Lowercase hex SHA-256 of the canonical JSON of `{ format, game, world, collections }`. */
+  /** Lowercase SHA-256 of canonical format-1 fields, plus `scenes` for format 2. */
   readonly contentHash: string;
   readonly world: World;
   /** Game collections, each sorted by ID. */
   readonly collections: Readonly<Record<string, readonly ContentEntity[]>>;
+  /** Present only in format 2. Keyed by location ID. */
+  readonly scenes?: Readonly<Record<string, SceneGeometry>>;
 }
 
 export interface CompileOptions {
@@ -67,6 +73,8 @@ export interface CompileOptions {
   readonly previous?: unknown;
   /** Label used as `file` for errors about the previous bundle (default `previous bundle`). */
   readonly previousLabel?: string;
+  /** Required to resolve background image paths for Tiled scene files. */
+  readonly contentRoot?: string;
 }
 
 export type CompileResult =
@@ -80,7 +88,7 @@ export type CompileResult =
 
 /** Reads `root` from disk and compiles it. */
 export function compileContentDirectory(root: string, plugin: ContentGamePlugin, options: CompileOptions = {}): CompileResult {
-  return compileContent(loadContentFiles(root), plugin, options);
+  return compileContent(loadContentFiles(root), plugin, { ...options, contentRoot: root });
 }
 
 /** One parsed entity and where it came from. */
@@ -92,7 +100,7 @@ interface Entry {
   readonly prefix: JsonPath;
 }
 
-/** Compiles already loaded files (pure apart from hashing). */
+/** Compiles loaded JSON and Tiled source files; scene builds also validate referenced local assets under contentRoot. */
 export function compileContent(files: readonly ContentFile[], plugin: ContentGamePlugin, options: CompileOptions = {}): CompileResult {
   const pluginErrors = checkPlugin(plugin);
   if (pluginErrors.length > 0) return { ok: false, errors: pluginErrors };
@@ -106,6 +114,7 @@ export function compileContent(files: readonly ContentFile[], plugin: ContentGam
   const errors: ContentError[] = [];
   const entries: Entry[] = [];
   for (const { file, text } of [...files].sort((a, b) => compareStrings(a.file, b.file))) {
+    if (file.endsWith('.tmj')) continue;
     const match = definitions.find(([, def]) => file.startsWith(`${def.dir}/`));
     if (!match) {
       errors.push({
@@ -218,6 +227,44 @@ export function compileContent(files: readonly ContentFile[], plugin: ContentGam
   }
   if (errors.length > 0) return { ok: false, world, errors };
 
+  // Stage 2e: safely import every explicitly referenced Tiled scene and reject orphan maps.
+  const mapFiles = new Map(files.filter(({ file }) => file.endsWith('.tmj')).map(({ file, text }) => [file, text]));
+  const sceneEntries: [string, SceneGeometry][] = [];
+  const referencedSceneFiles = new Set<string>();
+  for (const location of world.locations) {
+    const sceneFile = (location as { scene?: string }).scene;
+    if (!sceneFile) continue;
+    const owner = entryOf.get(entryKey('locations', location.id));
+    if (!mapFiles.has(sceneFile)) {
+      errors.push({ code: 'scene.mapMissing', ...(owner ? { file: owner.file } : {}), path: owner ? [...owner.prefix, 'scene'] : [],
+        message: `Tiled map "${sceneFile}" referenced by ${location.id} is missing` });
+      continue;
+    }
+    referencedSceneFiles.add(sceneFile);
+    if (!options.contentRoot) {
+      errors.push({ code: 'scene.assetRootMissing', file: sceneFile, path: [], message: 'scene import requires a content root to validate local image paths' });
+      continue;
+    }
+    const result = importTiledMap(sceneFile, mapFiles.get(sceneFile) ?? '', options.contentRoot);
+    if (result.error) errors.push(result.error);
+    else if (result.geometry) {
+      const checked = SceneGeometrySchema.safeParse(result.geometry);
+      if (!checked.success) {
+        for (const issue of checked.error.issues) errors.push({ code: 'scene.geometryInvalid', file: sceneFile,
+          path: issue.path.map((part) => typeof part === 'string' || typeof part === 'number' ? part : String(part)), message: issue.message });
+      } else sceneEntries.push([location.id, checked.data]);
+    }
+  }
+  for (const sceneFile of [...mapFiles.keys()].sort(compareStrings)) {
+    if (!referencedSceneFiles.has(sceneFile)) errors.push({ code: 'scene.mapOrphan', file: sceneFile, path: [], message: 'Tiled map is not referenced by any location.scene' });
+  }
+  if (errors.length > 0) return { ok: false, world, errors };
+  const scenes = Object.fromEntries(sceneEntries.sort(([a], [b]) => compareStrings(a, b)));
+  for (const issue of plugin.validateScenes?.(content, scenes) ?? []) {
+    errors.push({ code: issue.code, ...locate(issue.collection, issue.id, issue.path ?? []), message: issue.message });
+  }
+  if (errors.length > 0) return { ok: false, world, errors };
+
   // Stage 3: game checks.
   for (const issue of plugin.validate?.(content) ?? []) {
     errors.push({ code: issue.code, ...locate(issue.collection, issue.id, issue.path ?? []), message: issue.message });
@@ -225,8 +272,10 @@ export function compileContent(files: readonly ContentFile[], plugin: ContentGam
   if (errors.length > 0) return { ok: false, world, errors };
 
   // Stage 4: bundle.
-  const body = { format: BUNDLE_FORMAT, game: plugin.id, world, collections };
-  return { ok: true, bundle: { ...body, contentHash: contentHashOf(body) }, errors: [] };
+  const body = Object.keys(scenes).length === 0
+    ? { format: BUNDLE_FORMAT, game: plugin.id, world, collections }
+    : { format: BUNDLE_FORMAT_WITH_SCENES, game: plugin.id, world, collections, scenes };
+  return { ok: true, bundle: { ...body, contentHash: contentHashOf(body) } as ContentBundle, errors: [] };
 }
 
 function parseEntity(

@@ -23,6 +23,7 @@ import { RPG_GAME_ID } from '../characters/service.ts';
 import { BASIC_ATTACK } from '../characters/validation.ts';
 import type { CharacterAttributes } from '../characters/validation.ts';
 import { expeditions } from './schema.ts';
+import { projectExpeditionResultReport } from './report.ts';
 import { findSettlementPolicy, settlementSimulator, supportedSettlementPolicies } from './policy.ts';
 import type { SettlementPolicy } from './policy.ts';
 import { readRpgEvalContext } from './progress.ts';
@@ -87,13 +88,14 @@ function safeDto(row: typeof expeditions.$inferSelect, timeline: ExpeditionTimel
       progress: { revealed: Array.isArray(report['segments']) ? report['segments'].length : 0 },
       segments: report['segments'] ?? [], revealedDeltas: report['revealedDeltas'] ?? {},
       ...(report['summary'] === null || report['summary'] === undefined ? {} : { summary: report['summary'] }),
-      terminalReport: report, endsAtMs: typeof report['endsAtMs'] === 'number' ? report['endsAtMs'] : row.settledAt?.getTime() ?? row.endsAtMs,
+      terminalReport: report, report: projectExpeditionResultReport(row, report),
+      endsAtMs: typeof report['endsAtMs'] === 'number' ? report['endsAtMs'] : row.settledAt?.getTime() ?? row.endsAtMs,
       outcome: report['outcome'] ?? (row.settledReason === 'version_unavailable' ? 'version_unavailable' : row.status === 'cancelled' ? 'cancelled' : row.outcome) });
   }
   if (row.status !== 'running' && !row.terminalReport && !timeline) {
     return parseExpeditionDto({ id: row.id, actorId: row.actorId, state: row.status, areaId: row.areaId, activityId: row.activityId,
       startsAtMs: row.startsAtMs, plannedEndsAtMs: row.plannedEndsAtMs, progress: { revealed: 0 }, segments: [], revealedDeltas: {},
-      terminalReport: null, endsAtMs: row.settledAt?.getTime() ?? row.endsAtMs,
+      terminalReport: null, report: projectExpeditionResultReport(row, null), endsAtMs: row.settledAt?.getTime() ?? row.endsAtMs,
       outcome: row.status === 'cancelled' ? 'cancelled' : row.outcome });
   }
   const policy = findSettlementPolicy(policyRegistry, row.kernelVersion, row.simulatorId, row.simulatorVersion);
@@ -104,21 +106,26 @@ function safeDto(row: typeof expeditions.$inferSelect, timeline: ExpeditionTimel
   }
   if (!timeline) throw new Error('running expedition timeline missing');
   const placed = placedOf(row, timeline);
+  if (row.status !== 'running' && (!Number.isSafeInteger(row.settledCutoff) || row.settledCutoff === null ||
+      row.settledCutoff < -1 || row.settledCutoff >= placed.segments.length)) {
+    throw new Error('legacy terminal expedition reveal cutoff is invalid');
+  }
   // A partial cancellation is an immutable prefix. Use the settlement timestamp so later reads never reveal the
   // discarded suffix or the natural end/outcome that was known only to the server.
-  const frozenAt = row.status === 'cancelled' ? (row.settledAt?.getTime() ?? nowMs) : nowMs;
+  const frozenAt = row.status === 'running' ? nowMs : (row.settledAt?.getTime() ?? nowMs);
   const timedView = visibleView(placed, frozenAt);
   if (row.status === 'cancelled' && row.settledCutoff !== null && timedView.cutoff !== row.settledCutoff) {
     throw new Error('cancelled expedition reveal cutoff does not match its persisted settlement time');
   }
   // The persisted cutoff is the kernel's settlement decision. Shape cancelled DTOs from that exact prefix so an
   // advancing wall clock can never reveal a discarded suffix after the operation commits.
-  const view = row.status === 'cancelled' && row.settledCutoff !== null ? (() => {
+  const view = row.status !== 'running' && row.settledCutoff !== null ? (() => {
     const segments = placed.segments.slice(0, row.settledCutoff + 1).map(({ index, weight, revealAtMs, events, deltas }) => ({
       index, weight, revealAtMs, events, deltas,
     }));
     return { ...timedView, cutoff: row.settledCutoff, segments,
-      revealedDeltas: netDeltas(segments.flatMap(segment => segment.deltas)), ended: false };
+      revealedDeltas: netDeltas(segments.flatMap(segment => segment.deltas)),
+      ...(row.status === 'completed' ? { ended: true, outcome: row.outcome ?? undefined, endedAtMs: placed.endsAtMs } : { ended: false }) };
   })() : timedView;
   const cutoff = row.status === 'cancelled' ? (row.settledCutoff ?? view.cutoff) : view.cutoff;
   const summary = row.status === 'running' && policy ? policy.simulator.summarize(timeline, cutoff) as RpgIdleReport : undefined;
@@ -154,8 +161,18 @@ function safeDto(row: typeof expeditions.$inferSelect, timeline: ExpeditionTimel
 
 function terminalDto(row: typeof expeditions.$inferSelect, nowMs: number, policyRegistry: readonly SettlementPolicy[]) {
   if (row.terminalReport) return safeDto(row, null, nowMs, policyRegistry);
-  try { return safeDto(row, timelineOf(row), nowMs, policyRegistry); }
-  catch { return safeDto(row, null, nowMs, policyRegistry); }
+  // Historical rows can still expose their already-frozen, immutable timeline prefix while the exact producer
+  // adapter is available. This only reads/places the stored timeline; it does not simulate or reconstruct settlement.
+  // Rows without a cutoff (for example old version-unavailable recoveries), unsupported tuples, and damaged timelines
+  // retain the empty minimal DTO. In either case, the result report remains explicitly unavailable.
+  if (!findSettlementPolicy(policyRegistry, row.kernelVersion, row.simulatorId, row.simulatorVersion) || row.settledCutoff === null) {
+    return safeDto(row, null, nowMs, policyRegistry);
+  }
+  try {
+    return safeDto(row, timelineOf(row), nowMs, policyRegistry);
+  } catch {
+    return safeDto(row, null, nowMs, policyRegistry);
+  }
 }
 
 /**

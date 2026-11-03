@@ -4,6 +4,7 @@
  */
 import type { CompiledContent, ContentEntity, PluginIssue } from '@engine/content-compiler';
 import { walkRequirement } from '@engine/world';
+import type { SceneGeometry } from '@engine/world';
 import type { Enemy, Hotspot, Item, Merchant, Skill } from '@rpg/rpg-schema';
 
 import { XP_CURVE_ID } from './collections.ts';
@@ -37,6 +38,39 @@ export function validateRpgContent(content: CompiledContent): PluginIssue[] {
     ...checkMerchantOfferIds(content),
     ...checkMerchantOfferItems(content),
   ];
+}
+
+/** Geometry in Tiled must have an exact name-to-entity match with the RPG location data. */
+export function validateRpgScenes(content: CompiledContent, scenes: Readonly<Record<string, SceneGeometry>>): PluginIssue[] {
+  const issues: PluginIssue[] = [];
+  const locations = new Map(content.world.locations.map((location) => [location.id, location]));
+  for (const [locationId, scene] of Object.entries(scenes)) {
+    const location = locations.get(locationId as typeof content.world.locations[number]['id']) as (typeof content.world.locations[number] & {
+      hotspots?: readonly Hotspot[];
+      resources?: readonly { node: string; lootTable: string }[];
+      enemyAnchors?: readonly string[];
+    }) | undefined;
+    if (!location) continue;
+    compareGeometry(issues, locationId, 'exits', location.exits.map((exit) => exit.id), Object.keys(scene.exits));
+    compareGeometry(issues, locationId, 'hotspots', location.hotspots?.map((hotspot) => hotspot.id) ?? [], Object.keys(scene.hotspots));
+    const resourceOrdinals = new Map<string, number>();
+    const resourceIds = (location.resources ?? []).map((resource) => {
+      const ordinal = resourceOrdinals.get(resource.node) ?? 0;
+      resourceOrdinals.set(resource.node, ordinal + 1);
+      return `${resource.node}#${ordinal}`;
+    });
+    compareGeometry(issues, locationId, 'resources', resourceIds, Object.keys(scene.resources));
+    compareGeometry(issues, locationId, 'enemyAnchors', location.enemyAnchors ?? [], Object.keys(scene.enemyAnchors));
+  }
+  return issues;
+}
+
+function compareGeometry(issues: PluginIssue[], location: string, field: string, jsonIds: readonly string[], geometryIds: readonly string[]): void {
+  const expected = [...jsonIds].sort();
+  const actual = [...geometryIds].sort();
+  if (expected.length === actual.length && expected.every((id, index) => id === actual[index])) return;
+  issues.push({ collection: 'locations', id: location, path: [field], code: 'scene.entityParity',
+    message: `${field} geometry names must exactly match location JSON IDs (JSON: [${expected.join(', ')}]; Tiled: [${actual.join(', ')}])` });
 }
 
 /** Merchant POC buys only stackable consumables; material prices and equipment balance stay undecided. */

@@ -13,7 +13,7 @@ import { createRpgPredicateRegistry, type RpgGameContext } from '@rpg/rpg-schema
 import { RPG_CONTENT_COLLECTIONS } from './collections.ts';
 import { RpgAreaExtensionSchema, RpgLocationExtensionSchema } from './extensions.ts';
 import { rpgReferences } from './references.ts';
-import { validateRpgContent } from './validate.ts';
+import { validateRpgContent, validateRpgScenes } from './validate.ts';
 
 export * from './collections.ts';
 export * from './extensions.ts';
@@ -27,6 +27,7 @@ export const rpgContentPlugin = defineContentPlugin<RpgGameContext>({
   extend: { areas: RpgAreaExtensionSchema, locations: RpgLocationExtensionSchema },
   references: rpgReferences,
   validate: validateRpgContent,
+  validateScenes: validateRpgScenes,
 });
 
 export default rpgContentPlugin;

@@ -8,7 +8,7 @@ linked by **exits**. Everything here is pure and synchronous; no DB, no I/O, no 
 
 | Module | Exports |
 |---|---|
-| `schemas.ts` | Zod schemas + types: `WorldSchema`, `AreaSchema`, `LocationSchema`, `ExitSchema`, `RouteSchema`, `TravelSchema`, `CompletionRuleSchema`, `RequirementSchema`; ID schemas (`area:`, `loc:`, `route:`, generic `ns:name`). Entities are loose (games add fields); engine structures are strict. |
+| `schemas.ts` | Zod schemas + types: `WorldSchema`, `AreaSchema`, `LocationSchema`, `ExitSchema`, `RouteSchema`, `TravelSchema`, `CompletionRuleSchema`, `RequirementSchema`, and renderer-neutral scene geometry; ID schemas (`area:`, `loc:`, `route:`, generic `ns:name`). Entities are loose (games add fields); engine structures are strict. |
 | `actor.ts` | `ActorWorldState` (discovered per area, completed/visited areas, flags, objectives, `itemQty`), `EvalContext<G>` (`{ actor, game }`), `createActorWorldState(init)`. |
 | `registry.ts` | `PredicateRegistry<G>`: `register(name, { args, evaluate(args, ctx), reason?(args) })`; `parseArgs(parser, input)`; `StandardSchemaV1`, `ArgsParser`, `ArgsIssue`. |
 | `requirements.ts` | `evaluateRequirement(req, ctx, registry) → { ok, reasons }`, `describeRequirement`, `walkRequirement`. |
