@@ -8,6 +8,12 @@ with the provisional Region 1 targets ([region-1.md](../../../../docs/design/reg
 This is a dev tool. Its numbers are **measurements, not balance decisions**. Every target check reports PASS, WARN or
 N/A and never fails CI. Apps and server code never import it. The latest committed run is
 [docs/design/balance/region-1-baseline.md](../../../../docs/design/balance/region-1-baseline.md).
+The paired #56 evidence passes are [production idle runtime](../../../../docs/design/balance/runtime-pass-baseline.md)
+(`node games/rpg/tools/balance-sim/src/runtime-pass.ts`, XP per requested content hour) and
+[production live route](../../../../docs/design/balance/live-route-baseline.md)
+(`node games/rpg/apps/server/scripts/balance-live.ts`, finite-session XP normalized by combat ticks plus an assumed
+0/5/30-second delay per out-of-combat command). The denominator differs, so the rates do not establish a sustainable
+idle/live throughput ratio; live DB settlement and human command timing are not modeled.
 
 ## Usage
 
