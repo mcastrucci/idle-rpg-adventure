@@ -62,7 +62,7 @@ export const characterModule: ServerModule = {
       const { accountId } = await requireAccount(request, context);
       const { actorId } = ActorParamsSchema.parse(request.params);
       const command = parseGameCommand(request.body);
-      if (!['inventory.equip', 'inventory.unequip', 'inventory.move', 'inventory.buy', 'inventory.claimStarterKit'].includes(command.operation)) {
+      if (!['inventory.equip', 'inventory.unequip', 'inventory.move', 'inventory.buy', 'inventory.sellMaterial', 'inventory.claimStarterKit'].includes(command.operation)) {
         return reply.code(400).send({ error: 'operation_route_mismatch' });
       }
       const payloadActor = command.payload.actorId;

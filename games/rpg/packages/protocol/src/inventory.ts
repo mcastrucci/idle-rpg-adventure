@@ -52,6 +52,7 @@ export interface MerchantOfferDto {
 }
 export interface MerchantCatalogDto {
   readonly merchants: readonly { readonly id: string; readonly offers: readonly MerchantOfferDto[] }[];
+  readonly sellOffers?: readonly { readonly item: string; readonly unitPrice: { readonly currency: 'gold'; readonly amount: number } }[];
 }
 
 const slots: readonly string[] = ['weapon', 'offhand', 'head', 'chest', 'legs', 'hands', 'feet', 'accessory'];
@@ -147,7 +148,7 @@ export function parseInventorySnapshotDto(input: unknown): InventorySnapshotDto 
 }
 
 export function parseMerchantCatalogDto(input: unknown): MerchantCatalogDto {
-  const root = object(input, ['merchants'], ['merchants']);
+  const root = object(input, ['merchants', 'sellOffers'], ['merchants']);
   if (!Array.isArray(root['merchants'])) throw new TypeError('invalid merchant catalog');
   const merchants = root['merchants'].map(raw => {
     const merchant = object(raw, ['id', 'offers'], ['id', 'offers']);
@@ -162,5 +163,18 @@ export function parseMerchantCatalogDto(input: unknown): MerchantCatalogDto {
     });
     return Object.freeze({ id: merchant['id'], offers: Object.freeze(offers) });
   });
-  return Object.freeze({ merchants: Object.freeze(merchants) });
+  let sellOffers: MerchantCatalogDto['sellOffers'];
+  if (root['sellOffers'] !== undefined) {
+    if (!Array.isArray(root['sellOffers'])) throw new TypeError('invalid merchant sell offers');
+    const seen = new Set<string>();
+    sellOffers = Object.freeze(root['sellOffers'].map(raw => {
+      const row = object(raw, ['item', 'unitPrice'], ['item', 'unitPrice']);
+      const price = object(row['unitPrice'], ['currency', 'amount'], ['currency', 'amount']);
+      if (!str(row['item']) || seen.has(row['item']) || price['currency'] !== 'gold' || !safeInt(price['amount'], 1) ||
+          (price['amount'] as number) > 2_147_483_647) throw new TypeError('invalid merchant sell offer');
+      seen.add(row['item']);
+      return Object.freeze({ item: row['item'], unitPrice: Object.freeze({ currency: 'gold' as const, amount: price['amount'] as number }) });
+    }));
+  }
+  return Object.freeze({ merchants: Object.freeze(merchants), ...(sellOffers === undefined ? {} : { sellOffers }) });
 }

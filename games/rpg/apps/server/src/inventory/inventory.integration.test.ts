@@ -6,10 +6,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 import { compileContentDirectory } from '@engine/content-compiler';
-import { applyLedgerDeltas, assetBalances, checkLedgerInvariants, createDatabase, getHoldings, itemInstances,
+import { applyLedgerDeltas, assetBalances, checkLedgerInvariants, createDatabase, getHoldings, itemInstances, ledgerBatches,
   ManualClock, parseServerConfig, transitionActivity } from '@engine/server-kit';
 import type { Database, ServerConfig } from '@engine/server-kit';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import plugin from '@rpg/content-plugin';
 import type { InventorySnapshotDto } from '@rpg/protocol';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -52,11 +52,13 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
     const contentDirectory = join(directory, 'test-content');
     await cp(sourceContent, contentDirectory, { recursive: true });
     const itemsPath = join(contentDirectory, 'items', 'region_1.json');
-    const authoredItems = JSON.parse(await readFile(itemsPath, 'utf8')) as { id: string; levelRequired?: number }[];
+    const authoredItems = JSON.parse(await readFile(itemsPath, 'utf8')) as { id: string; levelRequired?: number; [key: string]: unknown }[];
     const paddedVest = authoredItems.find(item => item.id === 'item:padded_vest');
     if (!paddedVest) throw new Error('authored content is missing the padded vest');
     // This private integration fixture exercises the level gate without changing authored game content.
     paddedVest.levelRequired = 2;
+    authoredItems.push({ id: 'item:overflow_test_material', kind: 'material', value: 2_147_483_647,
+      stackable: true, maxStack: 10, tags: ['test'] });
     await writeFile(itemsPath, JSON.stringify(authoredItems));
     const compiled = compileContentDirectory(contentDirectory, plugin);
     if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
@@ -100,12 +102,13 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
     expect(response.statusCode).toBe(201);
     return response.json<Character>();
   }
-  async function fixture(options: { gold?: number; sword?: boolean; vest?: boolean; potion?: number; areaComplete?: boolean } = {}) {
+  async function fixture(options: { gold?: number; sword?: boolean; vest?: boolean; potion?: number; material?: number; areaComplete?: boolean } = {}) {
     const session = await guest();
     const character = await createHero(session);
     const deltas = [] as { actorId: string; asset: typeof GOLD | { kind: 'stack'; item: string } | { kind: 'unique_mint'; item: string }; qty: number }[];
     if (options.gold) deltas.push({ actorId: character.actorId, asset: GOLD, qty: options.gold });
     if (options.potion) deltas.push({ actorId: character.actorId, asset: { kind: 'stack', item: 'item:minor_healing_potion' }, qty: options.potion });
+    if (options.material) deltas.push({ actorId: character.actorId, asset: { kind: 'stack', item: 'item:amber_resin' }, qty: options.material });
     if (options.sword) deltas.push({ actorId: character.actorId, asset: { kind: 'unique_mint', item: SWORD }, qty: 1 });
     if (options.vest) deltas.push({ actorId: character.actorId, asset: { kind: 'unique_mint', item: 'item:padded_vest' }, qty: 1 });
     if (deltas.length) await database.db.transaction(tx => applyLedgerDeltas(tx,
@@ -166,6 +169,8 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
     expect(JSON.stringify(catalog.json())).toContain('offer:minor_healing_potion');
     expect(JSON.stringify(catalog.json())).toContain('offer:sap_tonic');
     expect(JSON.stringify(catalog.json())).toContain('offer:healing_potion');
+    expect(catalog.json().sellOffers).toContainEqual({ item: 'item:amber_resin', unitPrice: { currency: 'gold', amount: 3 } });
+    expect(catalog.json().sellOffers).toEqual([...catalog.json().sellOffers].sort((a: { item: string }, b: { item: string }) => a.item < b.item ? -1 : a.item > b.item ? 1 : 0));
     expect(catalog.json()).toMatchObject({ merchants: [expect.objectContaining({ offers: expect.arrayContaining([
       expect.objectContaining({ id: 'offer:minor_healing_potion', buyPrice: { currency: 'gold', amount: 12 } }),
       expect.objectContaining({ id: 'offer:sap_tonic', buyPrice: { currency: 'gold', amount: 18 } }),
@@ -191,6 +196,136 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
     expect(swordDefinition).not.toHaveProperty('use');
     const stranger = await guest();
     expect((await inventory(stranger, character.actorId)).statusCode).toBe(404);
+  });
+
+  it('sells only banked authored materials at their unchanged value and replays the same command', async () => {
+    const { session, character } = await fixture({ gold: 4, material: 3 });
+    const before = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    const saleId = randomUUID();
+    const sale = await command(session, character.actorId, envelope('sellMaterial', {
+      actorId: character.actorId, item: 'item:amber_resin', quantity: 2,
+    }, saleId));
+    expect(sale.statusCode).toBe(200);
+    expect(sale.json()).toEqual({ actorId: character.actorId, version: before.actorVersion + 1 });
+    const after = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    expect(after.actorVersion).toBe(before.actorVersion + 1);
+    expect(after.holdings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ asset: { kind: 'currency', currency: 'gold' }, container: 'inventory', qty: 10 }),
+      expect.objectContaining({ asset: { kind: 'stack', item: 'item:amber_resin' }, container: 'inventory', qty: 1 }),
+    ]));
+    const replay = await command(session, character.actorId, envelope('sellMaterial', {
+      actorId: character.actorId, item: 'item:amber_resin', quantity: 2,
+    }, saleId));
+    expect(replay.json()).toEqual(sale.json());
+    expect((await inventory(session, character.actorId)).json<InventorySnapshotDto>().actorVersion).toBe(before.actorVersion + 1);
+    const conflict = await command(session, character.actorId, envelope('sellMaterial', {
+      actorId: character.actorId, item: 'item:amber_resin', quantity: 1,
+    }, saleId));
+    expect(conflict.statusCode).toBe(409);
+    expect((await inventory(session, character.actorId)).json<InventorySnapshotDto>().actorVersion).toBe(before.actorVersion + 1);
+  });
+
+  it('rolls back a completed material sale when its surrounding transaction aborts', async () => {
+    const { session, character } = await fixture({ gold: 4, material: 3 });
+    const before = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    const commandId = randomUUID();
+    await expect(database.db.transaction(async tx => {
+      const result = await createInventoryService(tx, content).sellMaterial(session.accountId, commandId, {
+        actorId: character.actorId, item: 'item:amber_resin', quantity: 2,
+      });
+      expect(result).toEqual({ actorId: character.actorId, version: before.actorVersion + 1 });
+      throw new Error('force_sale_rollback');
+    })).rejects.toThrow('force_sale_rollback');
+
+    const after = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    expect(after.actorVersion).toBe(before.actorVersion);
+    expect(after.holdings).toEqual(before.holdings);
+    const [batch] = await database.db.select().from(ledgerBatches).where(and(
+      eq(ledgerBatches.sourceType, 'rpg_command'), eq(ledgerBatches.sourceId, `${session.accountId}:${commandId}`)));
+    expect(batch).toBeUndefined();
+    expect(await database.db.transaction(tx => checkLedgerInvariants(tx, [character.actorId]))).toEqual([]);
+  });
+
+  it('serializes concurrent sales of the same stack so fresh command IDs cannot oversell', async () => {
+    const { session, character } = await fixture({ material: 3 });
+    const requests = [1, 2].map(() => command(session, character.actorId, envelope('sellMaterial', {
+      actorId: character.actorId, item: 'item:amber_resin', quantity: 2,
+    })));
+    const results = await Promise.all(requests);
+    expect(results.map(result => result.statusCode).sort()).toEqual([200, 409]);
+    const snapshot = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    expect(snapshot.holdings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ asset: { kind: 'currency', currency: 'gold' }, container: 'inventory', qty: 6 }),
+      expect.objectContaining({ asset: { kind: 'stack', item: 'item:amber_resin' }, container: 'inventory', qty: 1 }),
+    ]));
+    expect(snapshot.actorVersion).toBe(1);
+    expect(await database.db.transaction(tx => checkLedgerInvariants(tx, [character.actorId]))).toEqual([]);
+  });
+
+  it('bounds sale proceeds and resulting inventory gold to the ledger integer range', async () => {
+    const { session, character } = await fixture({ gold: 1 });
+    await database.db.transaction(tx => applyLedgerDeltas(tx, { type: 'test_fixture', id: `${character.actorId}:overflow_material` }, [
+      { actorId: character.actorId, asset: { kind: 'stack', item: 'item:overflow_test_material' }, qty: 2 },
+    ]));
+    const badProceeds = await command(session, character.actorId, envelope('sellMaterial', {
+      actorId: character.actorId, item: 'item:overflow_test_material', quantity: 2,
+    }));
+    expect(badProceeds.statusCode).toBe(400);
+    const goldOverflow = await command(session, character.actorId, envelope('sellMaterial', {
+      actorId: character.actorId, item: 'item:overflow_test_material', quantity: 1,
+    }));
+    expect(goldOverflow.statusCode).toBe(409);
+    const snapshot = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    expect(snapshot.actorVersion).toBe(0);
+    expect(snapshot.holdings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ asset: { kind: 'currency', currency: 'gold' }, container: 'inventory', qty: 1 }),
+      expect.objectContaining({ asset: { kind: 'stack', item: 'item:overflow_test_material' }, container: 'inventory', qty: 2 }),
+    ]));
+    expect(await database.db.transaction(tx => checkLedgerInvariants(tx, [character.actorId]))).toEqual([]);
+  });
+
+  it('rejects non-owned, active, storage-only, and non-material sale requests without changing version or balances', async () => {
+    const owner = await fixture({ material: 2 });
+    const stranger = await guest();
+    const unauthorized = await command(stranger, owner.character.actorId, envelope('sellMaterial', {
+      actorId: owner.character.actorId, item: 'item:amber_resin', quantity: 1,
+    }));
+    expect(unauthorized.statusCode).toBe(404);
+    const toStorage = await command(owner.session, owner.character.actorId, envelope('move', {
+      actorId: owner.character.actorId, item: 'item:amber_resin', quantity: 2, from: 'inventory', to: 'storage',
+    }));
+    expect(toStorage.statusCode).toBe(200);
+    const storageOnly = await command(owner.session, owner.character.actorId, envelope('sellMaterial', {
+      actorId: owner.character.actorId, item: 'item:amber_resin', quantity: 1,
+    }));
+    expect(storageOnly.statusCode).toBe(409);
+    for (const item of ['item:minor_healing_potion', 'item:rusty_sword', 'item:seed_capsule', 'item:missing']) {
+      const prohibited = await command(owner.session, owner.character.actorId, envelope('sellMaterial', {
+        actorId: owner.character.actorId, item, quantity: 1,
+      }));
+      expect([400, 409]).toContain(prohibited.statusCode);
+    }
+    const forgedContainer = await command(owner.session, owner.character.actorId, envelope('sellMaterial', {
+      actorId: owner.character.actorId, item: 'item:amber_resin', quantity: 1, from: 'storage', container: 'corpse',
+    }));
+    expect(forgedContainer.statusCode).toBe(400);
+    for (const quantity of [0, -1, 10_001]) {
+      const invalid = await command(owner.session, owner.character.actorId, envelope('sellMaterial', {
+        actorId: owner.character.actorId, item: 'item:amber_resin', quantity,
+      }));
+      expect(invalid.statusCode).toBe(400);
+    }
+    await database.db.transaction(tx => transitionActivity(tx, owner.character.actorId, { state: 'none', activityId: null }, { state: 'live', activityId: 'test_live' }));
+    const activeBefore = (await inventory(owner.session, owner.character.actorId)).json<InventorySnapshotDto>();
+    const active = await command(owner.session, owner.character.actorId, envelope('sellMaterial', {
+      actorId: owner.character.actorId, item: 'item:amber_resin', quantity: 1,
+    }));
+    expect(active.statusCode).toBe(409);
+    const after = (await inventory(owner.session, owner.character.actorId)).json<InventorySnapshotDto>();
+    expect(after.actorVersion).toBe(activeBefore.actorVersion);
+    expect(after.holdings).toEqual(activeBefore.holdings);
+    await database.db.transaction(tx => transitionActivity(tx, owner.character.actorId, { state: 'live', activityId: 'test_live' }, { state: 'none', activityId: null }));
+    expect(await database.db.transaction(tx => checkLedgerInvariants(tx, [owner.character.actorId]))).toEqual([]);
   });
 
   it('claims one stable starter kit for new and existing characters without resetting progress', async () => {

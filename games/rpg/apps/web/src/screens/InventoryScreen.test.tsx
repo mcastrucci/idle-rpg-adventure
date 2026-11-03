@@ -35,6 +35,7 @@ const CANDIDATE: InventoryHoldingDto = {
   itemId: '44444444-4444-4444-8444-444444444444', definition: 'item:sapforged_blade',
 };
 const POTION: InventoryHoldingDto = { asset: { kind: 'stack', item: 'item:minor_healing_potion' }, container: 'inventory', qty: 5, definition: 'item:minor_healing_potion' };
+const BOAR_HIDE: InventoryHoldingDto = { asset: { kind: 'stack', item: 'item:boar_hide' }, container: 'inventory', qty: 12_050, definition: 'item:boar_hide' };
 const STORAGE_POTION: InventoryHoldingDto = { ...POTION, container: 'storage', qty: 4 };
 const GOLD: InventoryHoldingDto = { asset: { kind: 'currency', currency: 'gold' }, container: 'inventory', qty: 60 };
 const UNKNOWN: InventoryHoldingDto = {
@@ -55,6 +56,11 @@ const MERCHANT: MerchantCatalogDto = { merchants: [{ id: 'merchant:sanctuary', o
   { id: 'offer:minor_healing_potion', item: 'item:minor_healing_potion', buyPrice: { currency: 'gold', amount: 12 }, stock: 'infinite' },
   { id: 'offer:healing_potion', item: 'item:healing_potion', buyPrice: { currency: 'gold', amount: 40 }, stock: 'infinite', requiresCompletedArea: 'area:region_1' },
 ] }] };
+const SALE_MERCHANT: MerchantCatalogDto = { ...MERCHANT, sellOffers: [
+  { item: 'item:boar_hide', unitPrice: { currency: 'gold', amount: 7 } },
+  { item: 'item:minor_healing_potion', unitPrice: { currency: 'gold', amount: 3 } },
+  { item: 'item:missing_material', unitPrice: { currency: 'gold', amount: 9 } },
+] };
 
 type Outcome = 'ok' | 'unknown' | Error;
 interface HarnessOptions {
@@ -88,6 +94,17 @@ function harness(options: HarnessOptions = {}) {
     if (outcome instanceof Error) throw outcome;
     if (request.envelope.operation === 'inventory.claimStarterKit') {
       current = withStarterKit(current, true);
+    }
+    if (request.envelope.operation === 'inventory.sellMaterial') {
+      const item = request.envelope.payload['item'];
+      const quantity = request.envelope.payload['quantity'];
+      if (typeof item === 'string' && typeof quantity === 'number') {
+        const holdings = current.holdings.flatMap((holding) => holding.container === 'inventory' && holding.asset.kind === 'stack' && holding.asset.item === item
+          ? holding.qty > quantity ? [{ ...holding, qty: holding.qty - quantity }] : []
+          : holding.asset.kind === 'currency' && holding.container === 'inventory' && holding.asset.currency === 'gold'
+            ? [{ ...holding, qty: holding.qty + quantity * 7 }] : [holding]);
+        current = { ...current, holdings, actorVersion: current.actorVersion + 1 };
+      }
     }
     return { actorId: current.actorId, version: current.actorVersion + 1 } as T;
   });
@@ -361,6 +378,130 @@ describe('InventoryScreen', () => {
     fireEvent.click(buy);
     await waitFor(() => expect(requests).toHaveLength(1));
     expect(requests[0]?.envelope).toMatchObject({ operation: 'inventory.buy', payload: { actorId: ACTOR, offerId: 'offer:minor_healing_potion', quantity: 2 } });
+  });
+
+  it('lists only cataloged owned inventory material stacks, prices the exact quantity, and refreshes committed gold and stock', async () => {
+    const hiddenMissing: InventoryHoldingDto = { asset: { kind: 'stack', item: 'item:missing_material' }, container: 'inventory', qty: 4, definition: 'item:missing_material' };
+    const hiddenStorage: InventoryHoldingDto = { ...BOAR_HIDE, container: 'storage', qty: 8 };
+    const hiddenUnique: InventoryHoldingDto = { asset: { kind: 'unique', itemId: '11111111-1111-4111-8111-111111111111' }, container: 'inventory', qty: 1, definition: 'item:boar_hide' };
+    const { view, requests } = harness({ initial: snapshot(ACTOR, [GOLD, BOAR_HIDE, hiddenStorage, hiddenMissing, hiddenUnique, POTION]), merchant: SALE_MERCHANT });
+    view();
+    fireEvent.click(tab('Merchant'));
+    await screen.findByRole('heading', { name: 'Sell materials' });
+    expect(screen.getByText('Owned: 12050')).toBeDefined();
+    expect(screen.getByText('7 gold each')).toBeDefined();
+    expect(screen.queryByText('Missing Material')).toBeNull();
+    expect(screen.queryByText('Minor Healing Potion')).toBeDefined(); // The buy listing remains intact.
+    const saleQty = screen.getByRole('spinbutton', { name: 'Quantity to sell for Boar Hide' }) as HTMLInputElement;
+    expect(saleQty.max).toBe('10000');
+    fireEvent.change(saleQty, { target: { value: '2' } });
+    expect(screen.getByRole('button', { name: 'Sell 2 Boar Hide for 14 gold' })).toBeDefined();
+    const buyQty = screen.getByRole('spinbutton', { name: 'Quantity for Minor Healing Potion' }) as HTMLInputElement;
+    expect(buyQty.value).toBe('1');
+    fireEvent.click(screen.getByRole('button', { name: 'Sell 2 Boar Hide for 14 gold' }));
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]?.envelope).toMatchObject({ operation: 'inventory.sellMaterial', payload: { actorId: ACTOR, item: 'item:boar_hide', quantity: 2 } });
+    await waitFor(() => expect(screen.getByText('Owned: 12048')).toBeDefined());
+    expect(screen.getByRole('spinbutton', { name: 'Quantity to sell for Boar Hide' }).getAttribute('max')).toBe('10000');
+    expect(screen.getByLabelText('Current gold').textContent).toContain('74');
+  });
+
+  it('bounds the sale quantity by available stock and hides sales when the server omits sell offers', async () => {
+    const tinyStack = { ...BOAR_HIDE, qty: 3 };
+    const supported = harness({ initial: snapshot(ACTOR, [tinyStack]), merchant: SALE_MERCHANT });
+    supported.view();
+    fireEvent.click(tab('Merchant'));
+    const quantity = await screen.findByRole('spinbutton', { name: 'Quantity to sell for Boar Hide' }) as HTMLInputElement;
+    expect(quantity.max).toBe('3');
+    cleanup();
+    const unsupported = harness({ initial: snapshot(ACTOR, [BOAR_HIDE]), merchant: MERCHANT });
+    unsupported.view();
+    fireEvent.click(tab('Merchant'));
+    await screen.findByRole('button', { name: 'Buy Minor Healing Potion' });
+    expect(screen.queryByRole('heading', { name: 'Sell materials' })).toBeNull();
+  });
+
+  it('caps quantity so the total fits a database integer and requires a stackable catalog material', async () => {
+    const nonStackable: InventorySnapshotDto['catalog']['items'][number] = { id: 'item:nonstackable_material', kind: 'material', stackable: false };
+    const nonStackableHolding: InventoryHoldingDto = { asset: { kind: 'stack', item: nonStackable.id }, container: 'inventory', qty: 4, definition: nonStackable.id };
+    const value = { ...snapshot(ACTOR, [BOAR_HIDE, nonStackableHolding]), catalog: { contentHash: HASH, items: [...ITEMS, nonStackable] } };
+    const merchant: MerchantCatalogDto = { ...MERCHANT, sellOffers: [
+      { item: 'item:boar_hide', unitPrice: { currency: 'gold', amount: 2_147_483_647 } },
+      { item: nonStackable.id, unitPrice: { currency: 'gold', amount: 1 } },
+    ] };
+    const { view } = harness({ initial: value, merchant });
+    view();
+    fireEvent.click(tab('Merchant'));
+    const saleQuantity = await screen.findByRole('spinbutton', { name: 'Quantity to sell for Boar Hide' }) as HTMLInputElement;
+    expect(saleQuantity.max).toBe('1');
+    expect(screen.queryByText('Nonstackable Material')).toBeNull();
+  });
+
+  it('keeps empty and over-limit sale quantities invalid instead of silently changing them', async () => {
+    const { view } = harness({ initial: snapshot(ACTOR, [BOAR_HIDE]), merchant: SALE_MERCHANT });
+    view();
+    fireEvent.click(tab('Merchant'));
+    const input = await screen.findByRole('spinbutton', { name: 'Quantity to sell for Boar Hide' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input.value).toBe('');
+    expect((screen.getByRole('button', { name: 'Sell Boar Hide' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: '10001' } });
+    expect(input.value).toBe('10001');
+    expect((screen.getByRole('button', { name: 'Sell Boar Hide' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('disables sales while disconnected or active and retries an unknown sale with the same command id', async () => {
+    const disconnected = harness({ initial: snapshot(ACTOR, [BOAR_HIDE]), merchant: SALE_MERCHANT });
+    disconnected.view(CHARACTER, false);
+    fireEvent.click(tab('Merchant'));
+    expect((await screen.findByRole('button', { name: 'Sell 1 Boar Hide for 7 gold' }) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    const active = harness({ initial: { ...snapshot(ACTOR, [BOAR_HIDE]), activityState: 'live' }, merchant: SALE_MERCHANT });
+    active.view();
+    fireEvent.click(tab('Merchant'));
+    expect((await screen.findByRole('button', { name: 'Sell 1 Boar Hide for 7 gold' }) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    const retryable = harness({ initial: snapshot(ACTOR, [BOAR_HIDE]), merchant: SALE_MERCHANT, outcomes: ['unknown', 'ok'] });
+    retryable.view();
+    fireEvent.click(tab('Merchant'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sell 1 Boar Hide for 7 gold' }));
+    expect(await screen.findByText(/result is unknown/i)).toBeDefined();
+    expect((screen.getByRole('button', { name: 'Sell 1 Boar Hide for 7 gold' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry exact request' }));
+    await waitFor(() => expect(retryable.requests).toHaveLength(2));
+    expect(retryable.requests[0]?.envelope.command_id).toBe(retryable.requests[1]?.envelope.command_id);
+    expect(retryable.requests[0]?.envelope).toEqual(retryable.requests[1]?.envelope);
+  });
+
+  it('explains a rejected sale and a committed sale whose authoritative refresh fails', async () => {
+    const rejected = harness({ initial: snapshot(ACTOR, [BOAR_HIDE]), merchant: SALE_MERCHANT, outcomes: [new ApiError(400, 'invalid_material')] });
+    rejected.view();
+    fireEvent.click(tab('Merchant'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sell 1 Boar Hide for 7 gold' }));
+    expect(await screen.findByText(/server rejected this material sale \(invalid_material\)/i)).toBeDefined();
+    expect(rejected.requests).toHaveLength(1);
+    cleanup();
+    const refreshFailure = harness({ initial: snapshot(ACTOR, [GOLD, BOAR_HIDE]), merchant: SALE_MERCHANT, inventoryRead: async (actorId, count) => {
+      if (count > 1) throw new Error('offline');
+      return snapshot(actorId, [GOLD, BOAR_HIDE]);
+    } });
+    refreshFailure.view();
+    fireEvent.click(tab('Merchant'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sell 1 Boar Hide for 7 gold' }));
+    expect(await screen.findByRole('button', { name: 'Refresh state' })).toBeDefined();
+    expect(screen.getByText(/change was saved, but the latest state could not be loaded/i)).toBeDefined();
+    expect(refreshFailure.requests).toHaveLength(1);
+  });
+
+  it('uses material-specific copy and refreshes when the server rejects a stale sale quantity', async () => {
+    const { view, requests, readActors } = harness({ initial: snapshot(ACTOR, [BOAR_HIDE]), merchant: SALE_MERCHANT, outcomes: [new ApiError(400, 'insufficient_funds')] });
+    view();
+    fireEvent.click(tab('Merchant'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sell 1 Boar Hide for 7 gold' }));
+    expect(await screen.findByText(/requested material quantity is no longer available/i)).toBeDefined();
+    await waitFor(() => expect(readActors.length).toBeGreaterThanOrEqual(2));
+    expect(screen.queryByText(/not enough gold for this purchase/i)).toBeNull();
+    expect(requests).toHaveLength(1);
   });
 
   it('keeps empty actors empty and does not fabricate starter holdings', async () => {

@@ -62,4 +62,18 @@ describe('inventory protocol DTOs', () => {
     expect(() => parseMerchantCatalogDto({ merchants: [{ id: 'merchant:region_1', offers: [{ id: 'offer:bad', item: 'item:minor_healing_potion',
       buyPrice: { currency: 'gold', amount: 0 }, stock: 'infinite' }] }] })).toThrow('invalid merchant offer');
   });
+
+  it('keeps old merchant catalogs valid and exactly validates optional sorted sell offers', () => {
+    const legacy = { merchants: [{ id: 'merchant:region_1', offers: [] }] };
+    expect(parseMerchantCatalogDto(legacy)).toEqual(legacy);
+    expect(parseMerchantCatalogDto({ ...legacy, sellOffers: [
+      { item: 'item:amber_resin', unitPrice: { currency: 'gold', amount: 3 } },
+    ] }).sellOffers).toEqual([{ item: 'item:amber_resin', unitPrice: { currency: 'gold', amount: 3 } }]);
+    for (const sellOffers of [null, [{}], [{ item: 'item:x', unitPrice: { currency: 'silver', amount: 1 } }],
+      [{ item: 'item:x', unitPrice: { currency: 'gold', amount: 0 } }],
+      [{ item: 'item:x', unitPrice: { currency: 'gold', amount: 2_147_483_648 } }],
+      [{ item: 'item:x', unitPrice: { currency: 'gold', amount: 1 }, secret: true }],
+      [{ item: 'item:x', unitPrice: { currency: 'gold', amount: 1 } }, { item: 'item:x', unitPrice: { currency: 'gold', amount: 2 } }],
+    ]) expect(() => parseMerchantCatalogDto({ ...legacy, sellOffers })).toThrow();
+  });
 });
