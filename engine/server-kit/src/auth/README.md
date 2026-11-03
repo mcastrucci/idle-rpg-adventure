@@ -82,6 +82,13 @@ are bounded at 70 KiB, with eight queued frames and 120 client frames/minute per
 heartbeat work; unsupported/binary/overload frames get a policy close. Command exceptions produce a generic error,
 and frames/credentials are never logged by this module.
 
+Optional `onLifecycle(event)` receives only `{ type, accountId, connectionId, atMs }` for `authenticated`, successful
+`heartbeat` renewals (including command renewals), and `stopped`. `atMs` comes from the injected server clock. Events
+are serialized with connection setup and frame work; callback errors are isolated from authentication, commands, and
+lease release. `createLifecycleHandler(context)` can bind a game persistence handler during module registration; the
+event passed to that handler remains limited to those four fields. This is connection telemetry: a successful
+authenticated socket interval, not foreground presence or gameplay activity.
+
 ## Persistence and validation
 
 The engine migration set includes `auth/schema.ts`: `accounts`, `guest_credentials`, `email_credentials`,

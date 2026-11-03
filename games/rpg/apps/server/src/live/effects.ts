@@ -19,6 +19,7 @@ import { recordDiscovery } from '../expeditions/progress.ts';
 import { applyConquestProgress } from '../conquest/service.ts';
 import type { RpgCompletionSnapshot } from '../conquest/types.ts';
 import { characters } from '../characters/schema.ts';
+import { rpgLiveXpEvents } from '../telemetry/schema.ts';
 import { liveDeaths } from './death-schema.ts';
 import type { RpgLiveState } from './game.ts';
 
@@ -121,9 +122,11 @@ export async function applyRpgLiveEffects(tx: ActorTransaction, instance: { read
         }
         const [character] = await tx.select().from(characters).where(eq(characters.actorId, effect.actorId)).for('update');
         if (!character) throw new Error('missing live character for XP reward');
-        const total = totalXpFromLevelProgress(character.level, character.xp, curve) + effect.xp;
-        const progress = xpProgress(total, curve);
+        const beforeTotal = totalXpFromLevelProgress(character.level, character.xp, curve);
+        const progress = xpProgress(beforeTotal + effect.xp, curve);
         await tx.update(characters).set({ level: progress.level, xp: progress.xpIntoLevel }).where(eq(characters.actorId, effect.actorId));
+        const grantedXp = progress.totalXp - beforeTotal;
+        await tx.insert(rpgLiveXpEvents).values({ instanceId, actorId: effect.actorId, sourceId, occurredAt: new Date(nowMs), grantedXp });
         break;
       }
       case 'consumableUsed': {

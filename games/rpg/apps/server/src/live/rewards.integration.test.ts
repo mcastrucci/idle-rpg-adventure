@@ -22,6 +22,7 @@ import { createCharacterService } from '../characters/service.ts';
 import { characters } from '../characters/schema.ts';
 import { createRpgDatabase, createRpgServer } from '../index.ts';
 import { rpgAreaDiscoveries } from '../expeditions/schema.ts';
+import { rpgLiveXpEvents } from '../telemetry/schema.ts';
 import { applyRpgLiveEffects } from './effects.ts';
 import { createRpgLiveHost, startRpgLiveInstance } from './index.ts';
 import type { RpgLiveHost } from './index.ts';
@@ -182,6 +183,8 @@ describe.skipIf(!adminUrl)('live rewards and ledger integration (real PostgreSQL
     await database.db.transaction(tx => applyRpgLiveEffects(tx, { instanceId, participants: [{ actorId: who.actorId }] },
       [xpReplay as never, lootReplay as never], clock.nowMs(), { type: 'checkpoint' }));
     expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0]?.xp).toBe(10);
+    expect(await database.db.select().from(rpgLiveXpEvents).where(eq(rpgLiveXpEvents.instanceId, instanceId)))
+      .toMatchObject([{ instanceId, actorId: who.actorId, grantedXp: 10, occurredAt: new Date(clock.nowMs()) }]);
     expect(await balance(who.actorId, 'gold', RUN_BAG(instanceId))).toBe(bagGold);
     expect(await balance(who.actorId, 'gold', 'inventory')).toBe(0);
     expect(await ledgerIssues(who.actorId)).toEqual([]);
@@ -211,7 +214,33 @@ describe.skipIf(!adminUrl)('live rewards and ledger integration (real PostgreSQL
         xpToNext: progression.xpToNext } as never], clock.nowMs(), { type: 'checkpoint' })))
       .rejects.toThrow('live XP reward idempotency conflict');
     expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0]?.xp).toBe(10);
+    expect(await database.db.select().from(rpgLiveXpEvents).where(eq(rpgLiveXpEvents.instanceId, instanceId))).toHaveLength(1);
     await command(n, who, instanceId, { type: 'returnToSanctuary' });
+  }, 30_000);
+
+  it('rolls back character XP and the reward claim when telemetry persistence fails', async () => {
+    const n = await node('reward-xp-event-failure');
+    const who = await player();
+    const instanceId = await startRpgLiveInstance(n.live, database, { actorIds: [who.actorId], location: LOCATION, groups: [SLIME] });
+    const progression = content.collections['progression']?.[0] as { xpToNext: readonly number[] } | undefined;
+    if (!progression) throw new Error('compiled XP curve is missing');
+    const actionId = `rollback:${randomUUID()}`;
+    await database.pool.query(`CREATE FUNCTION fail_live_xp_telemetry() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'test forced XP telemetry rollback'; END; $$`);
+    await database.pool.query('CREATE TRIGGER fail_live_xp_telemetry BEFORE INSERT ON rpg_live_xp_events FOR EACH ROW EXECUTE FUNCTION fail_live_xp_telemetry()');
+    try {
+      await expect(database.db.transaction(tx => applyRpgLiveEffects(tx,
+        { instanceId, participants: [{ actorId: who.actorId }] },
+        [{ type: 'xpGranted', actionId, actorId: who.actorId, xp: 10, xpToNext: progression.xpToNext } as never],
+        clock.nowMs(), { type: 'checkpoint' }))).rejects.toThrow('test forced XP telemetry rollback');
+    } finally {
+      await database.pool.query('DROP TRIGGER fail_live_xp_telemetry ON rpg_live_xp_events');
+      await database.pool.query('DROP FUNCTION fail_live_xp_telemetry()');
+    }
+    expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0]?.xp).toBe(0);
+    expect(await database.db.select().from(rpgLiveXpEvents).where(eq(rpgLiveXpEvents.instanceId, instanceId))).toEqual([]);
+    expect((await database.db.select().from(ledgerBatches).where(eq(ledgerBatches.sourceType, 'rpg_live_xp')))
+      .filter(row => row.sourceId.startsWith(`${instanceId}:xp:`))).toEqual([]);
   }, 30_000);
 
   it('rolls authored gather loot at the gather checkpoint, survives lease handover, and returns the bag once', async () => {

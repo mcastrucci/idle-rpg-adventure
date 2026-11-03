@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { publicCommandError } from '../character-commands.ts';
 import { characters } from '../characters/schema.ts';
 import { readRpgEvalContext } from '../expeditions/progress.ts';
+import { rpgLiveEntries } from '../telemetry/schema.ts';
 import { isRpgAreaAccessible, RpgAreaLockedError } from '../world/access.ts';
 import type { RpgLiveHost } from './index.ts';
 import { prepareRpgLiveStart } from './index.ts';
@@ -75,6 +76,8 @@ export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
             async (tx) => {
               const prepared = await prepareRpgLiveStart(tx, live, accountId, { actorId: start.actorId, areaId: start.areaId, supplies: start.supplies });
               const lease = await live.createInTransaction(tx, prepared.input);
+              await tx.insert(rpgLiveEntries).values({ instanceId: prepared.input.instanceId, actorId: start.actorId,
+                areaId: start.areaId, startedAt: new Date(prepared.input.nowMs) });
               created = { prepared, lease };
               return { status: 200, body: { instanceId: lease.instanceId } };
             });
