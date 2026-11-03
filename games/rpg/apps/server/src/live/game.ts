@@ -341,8 +341,14 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
   function recordDeaths(state: RpgLiveState, combat: CombatState, effects: RpgLiveEffect[], events: JsonValue[]): void {
     for (const hero of state.heroes.filter(hero => combat.actors.some(actor => actor.id === hero.actorId && actor.side === 'hero' && !actor.alive))) {
       const evidence = state.combatDeaths[hero.actorId];
-      const causes = Object.values(evidence?.damage ?? {}).map(cause => ({ ...cause,
-        sourceId: combat.actors.find(actor => actor.id === cause.sourceId)?.enemy ?? cause.sourceId }))
+      const causesBySource = new Map<string, { sourceId: string; label: string; damage: number }>();
+      for (const cause of Object.values(evidence?.damage ?? {})) {
+        const sourceId = combat.actors.find(actor => actor.id === cause.sourceId)?.enemy ?? cause.sourceId;
+        const key = `${sourceId}:${cause.label}`;
+        const current = causesBySource.get(key) ?? { sourceId, label: cause.label, damage: 0 };
+        current.damage += cause.damage; causesBySource.set(key, current);
+      }
+      const causes = [...causesBySource.values()]
         .sort((a, b) => b.damage - a.damage || a.sourceId.localeCompare(b.sourceId) || a.label.localeCompare(b.label)).slice(0, 3);
       if (causes.length === 0) causes.push({ sourceId: combat.actors.find(actor => actor.id === evidence?.killerId)?.enemy ?? evidence?.killerId ?? 'unknown',
         label: 'live.death.cause.unknown', damage: 0 });

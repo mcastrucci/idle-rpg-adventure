@@ -74,12 +74,13 @@ describe('RPG live plugin: combat', () => {
     const { last } = fight(init(), WARDENS.id);
     expect(last.state.phase).toBe('dead');
     expect(last.close?.outcome).toBe('defeated');
-    expect(last.effects?.filter((effect) => (effect as { type?: string }).type === 'heroDied')).toMatchObject([
-      { type: 'heroDied', actorId: HERO, areaId: 'area:test_grove', locationId: GLADE, causes: [
-        expect.objectContaining({ damage: expect.any(Number) }), expect.objectContaining({ damage: expect.any(Number) }),
-        expect.objectContaining({ damage: expect.any(Number) }),
-      ] },
-    ]);
+    const deaths = last.effects?.filter((effect) => (effect as { type?: string }).type === 'heroDied') as
+      { actorId: string; areaId: string; locationId: string; causes: { damage: number }[] }[] | undefined;
+    expect(deaths).toHaveLength(1);
+    expect(deaths?.[0]).toMatchObject({ actorId: HERO, areaId: 'area:test_grove', locationId: GLADE });
+    expect(deaths?.[0]?.causes.length).toBeGreaterThanOrEqual(1);
+    expect(deaths?.[0]?.causes.length).toBeLessThanOrEqual(3);
+    expect(deaths?.[0]?.causes.every(cause => cause.damage > 0)).toBe(true);
     expect(game.applyCommand(last.state, HERO, { type: 'returnToSanctuary' })).toEqual({ rejected: 'instance_closing' });
   });
 
@@ -114,7 +115,9 @@ describe('RPG live plugin: combat', () => {
 describe('RPG live plugin: exploration (#38)', () => {
   it('shows only the viewing actor their corpse hotspot at its exact location', () => {
     const state = init();
-    state.heroes[0]!.corpses.push({ id: '33333333-3333-4333-8333-333333333333', areaId: state.area,
+    const hero = state.heroes.find(candidate => candidate.actorId === HERO);
+    if (!hero) throw new Error('test hero is missing');
+    hero.corpses.push({ id: '33333333-3333-4333-8333-333333333333', areaId: state.area,
       locationId: state.location, expiresAt: 12345, stacks: [], gold: 0, uniques: [] });
     const ownerView = game.view(state, HERO) as { hotspots: { id: string }[] };
     const otherView = game.view(state, '00000000-0000-4000-8000-000000000002') as { hotspots: { id: string }[] };
