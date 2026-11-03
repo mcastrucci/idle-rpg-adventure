@@ -112,22 +112,41 @@ class SocketClient {
   readonly socket: WebSocket;
   private readonly inbox: Message[] = [];
   private socketError = '';
+  private pongs = 0;
+  private closeDetails = 'not closed';
   constructor(url: string, token: string) {
     this.socket = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } });
-    this.socket.on('message', raw => this.inbox.push(JSON.parse(raw.toString()) as Message));
+    this.socket.on('message', raw => {
+      const text = raw.toString();
+      if (text === 'pong') { this.pongs += 1; return; }
+      this.inbox.push(JSON.parse(text) as Message);
+    });
     this.socket.on('error', error => { this.socketError = error.message; });
+    this.socket.on('close', (code, reason) => { this.closeDetails = `${code}: ${reason.toString()}`; });
   }
   async wait(predicate: (message: Message) => boolean, timeoutMs = 5_000): Promise<Message> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const index = this.inbox.findIndex(predicate);
       if (index >= 0) return this.inbox.splice(index, 1)[0] as Message;
-      if (this.socket.readyState === WebSocket.CLOSED) throw new Error(`live WebSocket closed before expected frame: ${this.socketError}`);
+      if (this.socket.readyState === WebSocket.CLOSED) throw new Error(`live WebSocket closed before expected frame (${this.closeDetails}; ${this.socketError})`);
       await delay(5);
     }
     throw new Error('timed out waiting for live WebSocket frame');
   }
   async ready() { await this.wait(m => m.type === 'authenticated'); }
+  private isClosed() { return this.socket.readyState === WebSocket.CLOSED; }
+  async ping(timeoutMs = 5_000): Promise<void> {
+    if (this.socket.readyState !== WebSocket.OPEN) throw new Error(`cannot ping closed WebSocket (${this.closeDetails})`);
+    const expected = this.pongs + 1;
+    this.socket.send('ping');
+    const deadline = Date.now() + timeoutMs;
+    while (this.pongs < expected) {
+      if (this.isClosed()) throw new Error(`WebSocket closed before pong (${this.closeDetails}; ${this.socketError})`);
+      if (Date.now() >= deadline) throw new Error('timed out waiting for live WebSocket pong');
+      await delay(2);
+    }
+  }
   async send(command: Record<string, unknown>): Promise<Message> {
     this.socket.send(JSON.stringify({ type: 'command', command }));
     return this.wait(m => m.type === 'live.ack' || m.type === 'live.error' || m.type === 'live.attached');
@@ -140,6 +159,13 @@ class SocketClient {
   async close(): Promise<void> {
     if (this.socket.readyState === WebSocket.CLOSED) return;
     const closed = once(this.socket, 'close'); this.socket.terminate(); await closed;
+  }
+}
+
+async function advanceWithClient(server: ServerProcess, client: SocketClient, ms: number): Promise<void> {
+  for (let elapsed = 0; elapsed < ms; elapsed += 4_000) {
+    await server.call('advance', Math.min(4_000, ms - elapsed));
+    await client.ping();
   }
 }
 
@@ -223,7 +249,7 @@ describe.skipIf(!adminUrl)('hard process crash recovery (real PostgreSQL and SIG
     const commandId = randomUUID();
     expect(await ca.send({ op: 'live.command', instanceId, actorId: who.actorId, commandId, command: { type: 'engage', groupId } }))
       .toMatchObject({ type: 'live.ack', status: 'applied' });
-    await a.call('advance', 45_000);
+    await advanceWithClient(a, ca, 45_000);
     await ca.wait(message => message.type === 'live.event' && (message['event'] as { type?: string }).type === 'combatEnded', 10_000);
     const xpBefore = await database.db.select().from(rpgLiveXpEvents).where(eq(rpgLiveXpEvents.instanceId, instanceId));
     expect(xpBefore).toHaveLength(1);
@@ -274,6 +300,7 @@ describe.skipIf(!adminUrl)('hard process crash recovery (real PostgreSQL and SIG
         witnessedCombat = combat; break;
       }
       await a.call('advance', 250);
+      await ca.ping();
     }
     expect(witnessedCombat?.tick).toBeGreaterThan(0);
     expect(witnessedCombat?.actors.some(actor => actor.side === 'enemy' && actor.hp < actor.maxHp)).toBe(true);
@@ -292,7 +319,7 @@ describe.skipIf(!adminUrl)('hard process crash recovery (real PostgreSQL and SIG
     expect(recoveredSnapshot).toMatchObject({ type: 'live.snapshot', view: { combat: { tick: 0 } } });
     expect((recoveredSnapshot['view'] as { combat: { actors: { side: string; hp: number; maxHp: number }[] } }).combat.actors
       .filter(actor => actor.side === 'enemy').every(actor => actor.hp === actor.maxHp)).toBe(true);
-    await b.call('advance', 45_000);
+    await advanceWithClient(b, cb, 45_000);
     await cb.wait(message => message.type === 'live.event' && (message['event'] as { type?: string }).type === 'combatEnded', 10_000);
     expect((await database.db.select().from(rpgLiveXpEvents).where(eq(rpgLiveXpEvents.instanceId, instanceId))).map(x => x.grantedXp)).toEqual([6]);
     await cb.send({ op: 'live.command', instanceId, actorId: who.actorId, commandId: randomUUID(), command: { type: 'travel', exitId: 'exit:region_1.overgrown_causeway.portal_clearing' } });
