@@ -100,6 +100,34 @@ describe('@engine/live-kernel InstanceHost', () => {
     expect(() => host.adoptCreated(prepared, { ...lease, generation: 2 })).toThrow('prepared instance lease mismatch');
   });
 
+  it('keeps the prepared checkpoint immutable and adopts an isolated restore of that snapshot', async () => {
+    const setupMembers = ['prepared-member'];
+    const game: LiveGame<CounterState> = { ...counterGame,
+      init: ({ participants, setup }) => ({ counter: 0, ticksLeft: 0,
+        members: (setup as unknown as { members: string[] } | null)?.members ?? participants.map((p) => p.actorId), log: [] }),
+    };
+    const store = new MemoryInstanceStore();
+    const host = new InstanceHost({ game, store, clock: new TestClock(), nodeId: 'node-1', contentHash: 'c'.repeat(64),
+      leaseMs: 30_000, graceMs: 60_000, seed: () => 7 });
+    const prepared = host.prepareCreate({ participants: [A], setup: { members: setupMembers } });
+    const checkpoint = prepared.input.checkpoint as unknown as { state: CounterState };
+
+    expect(Object.isFrozen(prepared.input.checkpoint)).toBe(true);
+    expect(Object.isFrozen(checkpoint.state.members)).toBe(true);
+    expect(Reflect.set(checkpoint.state, 'counter', 99)).toBe(false);
+    expect(Object.isFrozen(setupMembers)).toBe(false);
+    setupMembers.push('caller-mutation');
+    expect(checkpoint.state.members).toEqual(['prepared-member']);
+
+    const lease = await store.create(prepared.input);
+    host.adoptCreated(prepared, lease);
+    const runtime = host.inspect(prepared.input.instanceId)?.state;
+    expect(runtime?.members).toEqual(['prepared-member']);
+    expect(runtime?.members).not.toBe(checkpoint.state.members);
+    runtime?.members.push('runtime-mutation');
+    expect(checkpoint.state.members).toEqual(['prepared-member']);
+  });
+
   it('ticks only while the game is ticking, on a drift-free schedule, with bounded catch-up', async () => {
     const { host, clock } = setup();
     const id = await host.create({ participants: [A], setup: null });

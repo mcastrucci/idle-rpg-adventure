@@ -164,11 +164,18 @@ export class InstanceHost<S> {
     const state = this.#game.init({ instanceId, participants: input.participants, seed: this.#seed(), setup: input.setup });
     const now = this.#clock.nowMs();
     const commands = new Map<string, CommandAck>();
+    // A plugin serializer may return references into its runtime (or into caller-owned setup). Clone the complete
+    // payload before freezing the persistence input, so preparation never freezes caller data as a side effect.
+    const checkpoint = structuredClone(this.#payload(state, 0, commands));
     const createInput: CreateInstanceInput = freezeJson({ instanceId, gameId: this.#game.id, gameVersion: this.#game.version,
       contentHash: this.#contentHash, participants: input.participants.map((p) => ({ ...p, left: false })),
-      checkpoint: this.#payload(state, 0, commands), nodeId: this.nodeId, nowMs: now, leaseMs: this.#leaseMs });
+      checkpoint, nodeId: this.nodeId, nowMs: now, leaseMs: this.#leaseMs });
+    // Adoption must run from the exact state represented by the prepared checkpoint, with no mutable object shared
+    // with the frozen public input. This also matches crash recovery's restore path.
+    const preparedCheckpoint = checkpoint as unknown as CheckpointPayload;
+    const runtimeState = this.#game.restore(structuredClone(preparedCheckpoint.state));
     const token = Object.freeze({});
-    this.#prepared.set(token, { input: createInput, state, commands, participants: createInput.participants });
+    this.#prepared.set(token, { input: createInput, state: runtimeState, commands, participants: createInput.participants });
     return { token, input: createInput };
   }
 
