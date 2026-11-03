@@ -1,0 +1,28 @@
+{
+  "id": "area:region_2",
+  "kind": "explorable",
+  "nameKey": "area.region_2.name",
+  "difficulty": 2,
+  "recommendedLevel": [4, 8],
+  "mapPosition": { "x": 0, "y": 200 },
+  "startLocation": "loc:region_2.fracture_landing",
+  "locations": [
+    "loc:region_2.fracture_landing",
+    "loc:region_2.signal_shallows",
+    "loc:region_2.prism_span",
+    "loc:region_2.echo_archive",
+    "loc:region_2.resonance_court",
+    "loc:region_2.choir_core"
+  ],
+  "completion": {
+    "pool": { "tag": "ordinary" },
+    "thresholdBp": 7000,
+    "required": {
+      "all": [
+        { "game": "defeated", "enemy": "enemy:region_2.resonant_warden" }
+      ]
+    }
+  },
+  "activities": ["idle:region_2.gather", "idle:region_2.hunt"],
+  "tags": ["region_2", "provisional_balance"]
+}

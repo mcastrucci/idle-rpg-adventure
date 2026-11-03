@@ -45,10 +45,18 @@ describe('identity and mapping rule', () => {
 
   it('registers every content idle activity, and every area activity has a simulator', () => {
     const registry = createRpgActivityRegistry(bundle);
-    expect(registry.activityIds()).toEqual(['idle:region_1.gather', 'idle:region_1.hunt', 'idle:test_grove.hunt']);
+    expect(registry.activityIds()).toEqual([
+      'idle:region_1.gather',
+      'idle:region_1.hunt',
+      'idle:region_2.gather',
+      'idle:region_2.hunt',
+      'idle:test_grove.hunt',
+    ]);
     expect(registry.get(HUNT)?.id).toBe('rpg.hunt');
     expect(registry.get(GATHER)?.id).toBe('rpg.gather');
     expect(registry.get('idle:test_grove.hunt')?.id).toBe('rpg.hunt');
+    expect(registry.get('idle:region_2.gather')?.id).toBe('rpg.gather');
+    expect(registry.get('idle:region_2.hunt')?.id).toBe('rpg.hunt');
     expect(unregisteredActivities(bundle.world, registry)).toEqual([]);
   });
 });

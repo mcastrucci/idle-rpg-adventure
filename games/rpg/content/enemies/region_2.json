@@ -1,0 +1,48 @@
+[
+  {
+    "id": "enemy:region_2.glass_echo",
+    "nameKey": "enemy.region_2.glass_echo.name",
+    "rank": "normal",
+    "level": 4,
+    "stats": { "maxHp": 76, "power": 12, "armor": 3, "resist": 5 },
+    "skills": ["skill:basic_attack"],
+    "ai": [{ "when": {}, "do": { "useSkill": "skill:basic_attack", "target": "lowestHpEnemy" } }],
+    "xp": 40,
+    "lootTable": "loot:region_2.glass_echo",
+    "tags": ["region_2", "provisional_balance"]
+  },
+  {
+    "id": "enemy:region_2.prism_guard",
+    "nameKey": "enemy.region_2.prism_guard.name",
+    "rank": "normal",
+    "level": 5,
+    "stats": { "maxHp": 116, "power": 15, "armor": 8, "resist": 4 },
+    "skills": ["skill:basic_attack", "skill:region_2.prism_slam"],
+    "ai": [
+      { "when": { "skillReady": "skill:region_2.prism_slam" }, "do": { "useSkill": "skill:region_2.prism_slam", "target": "lowestHpEnemy" } },
+      { "when": {}, "do": { "useSkill": "skill:basic_attack", "target": "lowestHpEnemy" } }
+    ],
+    "xp": 58,
+    "lootTable": "loot:region_2.prism_guard",
+    "tags": ["region_2", "provisional_balance"]
+  },
+  {
+    "id": "enemy:region_2.resonant_warden",
+    "nameKey": "enemy.region_2.resonant_warden.name",
+    "rank": "boss",
+    "level": 6,
+    "stats": { "maxHp": 520, "power": 26, "armor": 8, "resist": 7 },
+    "skills": ["skill:basic_attack", "skill:region_2.signal_pulse", "skill:bramble_lash"],
+    "ai": [
+      { "when": { "skillReady": "skill:region_2.signal_pulse" }, "do": { "useSkill": "skill:region_2.signal_pulse", "target": "lowestHpEnemy" } },
+      { "when": {}, "do": { "useSkill": "skill:basic_attack", "target": "lowestHpEnemy" } }
+    ],
+    "xp": 520,
+    "lootTable": "loot:region_2.warden",
+    "tags": ["region_2", "provisional_balance", "automated_process"],
+    "phases": [
+      { "fromHpBp": 10000, "rotation": ["skill:region_2.signal_pulse", "skill:basic_attack", "skill:bramble_lash", "skill:basic_attack"], "telegraphs": ["skill:region_2.signal_pulse"] },
+      { "fromHpBp": 4500, "rotation": ["skill:region_2.signal_pulse", "skill:basic_attack", "skill:bramble_lash"], "telegraphs": ["skill:region_2.signal_pulse"] }
+    ]
+  }
+]

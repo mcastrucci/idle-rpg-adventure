@@ -1,0 +1,6 @@
+[
+  { "id": "item:prism_dust", "nameKey": "item.region_2.prism_dust.name", "kind": "material", "value": 5, "tags": ["region_2", "provisional_balance"], "stackable": true, "maxStack": 99 },
+  { "id": "item:warden_signal", "nameKey": "item.region_2.warden_signal.name", "kind": "quest", "value": 0, "tags": ["region_2", "provisional_balance"], "stackable": true, "maxStack": 99 },
+  { "id": "item:choirglass_blade", "nameKey": "item.region_2.choirglass_blade.name", "kind": "equipment", "value": 0, "tags": ["region_2", "provisional_balance"], "stackable": false, "slot": "weapon", "stats": { "power": 14, "critBp": 300 } },
+  { "id": "item:resonance_buckler", "nameKey": "item.region_2.resonance_buckler.name", "kind": "equipment", "value": 0, "tags": ["region_2", "provisional_balance"], "stackable": false, "slot": "offhand", "stats": { "armor": 9, "maxHp": 20 } }
+]

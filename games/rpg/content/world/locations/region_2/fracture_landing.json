@@ -1,0 +1,8 @@
+{
+  "id": "loc:region_2.fracture_landing",
+  "nameKey": "loc.region_2.fracture_landing.name",
+  "tags": ["safe", "start"],
+  "exits": [{ "id": "exit:region_2.landing_shallows", "to": "loc:region_2.signal_shallows" }],
+  "resources": [],
+  "hotspots": []
+}

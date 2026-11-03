@@ -23,6 +23,8 @@ const adminUrl = process.env['TEST_DATABASE_URL'];
 if (process.env['CI'] && !adminUrl) throw new Error('CI must supply TEST_DATABASE_URL for live entry PostgreSQL tests');
 const REGION = 'area:region_1';
 const START_LOCATION = 'loc:region_1.portal_clearing';
+const REGION_TWO = 'area:region_2';
+const REGION_TWO_START = 'loc:region_2.fracture_landing';
 const TRAVEL_EXIT = 'exit:region_1.portal_clearing.overgrown_causeway';
 const POTION = 'item:minor_healing_potion';
 
@@ -260,7 +262,7 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
     expect(unlockedOptions.json<{ areas: Array<{ id: string; startLocationId: string }> }>().areas)
       .toEqual(expect.arrayContaining([expect.objectContaining({ id: SECOND_LIVE_AREA, startLocationId: SECOND_LIVE_START })]));
     expect(unlockedOptions.json<{ areas: Array<{ id: string }> }>().areas.map(area => area.id))
-      .toEqual([SECOND_LIVE_AREA, REGION]);
+      .toEqual([SECOND_LIVE_AREA, REGION, REGION_TWO]);
 
     const foreignCommandId = randomUUID();
     const foreign = await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(otherSession), payload: {
@@ -431,5 +433,71 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
       view: { location: START_LOCATION } } });
     expect((await row(lostId)).instanceId).toBe(lostId);
     expect(createdId).not.toBe(lostId);
+  }, 30_000);
+
+  it('unlocks the production Region 2 entry only after persisted Region 1 completion', async () => {
+    const n = await node('entry-region-two');
+    const { session, character } = await fixture(n);
+    const otherOwner = await fixture(n);
+    const optionsUrl = `/live/options/${character.actorId}`;
+    const worldUrl = `/characters/${character.actorId}/world`;
+
+    const lockedOptions = await n.app.inject({ method: 'GET', url: optionsUrl, headers: headers(session) });
+    expect(lockedOptions.statusCode).toBe(200);
+    expect(lockedOptions.json<{ areas: Array<{ id: string }> }>().areas.map(area => area.id)).toEqual([REGION]);
+    expect((await n.app.inject({ method: 'GET', url: worldUrl, headers: headers(session) }))
+      .json<{ areas: Array<{ id: string; visibility: string; actions: { enterLive: boolean } }> }>().areas)
+      .toContainEqual(expect.objectContaining({ id: REGION_TWO, visibility: 'locked', actions: expect.objectContaining({ enterLive: false }) }));
+
+    const lockedCommandId = randomUUID();
+    const lockedStart = await start(n, session, character, lockedCommandId, { areaId: REGION_TWO });
+    expect(lockedStart.statusCode).toBe(409);
+    expect(lockedStart.json()).toEqual({ error: 'region_locked' });
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, lockedCommandId))).toEqual([]);
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.actorId, character.actorId))).toEqual([]);
+    expect(await activity(character.actorId)).toMatchObject({ activityState: 'none', activityId: null });
+
+    await database.db.transaction(tx => recordAreaCompletion(tx, clock, character.actorId, REGION));
+    const unlockedOptions = await n.app.inject({ method: 'GET', url: optionsUrl, headers: headers(session) });
+    expect(unlockedOptions.statusCode).toBe(200);
+    expect(unlockedOptions.json<{ areas: Array<{ id: string; startLocationId: string }> }>().areas.map(area => area.id))
+      .toEqual([SECOND_LIVE_AREA, REGION, REGION_TWO]);
+    expect(unlockedOptions.json<{ areas: Array<{ id: string; startLocationId: string }> }>().areas)
+      .toContainEqual(expect.objectContaining({ id: REGION_TWO, startLocationId: REGION_TWO_START }));
+    expect((await n.app.inject({ method: 'GET', url: worldUrl, headers: headers(session) }))
+      .json<{ areas: Array<{ id: string; visibility: string; actions: { enterLive: boolean } }> }>().areas)
+      .toContainEqual(expect.objectContaining({ id: REGION_TWO, visibility: 'known', actions: expect.objectContaining({ enterLive: true }) }));
+
+    const commandId = randomUUID();
+    const body = { commandId, actorId: character.actorId, areaId: REGION_TWO, supplies: [] };
+    const started = await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(session), payload: body });
+    expect(started.statusCode).toBe(200);
+    const instanceId = started.json<{ instanceId: string }>().instanceId;
+    expect(await row(instanceId)).toMatchObject({ checkpoint: { state: { area: REGION_TWO, location: REGION_TWO_START } } });
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.instanceId, instanceId)))
+      .toMatchObject([{ instanceId, actorId: character.actorId, areaId: REGION_TWO, startedAt: new Date(clock.nowMs()) }]);
+
+    const replay = await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(session), payload: body });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toEqual({ instanceId });
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.instanceId, instanceId))).toHaveLength(1);
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, commandId))).toHaveLength(1);
+
+    const foreignCommandId = randomUUID();
+    const foreignStart = await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(otherOwner.session), payload: {
+      commandId: foreignCommandId, actorId: otherOwner.character.actorId, areaId: REGION_TWO, supplies: [],
+    } });
+    expect(foreignStart.statusCode).toBe(409);
+    expect(foreignStart.json()).toEqual({ error: 'region_locked' });
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, foreignCommandId))).toEqual([]);
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.actorId, otherOwner.character.actorId))).toEqual([]);
+    expect(await activity(otherOwner.character.actorId)).toMatchObject({ activityState: 'none', activityId: null });
+
+    const foreignActorCommandId = randomUUID();
+    const foreignActor = await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(otherOwner.session), payload: {
+      commandId: foreignActorCommandId, actorId: character.actorId, areaId: REGION_TWO, supplies: [],
+    } });
+    expect(foreignActor.statusCode).toBe(404);
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, foreignActorCommandId))).toEqual([]);
   }, 30_000);
 });

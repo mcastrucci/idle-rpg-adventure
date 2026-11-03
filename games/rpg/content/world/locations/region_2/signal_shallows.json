@@ -1,0 +1,13 @@
+{
+  "id": "loc:region_2.signal_shallows",
+  "nameKey": "loc.region_2.signal_shallows.name",
+  "tags": ["ordinary"],
+  "exits": [
+    { "id": "exit:region_2.shallows_landing", "to": "loc:region_2.fracture_landing" },
+    { "id": "exit:region_2.shallows_span", "to": "loc:region_2.prism_span" },
+    { "id": "exit:region_2.shallows_archive", "to": "loc:region_2.echo_archive" }
+  ],
+  "resources": [],
+  "hotspots": [],
+  "encounters": "enc:region_2.shallows"
+}

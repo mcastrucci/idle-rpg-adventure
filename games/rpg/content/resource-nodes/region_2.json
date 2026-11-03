@@ -1,0 +1,4 @@
+[
+  { "id": "res:region_2.prism_vein", "nameKey": "res.region_2.prism_vein.name", "gatherTicks": 8, "tags": ["region_2"] },
+  { "id": "res:region_2.signal_bloom", "nameKey": "res.region_2.signal_bloom.name", "gatherTicks": 10, "tags": ["region_2"] }
+]

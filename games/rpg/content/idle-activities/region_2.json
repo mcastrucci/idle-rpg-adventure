@@ -1,0 +1,10 @@
+[
+  { "id": "idle:region_2.hunt", "nameKey": "idle.region_2.hunt.name", "encountersPerHour": 24, "encounterTable": "enc:region_2.hunt", "resourceYields": [
+    { "node": "res:region_2.prism_vein", "lootTable": "loot:region_2.prism_gather", "rollsPerHour": 5 },
+    { "node": "res:region_2.signal_bloom", "lootTable": "loot:region_2.signal_gather", "rollsPerHour": 2 }
+  ], "tags": ["region_2"] },
+  { "id": "idle:region_2.gather", "nameKey": "idle.region_2.survey.name", "encountersPerHour": 8, "encounterTable": "enc:region_2.survey", "resourceYields": [
+    { "node": "res:region_2.prism_vein", "lootTable": "loot:region_2.prism_gather", "rollsPerHour": 8 },
+    { "node": "res:region_2.signal_bloom", "lootTable": "loot:region_2.signal_gather", "rollsPerHour": 12 }
+  ], "tags": ["region_2"] }
+]

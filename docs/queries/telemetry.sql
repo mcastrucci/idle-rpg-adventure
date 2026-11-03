@@ -126,9 +126,15 @@ SELECT *, EXTRACT(EPOCH FROM (same_area_return_at-conquered_at)) AS seconds_to_s
        EXTRACT(EPOCH FROM (any_area_return_at-conquered_at)) AS seconds_to_any_area_return
 FROM returns ORDER BY actor_id, conquered_at;
 
--- Q6: Region 2 repeat-attempt support is unavailable in this build. Do not infer attempts from invalid requests.
-SELECT 'unavailable_unsupported'::text AS availability,
-       'No Region 2 live content or attempt event is persisted; criterion requires a real playtest.'::text AS reason;
+-- Q6: successful server-confirmed live starts in authored Region 2, from immutable entry attribution.
+-- This counts successful instrumented entries only; locked/failed requests and client-submitted IDs are not persisted attempts.
+SELECT actor_id, count(*) AS successful_instrumented_entries,
+       min(started_at) AS first_started_at, max(started_at) AS latest_started_at,
+       'successful_instrumented_entries_only'::text AS coverage_scope
+FROM rpg_live_entries
+WHERE area_id = 'area:region_2'
+GROUP BY actor_id
+ORDER BY actor_id;
 
 -- Q7: lifecycle counts and report-recorded deaths; death coverage is explicit and independent of XP penalty flags.
 WITH reports AS (

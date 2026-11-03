@@ -110,6 +110,8 @@ export interface FightInput {
   readonly group: EncounterGroup;
   readonly potion: string;
   readonly potions: number;
+  /** Explicit mixed carried inventory for cohorts that need more than one consumable type. */
+  readonly inventory?: readonly { readonly item: string; readonly qty: number }[];
   readonly hp?: number;
   readonly policy: CombatPolicy;
   readonly seed: Seed;
@@ -120,15 +122,19 @@ export interface FightResult {
   readonly ticks: number;
   readonly hpEnd: number;
   readonly potionsUsed: number;
+  /** Per-item consumption; present for explicit inventory runs. */
+  readonly inventoryUsed?: Readonly<Record<string, number>>;
 }
 
 export function fight(input: FightInput): FightResult {
+  const supplied = input.inventory ?? (input.potions > 0 ? [{ item: input.potion, qty: input.potions }] : []);
+  const inventory = supplied.filter(({ qty }) => qty > 0);
   const hero: HeroSetup = {
     id: HERO_ID,
     build: input.build,
     skills: input.loadout.skills,
     rules: input.loadout.rules,
-    consumables: input.potions > 0 ? [{ item: input.potion, qty: input.potions }] : [],
+    consumables: inventory,
     ...(input.hp === undefined ? {} : { hp: input.hp }),
   };
   const run = runToEnd(
@@ -138,8 +144,18 @@ export function fight(input: FightInput): FightResult {
     MAX_FIGHT_TICKS,
   );
   const h = run.state.actors.find((a) => a.id === HERO_ID);
-  const left = h?.consumables.find((c) => c.item === input.potion)?.qty ?? 0;
-  return { outcome: run.outcome, ticks: run.ticks, hpEnd: h?.hp ?? 0, potionsUsed: input.potions - left };
+  const inventoryUsed = Object.fromEntries(inventory.map(({ item, qty }) => {
+    const left = h?.consumables.find((c) => c.item === item)?.qty ?? 0;
+    return [item, qty - left];
+  }));
+  const potionsUsed = Object.values(inventoryUsed).reduce((sum, used) => sum + used, 0);
+  return {
+    outcome: run.outcome,
+    ticks: run.ticks,
+    hpEnd: h?.hp ?? 0,
+    potionsUsed,
+    ...(input.inventory === undefined ? {} : { inventoryUsed: Object.fromEntries(supplied.map(({ item }) => [item, inventoryUsed[item] ?? 0])) }),
+  };
 }
 
 function policyFor(mode: PolicyMode, build: HeroBuildDef, loadout: HeroLoadout): CombatPolicy {

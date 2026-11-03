@@ -1,0 +1,9 @@
+{
+  "id": "loc:region_2.choir_core",
+  "nameKey": "loc.region_2.choir_core.name",
+  "tags": ["boss_room"],
+  "exits": [{ "id": "exit:region_2.core_court", "to": "loc:region_2.resonance_court" }],
+  "resources": [],
+  "hotspots": [],
+  "encounters": "enc:region_2.warden"
+}

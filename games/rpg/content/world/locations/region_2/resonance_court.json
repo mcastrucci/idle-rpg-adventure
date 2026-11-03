@@ -1,0 +1,13 @@
+{
+  "id": "loc:region_2.resonance_court",
+  "nameKey": "loc.region_2.resonance_court.name",
+  "tags": ["ordinary"],
+  "exits": [
+    { "id": "exit:region_2.court_span", "to": "loc:region_2.prism_span" },
+    { "id": "exit:region_2.court_archive", "to": "loc:region_2.echo_archive" },
+    { "id": "exit:region_2.court_core", "to": "loc:region_2.choir_core" }
+  ],
+  "resources": [],
+  "hotspots": [],
+  "encounters": "enc:region_2.resonance_court"
+}
