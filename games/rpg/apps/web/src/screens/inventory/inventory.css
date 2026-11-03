@@ -35,8 +35,11 @@
 .inventory-message .button { min-height: 44px; }
 .inventory-success { color: var(--ok); }
 .merchant-list { display: flex; flex-direction: column; gap: 10px; }
+.sell-materials { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.sell-materials > h2 { margin: 0; font-size: 1.05rem; }
+.sell-materials > p { margin: 0; }
 .merchant-offer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); min-width: 0; }
-.merchant-offer h2 { font-size: 0.98rem; overflow-wrap: anywhere; }
+.merchant-offer h2, .merchant-offer h3 { margin: 0; font-size: 0.98rem; overflow-wrap: anywhere; }
 .merchant-offer .muted { font-size: 0.8rem; }
 .merchant-offer__price { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
 .merchant-offer .form__label, .merchant-offer .form__input, .merchant-offer .button, .merchant-offer > .muted { grid-column: 1 / -1; }

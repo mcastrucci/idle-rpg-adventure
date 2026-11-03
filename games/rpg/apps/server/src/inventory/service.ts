@@ -22,6 +22,7 @@ export const MovePayloadSchema = z.union([
   z.strictObject({ actorId: UUID, item: z.string().regex(/^item:[a-z0-9_.]+$/), quantity: z.number().int().min(1).max(10_000), from: Containers, to: Containers }).refine(value => value.from !== value.to),
 ]);
 export const BuyPayloadSchema = z.strictObject({ actorId: UUID, offerId: z.string().regex(/^offer:[a-z0-9_.]+$/), quantity: z.number().int().min(1).max(100) });
+export const SellMaterialPayloadSchema = z.strictObject({ actorId: UUID, item: z.string().regex(/^item:[a-z0-9_.]+$/), quantity: z.number().int().min(1).max(10_000) });
 export const ClaimStarterKitPayloadSchema = z.strictObject({ actorId: UUID });
 export const STARTER_KIT_ITEMS = ['item:rusty_sword', 'item:padded_vest', 'item:wooden_buckler'] as const;
 const STARTER_KIT_SOURCE = 'rpg_starter_kit';
@@ -61,6 +62,14 @@ export function buildPurchaseDeltas(actorId: string, itemId: string, quantity: n
   return deltas;
 }
 
+/** Material sale batch debits only inventory stacks and credits only inventory gold. */
+export function buildMaterialSaleDeltas(actorId: string, itemId: string, quantity: number, proceeds: number): LedgerDelta[] {
+  return [
+    { actorId, asset: { kind: 'stack', item: itemId }, qty: quantity, from: 'inventory' },
+    { actorId, asset: { kind: 'currency', currency: 'gold' }, qty: proceeds, to: 'inventory' },
+  ];
+}
+
 export async function inventorySnapshot(tx: ActorTransaction, accountId: string, actorId: string, content: LoadedContent) {
   // Read-only snapshot: ownership is enforced in SQL without the mutation lock used by requireOwnedActor.
   const [actor] = await tx.select({ actorId: actors.actorId, version: actors.version, activityState: actors.activityState })
@@ -88,7 +97,10 @@ export async function inventorySnapshot(tx: ActorTransaction, accountId: string,
 export function merchantCatalog(content: LoadedContent) {
   return { merchants: merchants(content).map(merchant => ({ id: merchant.id,
     offers: merchant.offers.map(offer => ({ id: offer.id, item: offer.item, buyPrice: offer.buyPrice,
-      stock: offer.stock, ...(offer.requiresCompletedArea ? { requiresCompletedArea: offer.requiresCompletedArea } : {}) })) })) };
+      stock: offer.stock, ...(offer.requiresCompletedArea ? { requiresCompletedArea: offer.requiresCompletedArea } : {}) })) })),
+    sellOffers: items(content).filter(item => item.kind === 'material' && item.stackable && Number.isSafeInteger(item.value) && item.value > 0 && item.value <= 2_147_483_647)
+      .map(item => ({ item: item.id, unitPrice: { currency: 'gold' as const, amount: item.value } }))
+      .sort((a, b) => a.item < b.item ? -1 : a.item > b.item ? 1 : 0) };
 }
 
 export function createInventoryService(tx: ActorTransaction, content: LoadedContent) {
@@ -168,6 +180,18 @@ export function createInventoryService(tx: ActorTransaction, content: LoadedCont
         if (!status.recorded) throw new InventoryError('conquest_required');
       }
       return mutate(accountId, commandId, actor.actorId, buildPurchaseDeltas(actor.actorId, offer.item, input.quantity, price));
+    },
+    async sellMaterial(accountId: string, commandId: string, input: z.output<typeof SellMaterialPayloadSchema>) {
+      const actor = await requireSanctuaryMutation(tx, input.actorId, accountId, RPG_GAME_ID);
+      const definition = getItem(content, input.item);
+      if (!definition || definition.kind !== 'material' || !definition.stackable || !Number.isSafeInteger(definition.value) || definition.value <= 0) {
+        throw new InventoryError('invalid_sell_item', 400);
+      }
+      const proceeds = definition.value * input.quantity;
+      if (!Number.isSafeInteger(proceeds) || proceeds <= 0 || proceeds > 2_147_483_647) throw new InventoryError('invalid_sell_quantity', 400);
+      const currentGold = (await getHoldings(tx, actor.actorId)).find(holding => holding.asset.kind === 'currency' && holding.asset.currency === 'gold' && holding.container === 'inventory')?.qty ?? 0;
+      if (currentGold + proceeds > 2_147_483_647) throw new InventoryError('gold_overflow');
+      return mutate(accountId, commandId, actor.actorId, buildMaterialSaleDeltas(actor.actorId, input.item, input.quantity, proceeds));
     },
   };
 }

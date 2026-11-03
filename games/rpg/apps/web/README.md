@@ -59,6 +59,9 @@ Other scripts: `pnpm --filter @rpg/web build` (production bundle in `dist/`), `p
   buttons are disabled.
 - **Expeditions.** The Expeditions tab reads server options and expedition DTOs, starts and cancels through commands,
   and refreshes the character after settlement. The header chip reflects the character's server-provided activity.
+- **Inventory sales.** The Merchant tab keeps existing purchases and shows material sales only when `/merchant` supplies
+  `sellOffers`; only cataloged material stacks in the safe inventory container appear. Sale prices, command outcomes,
+  gold, and refreshed holdings come from the server.
 - **Expedition setup (#53).** Area → activity → duration chips → consumable → retreat → automation rules preview (link
   to `#/character/rules`) → estimate card → Start. The estimate card shows the server's Monte Carlo figures
   (`POST /characters/:actorId/expedition-estimate`, `ExpeditionEstimateDto` from `@rpg/protocol`): XP and gold as
@@ -119,7 +122,7 @@ inventory the stats are shown without gear.
 - No unlock endpoint: the client mirrors the server's provisional unlocked set (the four starter skills) and treats
   skills already in the saved loadout as unlocked. The server remains the authority (`invalid_configuration`).
 - No progression yet: `unspentPoints` is always 0, so the allocation UI only appears once levelling grants points.
-- No gold balance in the character DTO (gold placeholder) or inventory UI. Expedition hosting and settlement are available
+- No gold balance in the character DTO (gold is shown from inventory holdings). Expedition hosting and settlement are available
   in the Expeditions tab; the header chip reads the actor's server-provided `activityState`.
 - No sign-in UI yet. An upgraded account's device token is disabled server-side, so this device then shows a fatal
   connection state.

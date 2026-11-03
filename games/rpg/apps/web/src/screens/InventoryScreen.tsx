@@ -6,11 +6,12 @@ import { ApiError } from '../api/http.ts';
 import type { CharacterDto } from '../api/types.ts';
 import type { CommandRequest } from '../api/commands.ts';
 import { CommandRejectedError, CommandUnconfirmedError } from '../api/commands.ts';
-import { buyInventoryCommand, claimStarterKitCommand, equipInventoryCommand, moveInventoryCommand, unequipInventoryCommand } from '../inventory/api.ts';
+import { buyInventoryCommand, claimStarterKitCommand, equipInventoryCommand, moveInventoryCommand, sellMaterialCommand, unequipInventoryCommand } from '../inventory/api.ts';
 import { useInventoryState } from './inventory/useInventoryState.ts';
 import { InventoryDetail } from './inventory/InventoryDetail.tsx';
 import { InventoryItemGrid } from './inventory/InventoryItemGrid.tsx';
 import { RunBagPanel } from './inventory/RunBagPanel.tsx';
+import { SellMaterialsPanel } from './inventory/SellMaterialsPanel.tsx';
 import { clearInventoryCommand, pendingInventoryCommand, rememberInventoryCommand } from './inventory/pendingInventoryCommand.ts';
 import './inventory/inventory.css';
 
@@ -92,7 +93,7 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
       if (activeActor.current !== actorId) return;
       setUnconfirmed(null);
       setSelected(null);
-      setActionError(request.envelope.operation === 'inventory.claimStarterKit' ? 'Claim saved; loading the updated inventory…' : 'Change committed.');
+      setActionError(request.envelope.operation === 'inventory.claimStarterKit' ? 'Claim saved; loading the updated inventory…' : request.envelope.operation === 'inventory.sellMaterial' ? 'Sale committed.' : 'Change committed.');
       const [inventoryRead, characterRead] = await Promise.allSettled([reloadInventory(), refreshCharacter()]);
       if (activeActor.current !== actorId) return;
       const failedRead = inventoryRead.status === 'rejected' ? inventoryRead.reason : characterRead.status === 'rejected' ? characterRead.reason : null;
@@ -108,8 +109,11 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
       }
       clearInventoryCommand(actorId, request);
       setUnconfirmed(null);
-      setActionError(commandError(error));
-      if ((error instanceof ApiError && error.status === 409) || (error instanceof CommandRejectedError && error.status === 409)) void reloadInventory().catch(() => undefined);
+      setActionError(commandError(error, request.envelope.operation));
+      if ((error instanceof ApiError && error.status === 409) || (error instanceof CommandRejectedError && error.status === 409) ||
+          (request.envelope.operation === 'inventory.sellMaterial' && (error instanceof ApiError || error instanceof CommandRejectedError) && error.code === 'insufficient_funds')) {
+        void reloadInventory().catch(() => undefined);
+      }
     } finally {
       actionLock.current = false;
       setActiveOperation(null);
@@ -158,6 +162,11 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
     void execute(unconfirmed ?? buyInventoryCommand(actorId, offerId, quantity));
   }
 
+  function sell(item: string, saleQuantity: number) {
+    if (!actorId || !validQuantity(saleQuantity, Math.min(10_000, 2_147_483_647, Number.MAX_SAFE_INTEGER))) return;
+    void execute(unconfirmed ?? sellMaterialCommand(actorId, item, saleQuantity));
+  }
+
   function claimStarterKit() {
     if (!actorId) return;
     void execute(unconfirmed ?? claimStarterKitCommand(actorId));
@@ -204,6 +213,8 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
                 disabled={!ready} onClick={() => buy(offer.id, maxQty)}>{unconfirmed?.envelope.operation === 'inventory.buy' ? 'Retry purchase' : `Buy for ${offer.buyPrice.amount * quantity} ${humanize(offer.buyPrice.currency)}`}</button>
             </article>;
           })}</div>
+          {merchant?.sellOffers !== undefined && <SellMaterialsPanel snapshot={snapshot} offers={merchant.sellOffers}
+            enabled={canMutate} locked={locked} busy={busy && activeOperation === 'inventory.sellMaterial'} sell={sell} />}
         </> : <>
           {tab === 'inventory' && snapshot?.starterKit && <StarterKitCard
             kit={snapshot.starterKit}
@@ -229,7 +240,7 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
           {tab === 'equipment' && <EquipmentSlots snapshot={snapshot} holdings={currentHoldings} onSelect={setSelected} />}
         </>}
       </div>
-      {actionError && <p className={actionError === 'Change committed.' ? 'inventory-success' : 'form__error'} role="status" aria-live="polite">{actionError}</p>}
+      {actionError && <p className={actionError === 'Change committed.' || actionError === 'Sale committed.' ? 'inventory-success' : 'form__error'} role="status" aria-live="polite">{actionError}</p>}
       {refreshError && <div className="inventory-message" role="alert"><p>{refreshError}</p><button className="button button--secondary" type="button" onClick={() => void refreshCommittedState()}>Refresh state</button></div>}
       {unconfirmed && <button type="button" className="button" disabled={!canCommand || busy} onClick={retry}>Retry exact request</button>}
       {!canCommand && <p className="muted" role="status">Disconnected. You can review your holdings; changes wait until the connection is restored.</p>}
@@ -301,11 +312,13 @@ function characterGold(holdings: readonly InventoryHoldingDto[], snapshot: Inven
 function validQuantity(value: number, maximum: number): boolean { return Number.isInteger(value) && value > 0 && value <= maximum; }
 function parseQuantity(value: string): number { const parsed = Number(value); return Number.isSafeInteger(parsed) ? parsed : 0; }
 function errorLabel(error: unknown): string { return error instanceof Error ? error.message : 'unknown error'; }
-function commandError(error: unknown): string {
+function commandError(error: unknown, operation: string): string {
   const code = error instanceof ApiError || error instanceof CommandRejectedError ? error.code : error instanceof Error ? error.message : 'unknown_error';
   if (code === 'busy') return 'Inventory changes are only available while your character is idle in the Sanctuary.';
-  if (code === 'insufficient_funds') return 'There is not enough gold for this purchase.';
+  if (code === 'insufficient_funds') return operation === 'inventory.sellMaterial'
+    ? 'The requested material quantity is no longer available. Refresh inventory and review it before trying again.'
+    : 'There is not enough gold for this purchase.';
   if (code === 'level_required') return 'Your character does not meet this item’s level requirement.';
   if ((error instanceof ApiError && error.status === 409) || (error instanceof CommandRejectedError && error.status === 409)) return `The inventory changed on the server (${code}). State is being refreshed; review it and try again.`;
-  return `The server rejected this change (${code}).`;
+  return operation === 'inventory.sellMaterial' ? `The server rejected this material sale (${code}).` : `The server rejected this change (${code}).`;
 }
