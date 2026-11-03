@@ -55,5 +55,9 @@ collection carries them yet.
 | `rpg.xpCurveMissing` / `rpg.xpCurveUnexpected` | Exactly one progression document, `progression:xp_curve`. |
 | `rpg.aiSkillNotKnown` | An AI rule's `skillReady` condition names one of the enemy's own skills. |
 
+When scenes are present, `validateRpgScenes` requires exact geometry-name parity with location exits, hotspots, resource
+occurrence IDs (`<resource-node>#<ordinal>`), and optional `enemyAnchors` IDs. See the
+[`Tiled authoring guide`](../../../../docs/content/authoring-scenes.md) for the supported map subset.
+
 Tests (`src/index.test.ts`) compile the seed content of [`games/rpg/content`](../../content/README.md) and give every
 reference and check a failing fixture (in-memory edits of the seed).

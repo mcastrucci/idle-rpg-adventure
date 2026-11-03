@@ -5,7 +5,7 @@
  * collections, may extend the world entity schemas with its own fields, declares which fields reference which
  * collections, and may add game-specific checks.
  */
-import type { PredicateRegistry, World } from '@engine/world';
+import type { PredicateRegistry, SceneGeometry, World } from '@engine/world';
 import type { z } from 'zod';
 
 import type { ContentErrorCode, JsonPath } from './errors.ts';
@@ -69,6 +69,8 @@ export interface ContentGamePlugin<G = unknown> {
   references?(content: CompiledContent): readonly ReferenceCheck[];
   /** Game-specific checks run after every engine check passed for the parsed content. */
   validate?(content: CompiledContent): readonly PluginIssue[];
+  /** Game checks for authored geometry, after each referenced Tiled map has been safely imported. */
+  validateScenes?(content: CompiledContent, scenes: Readonly<Record<string, SceneGeometry>>): readonly PluginIssue[];
 }
 
 /** Identity helper giving plugin authors type inference. */

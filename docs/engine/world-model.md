@@ -55,6 +55,9 @@ graph LR
 Games extend location/area schemas with their own fields (e.g. RPG `encounters`, `resources`) through the content
 compiler's schema registry; the engine ignores unknown game namespaces.
 
+Locations may also carry an optional safe content-root-relative `scene` path to a Tiled JSON map. Geometry is compiled
+into a separate bundle `scenes` map so world graph logic remains independent of renderer details.
+
 ## 3. Requirements
 
 Closed, composable, pure:

@@ -13,13 +13,15 @@ apply).
   world/areas/**/*.json        # @engine/world Area     (id area:…)
   world/locations/**/*.json    # @engine/world Location (id loc:…), flat: areas list their location IDs
   world/routes/**/*.json       # @engine/world Route    (id route:…)
+  scenes/**/*.tmj              # referenced Tiled JSON scenes
   <game collection dir>/**/*.json
 ```
 
 - Each `.json` file holds **one entity or an array of entities**. Subdirectories are free-form (e.g.
   `world/locations/<area_slug>/<location_slug>.json`); file names never matter, only IDs do.
-- Files that are not `.json` (README, Tiled maps, art) are ignored; a `.json` file outside every collection directory
-  is an error (`file.unknownCollection`), so typos in directory names do not silently drop content.
+- Other files (README, art) are ignored; a `.json` file outside every collection directory is an error
+  (`file.unknownCollection`), so typos in directory names do not silently drop content. `.tmj` files under `scenes/`
+  are imported only when referenced by a location's `scene` field; orphan maps are errors.
 - The assembled world is exactly `@engine/world`'s `World`: `{ areas, locations, routes }`, each sorted by ID.
 
 ## Game plugin
@@ -36,6 +38,7 @@ export default defineContentPlugin<GameState>({
     ...referencesAt(content, 'locations', 'encounters.*', 'enemies'),
   ],
   validate: (content) => [],                             // optional: game checks → PluginIssue[]
+  validateScenes: (content, scenes) => [],               // optional: gameplay JSON ↔ geometry parity
 });
 ```
 
@@ -44,6 +47,8 @@ export default defineContentPlugin<GameState>({
 - `referencesAt(content, collection, pattern, to)` walks a dot path where `*` matches every array element / object
   value; missing fields are skipped. `to` may be one collection or several (any of them).
 - `extend` schemas are checked in addition to the engine schema (engine fields win when both parse a field).
+- `validateScenes` receives a `SceneGeometry` record keyed by location ID after local map import and can compare game-owned
+  geometry names with game-owned JSON placement IDs.
 
 ## Pipeline
 
@@ -53,9 +58,10 @@ export default defineContentPlugin<GameState>({
    feasibility; its world paths are mapped back to files); references declared by the game; frozen baselines against
    `--previous`.
 3. **Game checks** — the plugin's `validate` hook.
-4. **Bundle** — `{ format, game, world, collections, contentHash }`, written as canonical (sorted-key) JSON.
-   `contentHash` = SHA-256 (hex) of the canonical JSON of `{ format, game, world, collections }`. Entities are sorted by
-   ID, so the hash does not depend on file names or file system order.
+4. **Bundle** — scene-less content stays format 1 with `{ format, game, world, collections, contentHash }` and the
+   existing SHA-256 contract. When geometry exists, format 2 adds `scenes: { [locationId]: SceneGeometry }` and hashes
+   `{ format, game, world, collections, scenes }`. Geometry uses map pixel coordinates and canonical root-relative
+   background paths; keys and entities are sorted, so hashes do not depend on filesystem order.
 
 Each stage runs only if the previous one found no error (avoids cascades).
 
@@ -102,7 +108,7 @@ file (array files are not covered by the schema).
 
 `file.unknownCollection`, `json.invalid`, `schema.invalid`, `id.missing`, `id.wrongNamespace`, `id.duplicate`, the
 `@engine/world` validation codes, `ref.unknown`, `ref.invalid`, `baseline.*` (above), `previous.invalid`,
-`plugin.invalid`, plus any code returned by the game's `validate` hook.
+`plugin.invalid`, `scene.*`, plus any code returned by the game's validation hooks.
 
-**Not yet covered:** Tiled ↔ JSON consistency and art budgets (separate tasks), a `freeze` command computing the
-baseline at first publish, explicit migration notes allowing a baseline change.
+**Not yet covered:** art budgets (spike #12), a `freeze` command computing the baseline at first publish, explicit
+migration notes allowing a baseline change.

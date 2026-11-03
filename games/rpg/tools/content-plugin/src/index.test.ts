@@ -1,7 +1,10 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { compileContent, loadContentFiles, type CompileResult, type ContentFile } from '@engine/content-compiler';
-import { describe, expect, it } from 'vitest';
+import { compileContent, compileContentDirectory, loadContentFiles, type CompileResult, type ContentFile } from '@engine/content-compiler';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import plugin, { rpgContentPlugin, RPG_ISSUE_CODES } from './index.ts';
 
@@ -17,6 +20,8 @@ const SEED_PATHS = new Set([
   'world/routes/sanctuary_to_test_grove.json',
 ]);
 const SEED = loadContentFiles(SEED_ROOT).filter(file => SEED_PATHS.has(file.file));
+const TEMP_ROOTS: string[] = [];
+afterEach(() => { for (const root of TEMP_ROOTS.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 /** In-memory edits of the seed content: text replacements in a file, new files, removed files. */
 interface Edits {
@@ -38,6 +43,78 @@ function compileSeed(edits: Edits = {}): CompileResult {
   }
   const list: ContentFile[] = [...files].map(([file, text]) => ({ file, text }));
   return compileContent(list, plugin);
+}
+
+interface SceneFixture {
+  [key: string]: unknown;
+  layers: { [key: string]: unknown; objects?: Record<string, unknown>[] }[];
+}
+function sceneFixture(name = 'foe_left'): SceneFixture {
+  return {
+    type: 'map', version: '1.10', tiledversion: '1.10.2', orientation: 'orthogonal', renderorder: 'right-down',
+    width: 2, height: 2, tilewidth: 16, tileheight: 16, infinite: false, nextlayerid: 6, nextobjectid: 5, tilesets: [],
+    layers: [
+      // Tiled's JSON map format exports layer visibility/opacity and object IDs/visibility/zero dimensions.
+      // The image dimension fields were added in 1.11.1, so this 1.10 export correctly omits them.
+      { id: 1, name: 'background', type: 'imagelayer', image: 'background.png', x: 0, y: 0, offsetx: 0, offsety: 0, opacity: 1, visible: true },
+      { id: 2, name: 'exits', type: 'objectgroup', draworder: 'topdown', height: 0, width: 0, x: 0, y: 0, opacity: 1, visible: true,
+        objects: [{ id: 1, name: 'exit:test_grove.scene_poc.entrance', type: '', x: 4, y: 5, width: 8, height: 6, rotation: 0, opacity: 1, visible: true }] },
+      { id: 3, name: 'hotspots', type: 'objectgroup', draworder: 'topdown', height: 0, width: 0, x: 0, y: 0, opacity: 1, visible: true,
+        objects: [{ id: 2, name: 'scene_sign', type: '', x: 12, y: 4, width: 5, height: 5, rotation: 0, opacity: 1, visible: true }] },
+      { id: 4, name: 'enemyAnchors', type: 'objectgroup', draworder: 'topdown', height: 0, width: 0, x: 0, y: 0, opacity: 1, visible: true,
+        objects: [{ id: 3, name, type: '', x: 20, y: 20, width: 0, height: 0, point: true, rotation: 0, opacity: 1, visible: true }] },
+      { id: 5, name: 'resources', type: 'objectgroup', draworder: 'topdown', height: 0, width: 0, x: 0, y: 0, opacity: 1, visible: true,
+        objects: [{ id: 4, name: 'res:test_grove.herb_patch#0', type: '', x: 25, y: 24, width: 0, height: 0, point: true, rotation: 0, opacity: 1, visible: true }] },
+    ],
+  };
+}
+
+function setLayerValue(map: SceneFixture, layerIndex: number, key: string, value: unknown): void {
+  const layer = map.layers[layerIndex];
+  if (!layer) throw new Error(`fixture has no layer ${layerIndex}`);
+  layer[key] = value;
+}
+
+function setObjectValue(map: SceneFixture, layerIndex: number, objectIndex: number, key: string, value: unknown): void {
+  const layer = map.layers[layerIndex];
+  const item = layer?.objects?.[objectIndex];
+  if (!item) throw new Error(`fixture has no object ${layerIndex}.${objectIndex}`);
+  item[key] = value;
+}
+
+function compileSceneFixture(
+  map: unknown = sceneFixture(), backgroundLinkTarget?: string, additionalMaps: readonly (readonly [string, string])[] = [],
+): CompileResult {
+  const files = new Map(SEED.map((f) => [f.file, f.text]));
+  const areaPath = 'world/areas/test_grove.json';
+  const area = JSON.parse(files.get(areaPath) ?? '{}') as { locations: string[] };
+  area.locations.push('loc:test_grove.scene_poc');
+  files.set(areaPath, JSON.stringify(area));
+  const entrancePath = 'world/locations/test_grove/entrance.json';
+  const entrance = JSON.parse(files.get(entrancePath) ?? '{}') as { exits: unknown[] };
+  entrance.exits.push({ id: 'exit:test_grove.entrance.scene_poc', to: 'loc:test_grove.scene_poc' });
+  files.set(entrancePath, JSON.stringify(entrance));
+  files.set('world/locations/test_grove/scene_poc.json', JSON.stringify({
+    id: 'loc:test_grove.scene_poc', tags: ['ordinary'],
+    exits: [{ id: 'exit:test_grove.scene_poc.entrance', to: 'loc:test_grove.entrance' }],
+    scene: 'scenes/test_grove/scene_poc.tmj',
+    resources: [{ node: 'res:test_grove.herb_patch', lootTable: 'loot:test_grove.herb_gather' }],
+    hotspots: [{ id: 'scene_sign', type: 'search', textKey: 'hotspot.test_grove.scene_sign' }],
+    enemyAnchors: ['foe_left'],
+  }));
+  if (map !== null) files.set('scenes/test_grove/scene_poc.tmj', typeof map === 'string' ? map : JSON.stringify(map));
+  for (const [file, text] of additionalMaps) files.set(file, text);
+  const root = mkdtempSync(path.join(tmpdir(), 'rpg-scene-')); TEMP_ROOTS.push(root);
+  for (const [file, text] of files) {
+    const absolute = path.join(root, file);
+    mkdirSync(path.dirname(absolute), { recursive: true });
+    writeFileSync(absolute, text);
+  }
+  const backgroundPath = path.join(root, 'scenes/test_grove/background.png');
+  mkdirSync(path.dirname(backgroundPath), { recursive: true });
+  if (backgroundLinkTarget) symlinkSync(backgroundLinkTarget, backgroundPath);
+  else writeFileSync(backgroundPath, 'fixture image placeholder');
+  return compileContentDirectory(root, plugin);
 }
 
 /** `code file $path` of every error, for compact assertions. */
@@ -64,6 +141,142 @@ describe('rpgContentPlugin', () => {
       idleActivities: 'idle-activities idle',
       progression: 'progression progression',
     });
+  });
+});
+
+describe('Tiled scene import', () => {
+  it('compiles a temporary location/map with normal graph ownership, parity and deterministic geometry hashing', () => {
+    const first = compileSceneFixture();
+    const second = compileSceneFixture();
+    expect(errorsOf(first)).toEqual([]);
+    if (!first.ok || !second.ok) return;
+    expect(first.bundle.format).toBe(2);
+    expect(first.bundle.scenes?.['loc:test_grove.scene_poc']).toEqual({
+      width: 32, height: 32, background: 'scenes/test_grove/background.png',
+      exits: { 'exit:test_grove.scene_poc.entrance': { x: 4, y: 5, width: 8, height: 6 } },
+      hotspots: { scene_sign: { x: 12, y: 4, width: 5, height: 5 } },
+      enemyAnchors: { foe_left: { x: 20, y: 20 } },
+      resources: { 'res:test_grove.herb_patch#0': { x: 25, y: 24 } },
+    });
+    expect(second.bundle.contentHash).toBe(first.bundle.contentHash);
+    const changed = sceneFixture();
+    setObjectValue(changed, 2, 0, 'x', 13);
+    const third = compileSceneFixture(changed);
+    expect(third.ok).toBe(true);
+    if (third.ok) expect(third.bundle.contentHash).not.toBe(first.bundle.contentHash);
+  });
+
+  it('requires exact object-name parity with gameplay JSON', () => {
+    const map = sceneFixture('unused_anchor');
+    const result = compileSceneFixture(map);
+    expect(result.errors).toContainEqual(expect.objectContaining({ code: 'scene.entityParity', file: 'world/locations/test_grove/scene_poc.json', path: ['enemyAnchors'] }));
+  });
+
+  it('accepts a Tiled 1.10 style export with zero-sized point objects and optional image dimensions omitted', () => {
+    const result = compileSceneFixture();
+    expect(errorsOf(result)).toEqual([]);
+    if (result.ok) {
+      expect(result.bundle.scenes?.['loc:test_grove.scene_poc']?.enemyAnchors).toEqual({ foe_left: { x: 20, y: 20 } });
+      expect(result.bundle.scenes?.['loc:test_grove.scene_poc']?.resources).toEqual({ 'res:test_grove.herb_patch#0': { x: 25, y: 24 } });
+    }
+
+    const modernExport = sceneFixture();
+    setLayerValue(modernExport, 0, 'imagewidth', 32);
+    setLayerValue(modernExport, 0, 'imageheight', 32);
+    expect(compileSceneFixture(modernExport).ok).toBe(true);
+  });
+
+  it('rejects malformed JSON, missing and orphan maps, duplicate layers and objects', () => {
+    expect(compileSceneFixture('{not json').errors.map((error) => error.code)).toContain('scene.jsonInvalid');
+    expect(compileSceneFixture(null).errors.map((error) => error.code)).toContain('scene.mapMissing');
+
+    expect(compileSceneFixture(sceneFixture(), undefined, [['scenes/test_grove/orphan.tmj', '{}']]).errors.map((error) => error.code))
+      .toContain('scene.mapOrphan');
+
+    const duplicateLayer = sceneFixture();
+    const exitsLayer = duplicateLayer.layers[1];
+    if (!exitsLayer) throw new Error('fixture has no exits layer');
+    duplicateLayer.layers.push({ ...exitsLayer });
+    expect(compileSceneFixture(duplicateLayer).errors.map((error) => error.code)).toContain('scene.duplicateLayer');
+
+    const duplicateObject = sceneFixture();
+    const anchorLayer = duplicateObject.layers[3];
+    const anchorObjects = anchorLayer?.objects;
+    const anchor = anchorObjects?.[0];
+    if (!anchorObjects || !anchor) throw new Error('fixture has no anchor object');
+    anchorObjects.push({ ...anchor });
+    expect(compileSceneFixture(duplicateObject).errors.map((error) => error.code)).toContain('scene.duplicateObject');
+  });
+
+  it('rejects hidden objects and malformed optional Tiled boolean fields', () => {
+    for (const [field, value] of [['visible', false], ['visible', 'false'], ['point', null], ['ellipse', 'false']] as const) {
+      const map = sceneFixture();
+      setObjectValue(map, 3, 0, field, value);
+      expect(compileSceneFixture(map).ok).toBe(false);
+    }
+    for (const [field, value] of [['visible', 'true'], ['repeatx', 'false'], ['repeaty', null]] as const) {
+      const map = sceneFixture();
+      setLayerValue(map, 0, field, value);
+      expect(compileSceneFixture(map).ok).toBe(false);
+    }
+    const hidden = sceneFixture();
+    setObjectValue(hidden, 3, 0, 'visible', false);
+    expect(compileSceneFixture(hidden).errors.map((error) => error.code)).toContain('scene.unsupportedObject');
+
+    const hiddenLayer = sceneFixture();
+    setLayerValue(hiddenLayer, 0, 'visible', false);
+    expect(compileSceneFixture(hiddenLayer).errors.map((error) => error.code)).toContain('scene.unsupportedTransform');
+    const repeatedBackground = sceneFixture();
+    setLayerValue(repeatedBackground, 0, 'repeatx', true);
+    expect(compileSceneFixture(repeatedBackground).errors.map((error) => error.code)).toContain('scene.unsupportedTransform');
+  });
+
+  it('rejects explicit null or wrong-typed numeric transform fields instead of applying defaults', () => {
+    for (const [layerIndex, field, value] of [[0, 'offsetx', null], [0, 'parallaxx', '1'], [1, 'x', null]] as const) {
+      const map = sceneFixture();
+      setLayerValue(map, layerIndex, field, value);
+      expect(compileSceneFixture(map).ok).toBe(false);
+    }
+    const object = sceneFixture();
+    setObjectValue(object, 3, 0, 'rotation', null);
+    expect(compileSceneFixture(object).errors.map((error) => error.code)).toContain('scene.unsupportedObject');
+
+    const sizedPoint = sceneFixture();
+    setObjectValue(sizedPoint, 3, 0, 'width', 1);
+    expect(compileSceneFixture(sizedPoint).errors.map((error) => error.code)).toContain('scene.unsupportedObject');
+
+    const wrongBackgroundDimensions = sceneFixture();
+    setLayerValue(wrongBackgroundDimensions, 0, 'imagewidth', 31);
+    expect(compileSceneFixture(wrongBackgroundDimensions).errors.map((error) => error.code)).toContain('scene.backgroundSize');
+  });
+
+  it('rejects transformed, out-of-bounds and traversal paths in the real compiler path', () => {
+    const transformed = sceneFixture();
+    setLayerValue(transformed, 1, 'offsetx', 1);
+    expect(compileSceneFixture(transformed).errors.map((error) => error.code)).toContain('scene.unsupportedTransform');
+    const bounds = sceneFixture();
+    setObjectValue(bounds, 1, 0, 'x', 28);
+    expect(compileSceneFixture(bounds).errors.map((error) => error.code)).toContain('scene.outOfBounds');
+    const pathEscape = sceneFixture();
+    setLayerValue(pathEscape, 0, 'image', '../background.png');
+    expect(compileSceneFixture(pathEscape).errors.map((error) => error.code)).toContain('scene.imagePathRejected');
+    const externalDir = mkdtempSync(path.join(tmpdir(), 'rpg-scene-external-'));
+    TEMP_ROOTS.push(externalDir);
+    const externalImage = path.join(externalDir, 'outside.png');
+    writeFileSync(externalImage, 'external image');
+    expect(compileSceneFixture(sceneFixture(), externalImage).errors.map((error) => error.code)).toContain('scene.imagePathRejected');
+    const externalTileset = sceneFixture();
+    externalTileset['tilesets'] = [{ firstgid: 1, source: '../outside.tsx' }];
+    expect(compileSceneFixture(externalTileset).errors.map((error) => error.code)).toContain('scene.unsupportedMap');
+  });
+
+  it('keeps scene-less bundles on the format-1 hash contract', () => {
+    const result = compileSeed();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.bundle.format).toBe(1);
+      expect(result.bundle).not.toHaveProperty('scenes');
+    }
   });
 });
 

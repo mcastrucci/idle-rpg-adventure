@@ -72,6 +72,15 @@ interface ExpeditionDto {
   endsAtMs?: number;
   outcome?: unknown;
   cancelPreview?: { consumablesUsed: readonly { item: string; qty: number }[]; consumablesReturned: readonly { item: string; qty: number }[] };
+  report?: {
+    availability: string; effectiveDurationMs: number | null; outcome: string | null; enemiesDefeated: number | null;
+    xp: { earned: number | null; penaltyLost: number | null; net: number | null; beforeTotal: number | null; afterTotal: number | null };
+    gold: { earned: number | null; lost: number | null; secured: number | null };
+    loot: readonly { item: string; earned: number; lost: number; secured: number }[] | null;
+    consumables: readonly { item: string; used: number | null; returned: number | null }[] | null;
+    events: readonly string[] | null; finalState: { hp: number | null; maxHp: number | null; xpTotal: number | null };
+    death: { causes: readonly { key: string }[]; suggestions: readonly string[] } | null;
+  };
   [key: string]: unknown;
 }
 
@@ -362,6 +371,12 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
     expect(cancelled.endsAtMs).toBe(nextReveal - 1);
     expect(clock.nowMs()).toBe(nextReveal);
     expect(cancelled.segments.map(segment => segment.index)).toEqual(beforeCancel.segments.map(segment => segment.index));
+    expect(cancelled.report).toMatchObject({ availability: 'available', outcome: 'cancelled',
+      effectiveDurationMs: nextReveal - 1 - START_AT, xp: { earned: expect.any(Number), penaltyLost: 0 },
+      events: expect.any(Array), loot: expect.any(Array), consumables: expect.any(Array) });
+    expect(cancelled.report?.events?.join(' ')).not.toContain('death');
+    expect(JSON.stringify(cancelled)).not.toMatch(/"(?:seed|budget|stateAfter|timelineCompressed|timelineHash)"\s*:/);
+    expect(JSON.stringify(cancelled.report)).not.toContain('combatHash');
     clock.advance(2 * 60 * 60_000); // Past the planned end, still inside the 12-hour guest-session lifetime.
     const later = (await get(session, running.id)).json<ExpeditionDto>();
     expect(later).toEqual(cancelled);
@@ -379,6 +394,12 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
       .reduce((n, h) => n + h.qty, 0);
     expect(finalPotion).toBe(returnedPreview);
     expect(await database.db.transaction(tx => checkLedgerInvariants(tx, [character.actorId], []))).toEqual([]);
+    // Simulate a pre-report terminal row. New result facts stay unavailable while the recorded safe timeline prefix remains visible.
+    await database.db.update(expeditions).set({ terminalReport: null }).where(eq(expeditions.id, running.id));
+    const legacy = (await get(session, running.id)).json<ExpeditionDto>();
+    expect(legacy).toMatchObject({ terminalReport: null, report: { availability: 'legacy_unavailable', loot: null, consumables: null, events: null,
+      effectiveDurationMs: null, enemiesDefeated: null, xp: { earned: null, penaltyLost: null, net: null }, gold: { earned: null, lost: null, secured: null } } });
+    expect(legacy.segments).toEqual(cancelled.segments);
   });
 
   it('settles at the exact early end through lazy read and the real PostgreSQL worker only once, including death penalty and bag loss', async () => {
@@ -416,6 +437,12 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
       expect(completed.state).toBe('completed');
       expect(completed.endsAtMs).toBe(before.endsAtMs);
       expect(completed.outcome).toEqual('failed');
+      expect(completed.report).toMatchObject({ availability: 'available', outcome: 'failed',
+        effectiveDurationMs: before.endsAtMs - before.startsAtMs, enemiesDefeated: expect.any(Number),
+        xp: { earned: expect.any(Number), penaltyLost: expect.any(Number), net: expect.any(Number),
+          beforeTotal: expect.any(Number), afterTotal: expect.any(Number) },
+        gold: { earned: expect.any(Number), lost: expect.any(Number), secured: expect.any(Number) },
+        finalState: { hp: 0 }, death: { causes: expect.any(Array), suggestions: expect.any(Array) } });
       expect(cancelAtEnd.statusCode).toBe(200);
       expect(cancelAtEnd.json<ExpeditionDto>()).toEqual(completed);
       expect(directStale).toBeUndefined();
@@ -439,6 +466,10 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
       const earnedTotalXp = totalXpFromLevelProgress(beforeCharacter.level, beforeCharacter.xp, xpCurve) + gained;
       const totalXp = applyXpLoss(earnedTotalXp, progress.deathXpLossBp, xpCurve).totalXp;
       expect(totalXp).toBeLessThan(earnedTotalXp);
+      expect(completed.report?.xp).toEqual({ earned: gained, penaltyLost: earnedTotalXp - totalXp, net: gained - (earnedTotalXp - totalXp),
+        beforeTotal: totalXpFromLevelProgress(beforeCharacter.level, beforeCharacter.xp, xpCurve), afterTotal: totalXp });
+      expect(completed.report?.finalState.xpTotal).toBe(totalXp);
+      expect(completed.report?.death?.suggestions.join(' ').toLowerCase()).not.toContain('missed heal');
       const expectedProgress = xpProgress(totalXp, xpCurve);
       expect(afterCharacter).toMatchObject({ level: expectedProgress.level, xp: expectedProgress.xpIntoLevel });
       const registry = createRpgActivityRegistry(rpgIdleContentFromBundle(bundle as never));
@@ -454,6 +485,8 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
         .toEqual(expectedBag.filter(delta => delta.from === undefined));
       const rawGrantQty = rawBag.filter(delta => delta.from === undefined).reduce((n, delta) => n + delta.qty, 0);
       const keptGrantQty = expectedBag.filter(delta => delta.from === undefined).reduce((n, delta) => n + delta.qty, 0);
+      expect((completed.report?.gold.earned ?? 0) + (completed.report?.loot ?? []).reduce((n, row) => n + row.earned, 0)).toBe(rawGrantQty);
+      expect((completed.report?.gold.secured ?? 0) + (completed.report?.loot ?? []).reduce((n, row) => n + row.secured, 0)).toBe(keptGrantQty);
       expect(rawGrantQty).toBeGreaterThan(0);
       expect(keptGrantQty).toBeLessThan(rawGrantQty);
       const settlementId = `${dto.id}:0`;

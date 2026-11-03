@@ -49,4 +49,16 @@ describe('RPG boot composition', () => {
     await expect(createRpgServer(config)).rejects.toThrow(/difficulty/);
     expect(() => validateRpgBundle(tampered)).toThrow();
   });
+  it('rejects format-2 boot geometry that is validly hashed but has orphan RPG geometry', () => {
+    const seed = compiledRpgContent();
+    const location = seed.world.locations.find((entry) => entry.id === 'loc:sanctuary.plaza');
+    if (!location) throw new Error('test seed must include the sanctuary plaza');
+    location.scene = 'scenes/sanctuary/plaza.tmj';
+    const body = {
+      format: 2 as const, game: seed.game, world: seed.world, collections: seed.collections,
+      scenes: { [location.id]: { width: 32, height: 32, background: 'scenes/sanctuary/background.png', exits: {},
+        hotspots: { orphan: { x: 1, y: 1, width: 2, height: 2 } }, enemyAnchors: {}, resources: {} } },
+    };
+    expect(() => validateRpgBundle({ ...body, contentHash: contentHashOf(body) })).toThrow(/hotspots geometry names/);
+  });
 });

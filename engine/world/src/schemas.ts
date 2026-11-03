@@ -115,8 +115,38 @@ export const LocationSchema = z.looseObject({
   id: LocationIdSchema,
   tags: z.array(TagSchema).default([]),
   exits: z.array(ExitSchema).default([]),
+  /** Optional path to a locally authored Tiled JSON scene, relative to the content root. */
+  scene: z.string().regex(/^scenes\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.tmj$/, 'must be a safe scenes/*.tmj path').optional(),
 });
 export type Location = z.output<typeof LocationSchema>;
+
+/** Renderer-neutral pixel-space geometry normalized from a finite Tiled map. */
+export const ScenePointSchema = z.strictObject({ x: z.number().finite().min(0), y: z.number().finite().min(0) });
+export const SceneRectSchema = z.strictObject({ x: z.number().finite().min(0), y: z.number().finite().min(0),
+  width: z.number().finite().positive(), height: z.number().finite().positive() });
+export const SceneGeometrySchema = z.strictObject({
+  width: z.int().positive(),
+  height: z.int().positive(),
+  /** Canonical content-root-relative image path. */
+  background: z.string().regex(/^[a-zA-Z0-9_./-]+$/).refine((value) =>
+    !value.startsWith('/') && !value.includes('\\') && value.split('/').every((part) => part !== '.' && part !== '..' && part !== ''),
+  'must be a safe content-root-relative image path'),
+  exits: z.record(z.string().min(1), SceneRectSchema),
+  hotspots: z.record(z.string().min(1), SceneRectSchema),
+  enemyAnchors: z.record(z.string().min(1), ScenePointSchema),
+  resources: z.record(z.string().min(1), ScenePointSchema),
+}).superRefine((scene, ctx) => {
+  for (const [layer, objects] of Object.entries(scene).filter(([key]) => ['exits', 'hotspots', 'enemyAnchors', 'resources'].includes(key))) {
+    for (const [id, geometry] of Object.entries(objects as Record<string, { x: number; y: number; width?: number; height?: number }>)) {
+      if ((geometry.width === undefined && (geometry.x >= scene.width || geometry.y >= scene.height)) ||
+          geometry.x + (geometry.width ?? 0) > scene.width || geometry.y + (geometry.height ?? 0) > scene.height) {
+        ctx.addIssue({ code: 'custom', path: [layer, id], message: 'geometry must fit within the scene bounds' });
+      }
+    }
+  }
+});
+export type SceneGeometry = z.output<typeof SceneGeometrySchema>;
+export const SceneGeometryMapSchema = z.record(LocationIdSchema, SceneGeometrySchema);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Completion

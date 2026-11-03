@@ -25,9 +25,11 @@ const running: ExpeditionDto = { id, actorId: id, state: 'running', areaId: 'are
   plannedEndsAtMs: Date.now() + 60_000, progress: { revealed: 0 }, segments: [], revealedDeltas: [],
   cancelPreview: { rewards: [], consumablesUsed: [], consumablesReturned: [], keptProgress: [], converted: false } };
 
-function setup(overrides: { estimateImpl?: (actorId: string, body: ExpeditionEstimateRequest) => Promise<ExpeditionEstimateDto>; debounceMs?: number } = {}) {
+function setup(overrides: { estimateImpl?: (actorId: string, body: ExpeditionEstimateRequest) => Promise<ExpeditionEstimateDto>; debounceMs?: number;
+  history?: readonly ExpeditionDto[]; options?: ExpeditionOptionsDto } = {}) {
   const expeditionEstimate = vi.fn(overrides.estimateImpl ?? (async (_actorId: string, body: ExpeditionEstimateRequest) => ({ ...estimate, ...body.request })));
-  const api = { expeditionOptions: vi.fn(async () => options), expedition: vi.fn(async () => running), expeditionEstimate } as unknown as ApiClient;
+  const api = { expeditionOptions: vi.fn(async () => overrides.options ?? options), expedition: vi.fn(async () => running), expeditionEstimate,
+    request: vi.fn(async () => overrides.history ?? []) } as unknown as ApiClient;
   const requests: CommandRequest<ExpeditionDto>[] = [];
   const runCommand = async <T,>(request: CommandRequest<T>): Promise<T> => { requests.push(request as CommandRequest<ExpeditionDto>); return running as T; };
   render(<ExpeditionScreen character={character} canCommand api={api} runCommand={runCommand} refreshCharacter={async () => {}} estimateDebounceMs={overrides.debounceMs ?? 10} />);
@@ -93,25 +95,55 @@ describe('Expedition setup screen', () => {
     expect(expeditionEstimate).toHaveBeenCalledTimes(2);
   });
 
-  it('repeats the last started expedition with one tap', async () => {
+  it('prefills the last valid setup with Go again and waits for an explicit Start', async () => {
     const last = { request: { areaId: 'area:region_1', activityId: 'idle:region_1.gather', durationMin: 60, paceBp: 10_000 },
       config: { consumables: [{ item: POTION, qty: 1 }], retreat: { belowHpBp: 2_500, onlyWhenNoHealing: true } } };
     saveLastExpedition(id, last);
-    const { requests } = setup();
-    const card = await screen.findByRole('region', { name: 'Last expedition' });
-    expect(card.textContent).toContain('Gather · Region 1 · 1 h · Minor Healing Potion ×1');
-    fireEvent.click(within(card).getByRole('button', { name: 'Repeat last expedition' }));
+    const latestServer = { ...running, state: 'completed' as const, endsAtMs: Date.now(), outcome: 'completed' };
+    const { requests } = setup({ history: [latestServer] });
+    const card = await screen.findByRole('region', { name: 'Go again' });
+    await within(card).findByText(/Hunt · Region 1/);
+    expect(card.textContent).toContain('Hunt · Region 1 · 1 h · Minor Healing Potion ×1');
+    fireEvent.click(within(card).getByRole('button', { name: 'Go again' }));
+    expect(requests).toHaveLength(0);
+    expect((screen.getByLabelText('Activity') as HTMLSelectElement).value).toBe('idle:region_1.hunt');
+    expect((screen.getByLabelText('Consumable (optional)') as HTMLSelectElement).value).toBe(POTION);
+    fireEvent.click(screen.getByRole('button', { name: 'Start expedition' }));
     await waitFor(() => expect(requests).toHaveLength(1));
     expect(requests[0]?.envelope.operation).toBe('expedition.start');
-    expect(requests[0]?.envelope.payload).toEqual({ actorId: id, ...last });
+    expect(requests[0]?.envelope.payload).toEqual({ actorId: id, request: { ...last.request, activityId: 'idle:region_1.hunt' }, config: last.config });
   });
 
   it('disables repeat when the saved loadout is no longer possible', async () => {
     saveLastExpedition(id, { request: { areaId: 'area:region_1', activityId: 'idle:region_1.hunt', durationMin: 30, paceBp: 10_000 },
       config: { consumables: [{ item: POTION, qty: 9 }], retreat: { belowHpBp: 0, onlyWhenNoHealing: false } } });
     setup();
-    const card = await screen.findByRole('region', { name: 'Last expedition' });
+    const card = await screen.findByRole('region', { name: 'Go again' });
     expect(within(card).getByText(/Not enough consumables/)).toBeDefined();
-    expect((within(card).getByRole('button', { name: 'Repeat last expedition' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(card).getByRole('button', { name: 'Go again' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('refreshes consumable stock before Go again and drops an unavailable item from the prefill', async () => {
+    const last = { request: { areaId: 'area:region_1', activityId: 'idle:region_1.hunt', durationMin: 30, paceBp: 10_000 },
+      config: { consumables: [{ item: POTION, qty: 1 }], retreat: { belowHpBp: 2_500, onlyWhenNoHealing: true } } };
+    saveLastExpedition(id, last);
+    const freshOptions = { ...options, consumables: [{ item: POTION, availableQty: 0 }] };
+    const { requests } = setup({ options: freshOptions, history: [{ ...running, state: 'completed', endsAtMs: Date.now(), outcome: 'completed' }] });
+    const card = await screen.findByRole('region', { name: 'Go again' });
+    await within(card).findByText(/Hunt · Region 1/);
+    fireEvent.click(within(card).getByRole('button', { name: 'Go again' }));
+    expect((screen.getByLabelText('Consumable (optional)') as HTMLSelectElement).value).toBe('');
+    expect(requests).toHaveLength(0);
+  });
+
+  it('disables Go again when the latest server area or activity is no longer available', async () => {
+    const area = options.areas[0];
+    const activity = area?.activities[0];
+    if (!area || !activity) throw new Error('test options require one area and activity');
+    const unavailable = { ...options, areas: [{ ...area, activities: [{ ...activity, available: false }] }] };
+    setup({ options: unavailable, history: [{ ...running, state: 'completed', endsAtMs: Date.now(), outcome: 'completed' }] });
+    const card = await screen.findByRole('region', { name: 'Go again' });
+    expect(within(card).getByText(/no longer available/i)).toBeDefined();
+    expect((within(card).getByRole('button', { name: 'Go again' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
