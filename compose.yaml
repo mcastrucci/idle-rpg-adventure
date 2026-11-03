@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: idle_rpg
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d idle_rpg"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  migrate:
+    image: idle-rpg-server:local
+    build: .
+    profiles: ["ops"]
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/idle_rpg
+      CONTENT_BUNDLE_PATH: /app/dist/rpg-content.json
+    command: ["node", "games/rpg/apps/server/src/migrate.ts"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  server:
+    image: idle-rpg-server:local
+    build: .
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/idle_rpg
+      CONTENT_BUNDLE_PATH: /app/dist/rpg-content.json
+      HOST: 0.0.0.0
+      PORT: 3000
+      ROLES: api,live,worker
+      APP_ENV: production
+      RPG_DEBUG_TOOLS: "0"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "--input-type=module", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
