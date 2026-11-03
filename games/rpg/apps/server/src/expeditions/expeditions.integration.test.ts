@@ -394,12 +394,12 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
       .reduce((n, h) => n + h.qty, 0);
     expect(finalPotion).toBe(returnedPreview);
     expect(await database.db.transaction(tx => checkLedgerInvariants(tx, [character.actorId], []))).toEqual([]);
-    // Simulate a pre-report terminal row. A read must leave it unavailable rather than rebuilding historical facts.
+    // Simulate a pre-report terminal row. New result facts stay unavailable while the recorded safe timeline prefix remains visible.
     await database.db.update(expeditions).set({ terminalReport: null }).where(eq(expeditions.id, running.id));
     const legacy = (await get(session, running.id)).json<ExpeditionDto>();
-    expect(legacy.report).toMatchObject({ availability: 'legacy_unavailable', loot: null, consumables: null, events: null,
-      effectiveDurationMs: null, enemiesDefeated: null, xp: { earned: null, penaltyLost: null, net: null }, gold: { earned: null, lost: null, secured: null } });
-    expect(legacy.segments).toEqual([]);
+    expect(legacy).toMatchObject({ terminalReport: null, report: { availability: 'legacy_unavailable', loot: null, consumables: null, events: null,
+      effectiveDurationMs: null, enemiesDefeated: null, xp: { earned: null, penaltyLost: null, net: null }, gold: { earned: null, lost: null, secured: null } } });
+    expect(legacy.segments).toEqual(cancelled.segments);
   });
 
   it('settles at the exact early end through lazy read and the real PostgreSQL worker only once, including death penalty and bag loss', async () => {
