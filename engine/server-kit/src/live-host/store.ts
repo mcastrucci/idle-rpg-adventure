@@ -11,6 +11,8 @@ import { liveInstances } from './schema.ts';
 import type { LiveInstanceRow } from './schema.ts';
 
 export interface PostgresInstanceStoreHooks {
+  /** Validates game-specific start snapshots inside the actor-locked creation transaction, before activity CAS. */
+  readonly validateCreate?: (tx: ActorTransaction, input: CreateInstanceInput) => Promise<void>;
   /**
    * Runs inside the fenced close transaction, after the activity locks are released. Game settlement (run bag commit
    * through the ledger, corpse creation…) belongs here so it commits exactly once with the close, or not at all.
@@ -23,8 +25,11 @@ export interface PostgresInstanceStoreHooks {
    * participant release or close they belong to (before `onClose`/`onParticipantReleased`). Must be idempotent. Without
    * this hook, effects are dropped (the checkpoint is still written).
    */
-  readonly onEffects?: (tx: ActorTransaction, instance: InstanceRecord, effects: readonly JsonValue[], nowMs: number) => Promise<void>;
+  readonly onEffects?: (tx: ActorTransaction, instance: InstanceRecord, effects: readonly JsonValue[], nowMs: number,
+    context: LiveEffectsContext) => Promise<void>;
 }
+
+export type LiveEffectsContext = { readonly type: 'checkpoint' } | { readonly type: 'release'; readonly actorId: string } | { readonly type: 'close' };
 
 /** Thrown inside a transaction to roll it back when a fenced write lost ownership. */
 class Fenced extends Error {}
@@ -47,6 +52,10 @@ export class PostgresInstanceStore implements InstanceStore {
       for (const actor of locked) {
         const participant = input.participants.find((p) => p.actorId.toLowerCase() === actor.actorId);
         if (!participant || participant.accountId !== actor.accountId) throw new ActivityConflictError('participant is not owned by the given account');
+        if (actor.activityState !== 'none' || actor.activityId !== null) throw new ActivityConflictError();
+      }
+      await this.#hooks.validateCreate?.(tx, input);
+      for (const actor of locked) {
         const moved = await transitionActivity(tx, actor.actorId, { state: 'none', activityId: null }, { state: 'live', activityId: input.instanceId });
         if (!moved) throw new ActivityConflictError();
       }
@@ -83,7 +92,7 @@ export class PostgresInstanceStore implements InstanceStore {
       const [updated] = await tx.update(liveInstances).set({ checkpoint, checkpointSeq: sql`${liveInstances.checkpointSeq} + 1`,
         updatedAt: new Date(nowMs) }).where(this.#fence(lease, nowMs)).returning();
       if (!updated) return null;
-      await onEffects(tx, record(updated), effects, nowMs);
+      await onEffects(tx, record(updated), effects, nowMs, { type: 'checkpoint' });
       return { ...lease, checkpointSeq: updated.checkpointSeq };
     });
   }
@@ -100,7 +109,7 @@ export class PostgresInstanceStore implements InstanceStore {
         const [updated] = await tx.update(liveInstances).set({ participants, checkpoint, checkpointSeq: row.checkpointSeq + 1,
           updatedAt: new Date(nowMs) }).where(eq(liveInstances.instanceId, lease.instanceId)).returning();
         if (!updated) throw new Fenced();
-        if (effects.length > 0) await this.#hooks.onEffects?.(tx, record(updated), effects, nowMs);
+        if (effects.length > 0) await this.#hooks.onEffects?.(tx, record(updated), effects, nowMs, { type: 'release', actorId });
         await this.#hooks.onParticipantReleased?.(tx, record(updated), actorId);
         return { ...lease, checkpointSeq: updated.checkpointSeq };
       });
@@ -123,7 +132,7 @@ export class PostgresInstanceStore implements InstanceStore {
           checkpointSeq: row.checkpointSeq + 1, outcome: input.outcome, result: input.result, updatedAt: new Date(nowMs),
           closedAt: new Date(nowMs) }).where(eq(liveInstances.instanceId, lease.instanceId)).returning();
         if (!closed) throw new Fenced();
-        if (input.effects && input.effects.length > 0) await this.#hooks.onEffects?.(tx, record(closed), input.effects, nowMs);
+        if (input.effects && input.effects.length > 0) await this.#hooks.onEffects?.(tx, record(closed), input.effects, nowMs, { type: 'close' });
         await this.#hooks.onClose?.(tx, record(closed), input);
         return true;
       });

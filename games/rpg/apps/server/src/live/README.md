@@ -8,14 +8,19 @@ provisionally and recorded in [open-decisions](../../../../../docs/open-decision
 
 ## Files
 
-- `game.ts` — `createRpgLiveGame(content)`, the `LiveGame` plugin `rpg.live` (version `rpg.live@0.3.0+<rpg-sim>`).
+- `game.ts` — `createRpgLiveGame(content)`, the `LiveGame` plugin `rpg.live` (version `rpg.live@0.4.0+<rpg-sim>`).
   Deterministic: randomness only from the host seed through `@engine/sim-core` streams, integer/bp math, no clock/I/O.
 - `world.ts` — content index: explorable areas, RPG locations (exits, hotspots, resource nodes, encounter tables).
-- `effects.ts` — durable effects (`discovery`, `bossDefeated`) and the store `onEffects` hook that records them.
+- `effects.ts` — durable effects for discoveries, boss credit, loot, XP and potion use, plus the fenced store hooks for
+  checkpoint application and explicit return banking.
 - `index.ts` — `createRpgLiveHost(options)` (module handle, registered in the `live` role; `options.hooks` are composed
   after the RPG effects hook) and `startRpgLiveInstance(host, database, { actorIds, area?, location?, groups?, consumables? })`,
-  which snapshots builds and server-recorded progress (`readRpgEvalContext`) and creates the instance
-  (participants CAS `none → live`). Party formation and the Sanctuary portal flow are future work.
+  which snapshots equipment, consumable stock and server-recorded progress (`readRpgEvalContext`) and validates that
+  snapshot under the actor locks before creating the instance (participants CAS `none → live`). Party formation and the
+  Sanctuary portal flow are future work.
+
+Version `0.4.0` adds the instance identity, run bag, hero XP and validated start snapshot to checkpoint state. Older
+`0.3.0` checkpoints are intentionally incompatible and are refused during restore; no implicit migration is attempted.
 
 ## States and commands
 
@@ -29,7 +34,7 @@ provisionally and recorded in [open-decisions](../../../../../docs/open-decision
 | `{ type: 'enterBossRoom', exitId, confirm }` | exploring | Exit must lead to a `boss_room` (`not_a_boss_room`) and be open (`exit_locked`). `confirm: false` → `bossRoomWarning { risk }` event (enemies, heroes' HP, healing consumables, `retreatAllowed: false`, death consequence keys). `confirm: true` only after that warning at the same location (`confirmation_required`); entering starts combat with the boss (pre-encounter checkpoint). |
 | `{ type: 'engage', groupId }` | exploring | Undefeated group of the current location (`unknown_group`), a living hero (`no_living_heroes`). Pre-encounter checkpoint. |
 | `{ type: 'interact', hotspotId }` | exploring | Hotspot of the current location (`unknown_hotspot`). First interaction per instance applies its `effects` (`setFlag`, instance-scoped, #20) and reports `flagsSet` and `revealedExits` (checkpoint); repeats are `repeat: true` and change nothing. |
-| `{ type: 'gather', nodeId }` | exploring | Node `<resource>#<ordinal>` of the current location (`unknown_node`), once per instance (`already_gathered`). Checkpoint. |
+| `{ type: 'gather', nodeId }` | exploring | Node `<resource>#<ordinal>` of the current location (`unknown_node`), once per instance (`already_gathered`). Rolls its loot table on a stable named `loot` stream, adds drops and gold to the caller's run bag, and checkpoints the bag with its ledger effect. |
 | `{ type: 'useConsumable', itemId }` | both | Item in the hero's snapshot loadout (`no_such_consumable`). Out of combat (#21): healing items only (`no_effect_out_of_combat`), alive (`hero_dead`), below max HP (`full_hp`); checkpoint. In combat: queued for the combat engine. |
 | `{ type: 'returnToSanctuary' }` | exploring | `safe` location, area start location or cleared boss room (`not_safe_location`, #17); `in_combat` in combat. Closes `returned`. |
 | `{ type: 'retreat' }` | combat | Non-boss group outside a boss room (`retreat_not_allowed`, #18): each living fighter loses 10% max HP (min 1 HP), party falls back to the previous location, group stays. Checkpoint. |
@@ -48,17 +53,17 @@ locked secrets hidden), hotspots, resource nodes, flags, `canReturn` and the com
 ## Persistence
 
 Checkpoints at location change, encounter start/end, retreat, first hotspot interaction, gathering, consumable use and
-participant change (never per tick). Discoveries and boss defeats leave the plugin as `LiveStep.effects`; the RPG effect
-hook records them and evaluates the engine completion rule **in the fenced checkpoint transaction**. Newly earned
-conquest writes the permanent `rpg_completed_areas` row and a unique durable `RegionConquered` event row in that same
-transaction. The start-location discovery waits in the state's outbox until the first durable write. Replaying an effect
-or racing duplicate delivery cannot duplicate progress or the conquest event.
+participant change (never per tick). Loot, per-victory XP and actual potion use leave the plugin as `LiveStep.effects`
+and commit in the same fenced transaction as their checkpoint. XP uses the shared `rpg-stats` curve helpers and a
+durable reward claim; loot uses deterministic keys tied to instance/action identity. Loot stays in
+`run_bag:<instanceId>` until `returnToSanctuary`; only that explicit close hook moves the actual stack, currency and
+unique-item ledger holdings to inventory. Defeat and grace close leave the instance-scoped bag unsecured. Discoveries
+and boss defeats still record progress and evaluate conquest in the same checkpoint transaction. The start-location
+discovery waits in the state's outbox until the first durable write. Replaying an effect cannot duplicate rewards,
+progress or the conquest event.
 
 Hooks left for later issues (search the code for the issue numbers):
 
-- **#42** run bag and rewards: `gather` emits `gathered { lootTable }` and the close result lists `gathered` nodes and
-  per-hero `used` consumables; loot rolls, XP on victory and the run bag → inventory commit belong in the store's
-  `onClose` hook (same fenced transaction).
 - **#43** death: `dead` closes as `defeated` with the death location in the final checkpoint; corpses become
   interactable hotspots in `interact`.
 

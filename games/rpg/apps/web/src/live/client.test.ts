@@ -17,7 +17,7 @@ class FakeSocket implements WebSocketLike {
   /** Server side of the handshake: upgrade accepted, lease acquired. */
   authenticate(): void {
     this.readyState = 1;
-    this.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'authenticated', accountId: 'acc' }) }));
+    this.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'authenticated', accountId: '11111111-1111-4111-8111-111111111111' }) }));
   }
   receive(data: string): void { this.onmessage?.(new MessageEvent('message', { data })); }
   drop(code: number): void { this.readyState = 3; this.onclose?.(new CloseEvent('close', { code })); }

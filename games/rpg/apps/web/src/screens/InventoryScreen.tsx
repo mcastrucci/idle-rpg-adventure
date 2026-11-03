@@ -10,6 +10,7 @@ import { buyInventoryCommand, equipInventoryCommand, moveInventoryCommand, unequ
 import { useInventoryState } from './inventory/useInventoryState.ts';
 import { InventoryDetail } from './inventory/InventoryDetail.tsx';
 import { InventoryItemGrid } from './inventory/InventoryItemGrid.tsx';
+import { RunBagPanel } from './inventory/RunBagPanel.tsx';
 import { clearInventoryCommand, pendingInventoryCommand, rememberInventoryCommand } from './inventory/pendingInventoryCommand.ts';
 import './inventory/inventory.css';
 
@@ -169,6 +170,7 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
         </button>)}
       </nav>
       <div className="inventory-wallet" aria-label="Current gold"><span>Gold</span><strong>{gold}</strong></div>
+      <RunBagPanel holdings={snapshot?.holdings ?? []} onRefresh={() => { void reloadInventory().catch(() => undefined); }} />
       <div className="inventory-panel">
         {tab === 'merchant' ? <>
           <p className="muted">Prices shown are server catalog prices. Purchases require a free character in Sanctuary.</p>

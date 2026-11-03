@@ -1,5 +1,7 @@
 import { exponentialBackoff } from '../api/backoff.ts';
 import { ApiError } from '../api/http.ts';
+import { parseLiveServerFrame } from '@rpg/protocol';
+import type { LiveServerFrame } from '@rpg/protocol';
 import type { LiveEvent, LiveState } from './state.ts';
 import { INITIAL_LIVE_STATE, transition } from './state.ts';
 
@@ -47,6 +49,7 @@ export const CLOSE_ABNORMAL = 1006;
 export class LiveClient {
   #state: LiveState = INITIAL_LIVE_STATE;
   readonly #listeners = new Set<(state: LiveState) => void>();
+  readonly #frameListeners = new Set<(frame: LiveServerFrame) => void>();
   readonly #options: Required<Omit<LiveClientOptions, 'beforeConnect'>> & Pick<LiveClientOptions, 'beforeConnect'>;
   #socket: WebSocketLike | null = null;
   #generation = 0;
@@ -69,6 +72,19 @@ export class LiveClient {
   subscribe(listener: (state: LiveState) => void): () => void {
     this.#listeners.add(listener);
     return () => { this.#listeners.delete(listener); };
+  }
+
+  /** Subscribe to validated application frames on the existing authenticated account socket. */
+  subscribeFrames(listener: (frame: LiveServerFrame) => void): () => void {
+    this.#frameListeners.add(listener);
+    return () => { this.#frameListeners.delete(listener); };
+  }
+
+  /** Send an application frame on this authenticated socket; throws if it is not currently open. */
+  sendFrame(command: unknown): void {
+    const socket = this.#socket;
+    if (this.#state.status !== 'open' || !socket || socket.readyState !== 1) throw new Error('live socket is not open');
+    socket.send(JSON.stringify({ type: 'command', command }));
   }
 
   start(): void { this.#dispatch({ type: 'start' }); }
@@ -138,7 +154,10 @@ export class LiveClient {
       if (typeof event.data !== 'string') return;
       let frame: unknown;
       try { frame = JSON.parse(event.data); } catch { return; }
-      if (frame !== null && typeof frame === 'object' && (frame as { type?: unknown }).type === 'authenticated') {
+      let parsed: LiveServerFrame;
+      try { parsed = parseLiveServerFrame(frame); } catch { return; }
+      for (const listener of [...this.#frameListeners]) listener(parsed);
+      if (parsed.type === 'authenticated') {
         this.#startPing(generation);
         this.#dispatch({ type: 'authenticated' });
       }

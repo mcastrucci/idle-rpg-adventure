@@ -210,7 +210,11 @@ importers:
         specifier: 8.3.5
         version: 8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)
 
-  games/rpg/packages/protocol: {}
+  games/rpg/packages/protocol:
+    dependencies:
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
   games/rpg/packages/rpg-schema:
     dependencies:
