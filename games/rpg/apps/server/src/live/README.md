@@ -49,7 +49,10 @@ connected. A participant whose grace expired is removed only out of combat.
 Events (`live.event` → `event.type`): `traveled`, `discovered`, `combatStarted`, `combat` (engine events),
 `combatEnded` (`victory` | `defeat` | `retreated`), `combatRewards`, `heroDied`, `corpseRecovered`, `retreated`, `bossRoomWarning`, `hotspotInteracted`, `gathered`,
 `consumableUsed`, `returned`, `heroLeft`. `GET /characters/:actorId/live-death` returns the latest owner-only durable death summary, with XP totals, actual causes, corpse state and historical bag contents. The snapshot view lists the current location's groups, exits (open/reasons,
-locked secrets hidden), hotspots, resource nodes, flags, `canReturn` and the combat summary.
+locked secrets hidden), hotspots, resource nodes, flags, `canReturn` and the combat summary. On attach/resume, corpse
+hotspot metadata is included only for the viewing owner and only when already at its location. Navigation does not yet
+publish a fresh view, so the persistent death endpoint is the recovery-location source until the live navigation UI
+refresh is delivered with #40/#41.
 
 ## Persistence
 

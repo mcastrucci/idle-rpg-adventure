@@ -193,7 +193,9 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
         closeActivityStates.push(actor?.activityState ?? 'missing');
       },
     });
-    await database.db.update(characters).set({ level: 2, xp: 4, automationRules: [] }).where(eq(characters.actorId, who.actorId));
+    await database.db.update(characters).set({ level: 2, xp: 4, automationRules: [
+      { when: {}, do: { useSkill: 'skill:basic_attack', target: 'lowestHpEnemy' } },
+    ] }).where(eq(characters.actorId, who.actorId));
     const [before] = await database.db.select().from(characters).where(eq(characters.actorId, who.actorId));
     if (!before) throw new Error('fixture character is missing');
     const originalEquipment = (await database.db.select().from(itemInstances).where(eq(itemInstances.actorId, who.actorId)))
@@ -278,7 +280,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
         checkpointActivityStates.push(actor?.activityState ?? 'missing');
       },
     });
-    await database.db.update(characters).set({ level: 2, xp: 4 }).where(eq(characters.actorId, fallen.actorId));
+    await database.db.update(characters).set({ level: 2, xp: 4, automationRules: [] }).where(eq(characters.actorId, fallen.actorId));
     await database.db.update(characters).set({ attributes: { STR: 10_000, AGI: 4, INT: 2, VIT: 1_000, SPI: 5 } })
       .where(eq(characters.actorId, survivor.actorId));
     const id = await startRpgLiveInstance(n.live, database, { actorIds: [fallen.actorId, survivor.actorId], location: ENTRANCE,
@@ -290,6 +292,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     if (!runtime) throw new Error('fallen party hero snapshot is missing');
     runtime.hp = 1; // Explicit adversarial battle fixture; the enemy pack must kill this hero before the strong ally clears it.
     expect((await command(n, fallen, id, { type: 'engage', groupId: RETREATERS.id })).ack.status).toBe('applied');
+    expect((await command(n, survivor, id, { type: 'setAuto', auto: false })).ack.status).toBe('applied');
     let deathObservedBeforeFightEnd = false;
     for (let elapsed = 0; elapsed < 90_000 && !deathObservedBeforeFightEnd; elapsed += 500) {
       clock.advance(500);
@@ -299,6 +302,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
         combat.actors.some(actor => actor.id === fallen.actorId && actor.hp === 0));
     }
     expect(deathObservedBeforeFightEnd).toBe(true);
+    expect((await command(n, survivor, id, { type: 'setAuto', auto: true })).ack.status).toBe('applied');
     await advance(n, id, () => n.live.host().inspect(id)?.ticking === false, 90_000);
     const death = await deathRow(fallen.actorId);
     expect(death).toMatchObject({ status: 'active', locationId: ENTRANCE, xpBeforeLevel: 2, xpBeforeIntoLevel: 4,
@@ -319,7 +323,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     const n = await node('death-retreat-checkpoint');
     const fallen = await player('Retreating fallen fighter', false);
     const survivor = await player('Retreating survivor', false);
-    await database.db.update(characters).set({ level: 2, xp: 4 }).where(eq(characters.actorId, fallen.actorId));
+    await database.db.update(characters).set({ level: 2, xp: 4, automationRules: [] }).where(eq(characters.actorId, fallen.actorId));
     await database.db.update(characters).set({ attributes: { STR: 10_000, AGI: 4, INT: 2, VIT: 1_000, SPI: 5 } })
       .where(eq(characters.actorId, survivor.actorId));
     const id = await startRpgLiveInstance(n.live, database, { actorIds: [fallen.actorId, survivor.actorId], location: ENTRANCE,
@@ -330,6 +334,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     if (!runtime) throw new Error('fallen party hero snapshot is missing');
     runtime.hp = 1;
     expect((await command(n, fallen, id, { type: 'engage', groupId: RETREATERS.id })).ack.status).toBe('applied');
+    expect((await command(n, survivor, id, { type: 'setAuto', auto: false })).ack.status).toBe('applied');
     let deathObservedBeforeFightEnd = false;
     for (let elapsed = 0; elapsed < 90_000 && !deathObservedBeforeFightEnd; elapsed += 500) {
       clock.advance(500);
@@ -383,7 +388,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     await expect(startRpgLiveInstance(a.live, database, { actorIds: [who.actorId], location: ENTRANCE })).rejects.toThrow();
     const beforeStrangerAttempt = a.live.host().inspect(staleHost)?.seq;
     const strangerAttempt = await command(a, partner, staleHost, { type: 'interact', hotspotId: CORPSE(corpse.deathId) });
-    expect(strangerAttempt).toMatchObject({ ack: { status: 'rejected', reason: 'corpse_unavailable' } });
+    expect(strangerAttempt).toMatchObject({ ack: { status: 'rejected', reason: 'unknown_hotspot' } });
     expect(a.live.host().inspect(staleHost)?.seq).toBe(beforeStrangerAttempt);
     expect(await holdings(who.actorId)).toEqual(before);
 
@@ -420,19 +425,19 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     const who = await player();
     await die(n, who, true);
     const corpse = await deathRow(who.actorId);
+    clock.advance(corpse.expiresAt.getTime() - clock.nowMs() - 1_000);
     const future = await startRpgLiveInstance(n.live, database, { actorIds: [who.actorId], location: ENTRANCE });
     await attach(n, who, future);
     const before = n.live.host().inspect(future);
     if (!before) throw new Error('future instance is missing');
     const bagBefore = await balance(who.actorId, HERB, RUN_BAG(future));
     const seqBefore = before.seq;
-    const expiredAt = corpse.expiresAt.getTime();
-    clock.advance(expiredAt - clock.nowMs());
+    clock.advance(1_000);
     const expiredCommandId = randomUUID();
     const reply = await command(n, who, future, { type: 'interact', hotspotId: CORPSE(corpse.deathId) }, expiredCommandId);
     expect(reply).toMatchObject({ ack: { status: 'rejected', reason: 'corpse_unavailable' }, duplicate: false });
     expect(await command(n, who, future, { type: 'interact', hotspotId: CORPSE(corpse.deathId) }, expiredCommandId))
-      .toMatchObject({ ack: { status: 'rejected', reason: 'corpse_unavailable' }, duplicate: false });
+      .toMatchObject({ ack: { status: 'rejected', reason: 'corpse_unavailable' }, duplicate: true });
     const after = n.live.host().inspect(future);
     expect(after?.seq).toBe(seqBefore);
     expect(after?.state.runBag[who.actorId]).toEqual(before.state.runBag[who.actorId]);
@@ -443,9 +448,12 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     const recovered = await node('death-expiry-recovered');
     expect(await recovered.live.host().recover(future)).toBe(true);
     await attach(recovered, who, future);
+    const recoveredSeq = recovered.live.host().inspect(future)?.seq;
     expect(await command(recovered, who, future, { type: 'interact', hotspotId: CORPSE(corpse.deathId) }, expiredCommandId))
       .toMatchObject({ ack: { status: 'rejected', reason: 'corpse_unavailable' }, duplicate: false });
-    expect(recovered.live.host().inspect(future)?.seq).toBe(seqBefore);
+    expect(await command(recovered, who, future, { type: 'interact', hotspotId: CORPSE(corpse.deathId) }, expiredCommandId))
+      .toMatchObject({ ack: { status: 'rejected', reason: 'corpse_unavailable' }, duplicate: true });
+    expect(recovered.live.host().inspect(future)?.seq).toBe(recoveredSeq);
     expect(recovered.live.host().inspect(future)?.state.runBag[who.actorId]).toEqual(before.state.runBag[who.actorId]);
     await command(recovered, who, future, { type: 'returnToSanctuary' });
     await startRpgLiveInstance(n.live, database, { actorIds: [who.actorId], location: ENTRANCE });
@@ -477,7 +485,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     await die(n, who, false);
     const death = await deathRow(who.actorId);
     expect(death).toMatchObject({ xpBeforeLevel: 1, xpBeforeIntoLevel: 0, xpBeforeTotal: 0,
-      xpLost: 10, xpAfterLevel: 1, xpAfterIntoLevel: 0, xpAfterTotal: 0 });
+      xpLost: 0, xpAfterLevel: 1, xpAfterIntoLevel: 0, xpAfterTotal: 0 });
     expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0])
       .toMatchObject({ level: 1, xp: 0 });
     expect(await issues(who.actorId)).toEqual([]);
