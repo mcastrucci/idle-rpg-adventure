@@ -1,0 +1,12 @@
+{
+  "id": "loc:region_2.prism_span",
+  "nameKey": "loc.region_2.prism_span.name",
+  "tags": ["ordinary"],
+  "exits": [
+    { "id": "exit:region_2.span_shallows", "to": "loc:region_2.signal_shallows" },
+    { "id": "exit:region_2.span_court", "to": "loc:region_2.resonance_court" }
+  ],
+  "resources": [],
+  "hotspots": [],
+  "encounters": "enc:region_2.prism_span"
+}

@@ -1,0 +1,7 @@
+{
+  "id": "route:sanctuary_to_region_2",
+  "from": "area:sanctuary",
+  "to": "area:region_2",
+  "travel": { "mode": "instant" },
+  "requires": { "areaCompleted": "area:region_1" }
+}

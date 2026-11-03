@@ -44,7 +44,8 @@ as R1 does; do not count future secrets retroactively.
 
 **Access and unlock contract.** Proposed route ID `route:sanctuary_to_region_2` points to `area:region_2` and uses
 `requires: { "areaCompleted": "area:region_1" }`; proposed area ID is `area:region_2`; activity IDs are
-`idle:region_2.survey` and `idle:region_2.hunt`. The route requirement evaluates against this character's persisted
+`idle:region_2.gather` and `idle:region_2.hunt` (the gather activity keeps the `survey` display name and encounter table).
+The route requirement evaluates against this character's persisted
 completed-area set. That is personal R1 conquest, not a party leader's access or a temporary discovery flag. R2's idle
 activities are available only after this same character completes R2's discovery threshold and mandatory encounter.
 The shared world requirement evaluator, server world view, and expedition-start validation must continue to enforce
@@ -98,11 +99,12 @@ repeatable R2 encounters, so the preparation loop has a payoff. Proposed fixed-s
 `item:choirglass_blade` (weapon, power +14, critBp +300) and `item:resonance_buckler` (offhand, armor +9, maxHp +20);
 one weighted roll chooses between them, with a guaranteed `item:warden_signal` quest trophy. These are working names
 and provisional stat targets: no R2 item currently exists. The ordinary hunt should favor repeated encounters in the
-shallows/court and use its own loot tables for a sellable `item:prism_dust` plus a modest chance of the existing
-`item:sap_tonic`;
-do not create a crafting recipe to give dust a use. This gives farming an immediate gold/supply payoff and the boss a
-longer-term equipment payoff. The balance pass must account for which reference build can use each weapon/offhand slot and for
-the weighted reward's acquisition odds.
+shallows/court and use its own loot tables for `item:prism_dust` plus a modest chance of the existing `item:sap_tonic`.
+The dust's `value` field is a reference value only; the current POC has no item-sale command, so do not promise a sale
+or count dust as realized gold. The gold ranges declared directly on enemy loot tables are the modeled gold reward,
+while tonic drops provide a supply payoff and the boss provides a longer-term equipment payoff. Do not create a crafting
+recipe to give dust a use. The balance pass must account for which reference build can use each weapon/offhand slot and
+for the weighted reward's acquisition odds.
 
 Do not call a cohort "fresh" if it equips a low-chance equipment drop from an R1 loot roll or the R1 boss, or an
 unavailable merchant offer. The current `gearByLevel` modelling loadouts equip `boar_hide_jerkin`, which has no R1

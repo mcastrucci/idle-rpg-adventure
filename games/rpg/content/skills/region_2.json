@@ -1,0 +1,20 @@
+[
+  {
+    "id": "skill:region_2.prism_slam",
+    "nameKey": "skill.region_2.prism_slam.name",
+    "cooldownTicks": 16,
+    "windupTicks": 8,
+    "targeting": "enemy",
+    "effects": [{ "type": "damage", "coeffBp": 18000, "school": "physical" }],
+    "tags": ["region_2", "provisional_balance"]
+  },
+  {
+    "id": "skill:region_2.signal_pulse",
+    "nameKey": "skill.region_2.signal_pulse.name",
+    "cooldownTicks": 14,
+    "windupTicks": 8,
+    "targeting": "enemy",
+    "effects": [{ "type": "damage", "coeffBp": 22000, "school": "magic" }],
+    "tags": ["region_2", "provisional_balance"]
+  }
+]

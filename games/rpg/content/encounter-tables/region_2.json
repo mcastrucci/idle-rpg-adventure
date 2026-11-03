@@ -1,0 +1,26 @@
+[
+  { "id": "enc:region_2.shallows", "entries": [
+    { "weight": 65, "enemies": [{ "enemy": "enemy:region_2.glass_echo", "count": 1 }] },
+    { "weight": 35, "enemies": [{ "enemy": "enemy:region_2.glass_echo", "count": 2 }] }
+  ] },
+  { "id": "enc:region_2.prism_span", "entries": [
+    { "weight": 60, "enemies": [{ "enemy": "enemy:region_2.prism_guard", "count": 1 }] },
+    { "weight": 40, "enemies": [{ "enemy": "enemy:region_2.glass_echo", "count": 1 }, { "enemy": "enemy:region_2.prism_guard", "count": 1 }] }
+  ] },
+  { "id": "enc:region_2.resonance_court", "entries": [
+    { "weight": 55, "enemies": [{ "enemy": "enemy:region_2.glass_echo", "count": 1 }, { "enemy": "enemy:region_2.prism_guard", "count": 1 }] },
+    { "weight": 45, "enemies": [{ "enemy": "enemy:region_2.prism_guard", "count": 2 }] }
+  ] },
+  { "id": "enc:region_2.warden", "entries": [
+    { "weight": 100, "enemies": [{ "enemy": "enemy:region_2.resonant_warden", "count": 1 }] }
+  ] },
+  { "id": "enc:region_2.hunt", "entries": [
+    { "weight": 45, "enemies": [{ "enemy": "enemy:region_2.glass_echo", "count": 1 }] },
+    { "weight": 30, "enemies": [{ "enemy": "enemy:region_2.prism_guard", "count": 1 }] },
+    { "weight": 25, "enemies": [{ "enemy": "enemy:region_2.glass_echo", "count": 1 }, { "enemy": "enemy:region_2.prism_guard", "count": 1 }] }
+  ] },
+  { "id": "enc:region_2.survey", "entries": [
+    { "weight": 70, "enemies": [{ "enemy": "enemy:region_2.glass_echo", "count": 1 }] },
+    { "weight": 30, "enemies": [{ "enemy": "enemy:region_2.glass_echo", "count": 2 }] }
+  ] }
+]

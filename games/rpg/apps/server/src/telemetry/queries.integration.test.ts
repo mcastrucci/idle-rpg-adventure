@@ -14,11 +14,15 @@ import { RPG_MIGRATIONS } from '../migrations.ts';
 const adminUrl = process.env['TEST_DATABASE_URL'];
 if (process.env['CI'] && !adminUrl) throw new Error('CI must supply TEST_DATABASE_URL for telemetry query tests');
 
+async function reportQueries(): Promise<string[]> {
+  const source = await readFile(fileURLToPath(new URL('../../../../../../docs/queries/telemetry.sql', import.meta.url)), 'utf8');
+  const sections = source.split(/(?=^-- Q\d+:)/m).filter(section => /^-- Q\d+:/m.test(section));
+  return sections.map(section => section.split('\n').filter(line => !line.startsWith('--')).join('\n').trim());
+}
+
 describe('telemetry SQL source parsing', () => {
   it('extracts nine nonempty PostgreSQL queries without depending on a database', async () => {
-    const source = await readFile(fileURLToPath(new URL('../../../../../../docs/queries/telemetry.sql', import.meta.url)), 'utf8');
-    const sections = source.split(/(?=^-- Q\d+:)/m).filter(section => /^-- Q\d+:/m.test(section));
-    const queries = sections.map(section => section.split('\n').filter(line => !line.startsWith('--')).join('\n').trim());
+    const queries = await reportQueries();
     expect(queries).toHaveLength(9);
     expect(queries.every(query => query.length > 0)).toBe(true);
   });
@@ -169,11 +173,37 @@ describe.skipIf(!adminUrl)('internal telemetry SQL (real PostgreSQL)', () => {
     expect(results[3]?.rows[0]).toMatchObject({ actor_id: character.actorId, area_id: 'area:fixture', closed_observed_entries: '3', positive_duration_entries: '2', excluded_nonpositive_duration_entries: '1', covered_elapsed_seconds: '3630.000000', gross_xp: '30', known_death_xp_penalty_lost: '5', net_xp: '25' });
     expect(Number(results[3]?.rows[0]?.['gross_xp_per_hour'])).toBeCloseTo(30 * 3600 / 3630, 8);
     expect(results[4]?.rows[0]).toMatchObject({ same_area_return_at: expect.any(Date) });
-    expect(results[5]?.rows[0]?.availability).toBe('unavailable_unsupported');
+    expect(results[5]?.rows).toEqual([]);
     expect(results[6]?.rows[0]).toMatchObject({ starts: '14', running: '1', cancelled: '2', terminal_expeditions: '13', death_report_covered_expeditions: '9', expeditions_with_recorded_actor_death: '1', death_report_unknown_expeditions: '4', reports_with_actor_xp_penalty_applied: '0', unsupported_or_recovery_reports: '4' });
     expect(results[7]?.rows[0]).toMatchObject({ terminal_expeditions: '13', covered_expeditions: '4', excluded_or_uncovered_expeditions: '9', effective_duration_ms: '240000', gross_xp: '80', xp_penalty_lost: '0', net_xp: '80' });
     expect(Number(results[7]?.rows[0]?.['gross_xp_per_hour'])).toBe(1200);
     expect(Number(results[7]?.rows[0]?.['net_xp_per_hour'])).toBe(1200);
     expect(results[8]?.rows[0]).toMatchObject({ instrumented_attributed_participations: '3', legacy_or_unattributed_participations: '1', excluded_nonpositive_duration: '1' });
+  });
+
+  it('executes the checked-in Q6 against a valid persisted Region 2 entry', async () => {
+    const session = await auth.guest(randomBytes(32).toString('base64url'));
+    const character = await database.db.transaction(tx => createCharacterService(tx, bundle as never).create(session.accountId, { name: 'R2 telemetry hero' }));
+    const instanceId = randomUUID();
+    const startedAt = new Date(clock.nowMs() - 90_000);
+    await database.pool.query(`INSERT INTO live_instances
+      (instance_id,game_id,game_version,content_hash,participants,status,node_id,lease_generation,lease_expires_at,
+       checkpoint,checkpoint_seq,outcome,result,created_at,updated_at,closed_at)
+      VALUES ($1,'rpg','test','testhash',$2::jsonb,'closed','test-node',1,to_timestamp($3/1000.0),
+       '{}'::jsonb,0,'complete',NULL,to_timestamp($4/1000.0),to_timestamp($5/1000.0),to_timestamp($5/1000.0))`,
+      [instanceId, JSON.stringify([{ actorId: character.actorId }]), clock.nowMs(), startedAt.getTime(), clock.nowMs()]);
+    await database.pool.query(`INSERT INTO rpg_live_entries (instance_id,actor_id,area_id,started_at)
+      VALUES ($1,$2,'area:region_2',$3)`, [instanceId, character.actorId, startedAt]);
+
+    const queries = await reportQueries();
+    expect(queries).toHaveLength(9);
+    const result = await database.pool.query(queries[5] as string);
+    expect(result.rows.filter(row => row['actor_id'] === character.actorId)).toEqual([{
+      actor_id: character.actorId,
+      successful_instrumented_entries: '1',
+      first_started_at: startedAt,
+      latest_started_at: startedAt,
+      coverage_scope: 'successful_instrumented_entries_only',
+    }]);
   });
 });

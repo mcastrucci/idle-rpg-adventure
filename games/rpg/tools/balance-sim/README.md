@@ -16,11 +16,13 @@ pnpm balance-sim                                   # Markdown to stdout, N=100, 
 pnpm balance-sim --runs 500 --hours 200 --out report.md
 pnpm balance-sim --sections boss --boss-levels 3-6 --format csv
 pnpm balance-sim --regen-pct 10 --sections hourly  # idle regen is provisional (A9 / open decision #16)
+pnpm balance-sim --scenario region-2 --runs 1000 --seed 24 --sections cells,boss --out docs/design/balance/region-2-measurements.md
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--content <dir>` | `games/rpg/content` | Content root, compiled on the fly (`contentHash` is printed). |
+| `--scenario <name>` | `region-1` | `region-1` preserves the original default. `region-2` runs the fixed cohort comparison described below. |
 | `--runs <n>` | 100 | Fights per encounter-group cell, attempts per boss row. |
 | `--hours <n>` | 50 | Simulated hours per hourly row. |
 | `--seed <uint32>` | 24 | Seed root. Run `i` of every cell uses `deriveSeed(root, 'balance', i)` (common random numbers). |
@@ -57,6 +59,27 @@ Library: `loadBalanceContent(root)`, `runBalance(content, scenario, config)`, `r
   ±25%, boss length ±30%). Targets that need a conquest model are listed as N/A.
 
 ## Modelling assumptions (provisional)
+
+### Region 2 fixed cohorts
+
+`--scenario region-2` compiles the selected content root with `compileContentDirectory` and runs the shared
+`@rpg/rpg-sim` combat engine. It measures L4 fresh starter gear, L5 starter gear with fresh supplies, L5 farmed gear
+with fresh supplies, L5 starter gear with farmed supplies, and the full L5 farmed setup. Two additional L5 rows remove
+only the healing potion or only the sap tonic from the full farmed setup. The gear and supplies are explicit cohort
+inputs; no farming, drops, merchant purchase history, travel, retreat, or gold acquisition is simulated. Supply gold
+costs in the report are arithmetic at the documented merchant prices.
+
+The tool validates each assumed equipment item's kind, required level and slot uniqueness. It uses the Bulwark and
+Thornblade attributes, skills and six reference rules from `scenario.ts`. The mixed inventory is passed to combat as
+individual item stacks, and each item's use is reported separately, including zero. Existing automation only requests
+`minor_healing_potion`; the R1 reference rules do not use carried sap tonics or healing potions, so the corresponding
+no-tonic and no-healing rows are controlled checks for this automation setup, not evidence that those supplies improve
+outcomes. Manual Warden rows add the existing attentive guard/cleanse script. Paired seeds keep each cohort comparison
+on the same deterministic combat draws.
+
+Region 2 accepts `--runs`, `--seed`, `--sections cells,boss`, `--content`, `--format md|json` and `--out`. Its fixed
+snapshot levels make `--levels`, `--boss-levels`, `--hour-levels`, `--hours`, and `--regen-pct` invalid. Default R1
+scenario behavior and report structure remain unchanged.
 
 All of these live in `src/scenario.ts`, `src/simulate.ts` and `src/policies.ts`.
 

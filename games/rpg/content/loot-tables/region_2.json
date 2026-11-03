@@ -1,0 +1,13 @@
+[
+  { "id": "loot:region_2.glass_echo", "rolls": 1, "nothingWeight": 35, "entries": [{ "item": "item:prism_dust", "weight": 65, "qty": { "min": 1, "max": 2 } }], "gold": { "min": 2, "max": 5 } },
+  { "id": "loot:region_2.prism_guard", "rolls": 1, "nothingWeight": 20, "entries": [
+    { "item": "item:prism_dust", "weight": 65, "qty": { "min": 1, "max": 3 } },
+    { "item": "item:sap_tonic", "weight": 15, "qty": { "min": 1, "max": 1 } }
+  ], "gold": { "min": 4, "max": 8 } },
+  { "id": "loot:region_2.warden", "rolls": 1, "nothingWeight": 0, "entries": [
+    { "item": "item:choirglass_blade", "weight": 50, "qty": { "min": 1, "max": 1 } },
+    { "item": "item:resonance_buckler", "weight": 50, "qty": { "min": 1, "max": 1 } }
+  ], "guaranteed": [{ "item": "item:warden_signal", "qty": { "min": 1, "max": 1 } }], "gold": { "min": 50, "max": 70 } },
+  { "id": "loot:region_2.prism_gather", "rolls": 1, "nothingWeight": 25, "entries": [{ "item": "item:prism_dust", "weight": 75, "qty": { "min": 1, "max": 2 } }] },
+  { "id": "loot:region_2.signal_gather", "rolls": 1, "nothingWeight": 50, "entries": [{ "item": "item:sap_tonic", "weight": 50, "qty": { "min": 1, "max": 1 } }] }
+]

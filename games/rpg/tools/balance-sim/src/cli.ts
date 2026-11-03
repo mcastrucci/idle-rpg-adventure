@@ -16,6 +16,7 @@ import type { ReportFormat } from './report.ts';
 import { SECTIONS, runBalance } from './run.ts';
 import type { BalanceConfig, Section } from './run.ts';
 import { REGION_1_SCENARIO } from './scenario.ts';
+import { renderRegion2Json, renderRegion2Markdown, runRegion2Balance } from './region2.ts';
 
 export interface CliIo {
   readonly cwd: string;
@@ -40,6 +41,7 @@ export const USAGE = `Usage: balance-sim [options]
 Monte Carlo balance report over compiled RPG content (Region 1 scenario; all numbers provisional).
 
 Options:
+  --scenario <name>     region-1 (default) or region-2 (fixed L4/L5 cohorts)
   --content <dir>       Content root to compile (default: games/rpg/content)
   --runs <n>            Fights per encounter-group cell and attempts per boss row (default ${DEFAULTS.runs})
   --hours <n>           Simulated hours per hourly row (default ${DEFAULTS.hours})
@@ -86,6 +88,7 @@ function parseSections(raw: string): Section[] {
 
 export interface ParsedArgs {
   readonly contentRoot: string;
+  readonly scenario: 'region-1' | 'region-2';
   readonly config: BalanceConfig;
   readonly format: ReportFormat;
   readonly out: string | null;
@@ -98,6 +101,7 @@ export function parseCliArgs(argv: readonly string[], cwd: string): ParsedArgs |
       args: [...argv],
       allowPositionals: false,
       options: {
+        scenario: { type: 'string' },
         content: { type: 'string' },
         runs: { type: 'string' },
         hours: { type: 'string' },
@@ -127,8 +131,20 @@ export function parseCliArgs(argv: readonly string[], cwd: string): ParsedArgs |
   }
   const regenPct = int('regen-pct', v['regen-pct'], DEFAULTS.regenPct, 0);
   if (regenPct > 100) throw new UsageError('--regen-pct must be <= 100');
+  const scenario = v.scenario ?? 'region-1';
+  if (scenario !== 'region-1' && scenario !== 'region-2') throw new UsageError('--scenario must be region-1 or region-2');
+  if (scenario === 'region-2') {
+    for (const option of ['hours', 'levels', 'boss-levels', 'hour-levels', 'regen-pct'] as const) {
+      if (v[option] !== undefined) throw new UsageError(`--${option} is not supported by --scenario region-2; it uses fixed L4/L5 snapshots and per-encounter runs`);
+    }
+    const sectionSpec = v.sections ?? 'cells,boss';
+    const sections = parseSections(sectionSpec);
+    if (sections.includes('hourly')) throw new UsageError('--scenario region-2 supports only --sections cells,boss');
+    if (format === 'csv') throw new UsageError('--scenario region-2 supports only --format md or json');
+  }
   return {
     contentRoot: v.content === undefined ? DEFAULT_CONTENT_ROOT : path.resolve(cwd, v.content),
+    scenario,
     format,
     out: v.out === undefined ? null : path.resolve(cwd, v.out),
     config: {
@@ -139,7 +155,7 @@ export function parseCliArgs(argv: readonly string[], cwd: string): ParsedArgs |
       bossLevels: parseLevels('boss-levels', v['boss-levels'] ?? DEFAULTS.bossLevels),
       hourLevels: parseLevels('hour-levels', v['hour-levels'] ?? DEFAULTS.hourLevels),
       idleRegenBp: regenPct * 100,
-      sections: parseSections(v.sections ?? DEFAULTS.sections),
+      sections: parseSections(v.sections ?? (scenario === 'region-2' ? 'cells,boss' : DEFAULTS.sections)),
     },
   };
 }
@@ -164,8 +180,11 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
-  const report = runBalance(content, REGION_1_SCENARIO, args.config);
-  const text = renderReport(report, args.format);
+  const text = args.scenario === 'region-2'
+    ? args.format === 'json'
+      ? renderRegion2Json(runRegion2Balance(content, args.config.seedRoot, args.config.runs, args.config.sections.filter((s): s is 'cells' | 'boss' => s !== 'hourly')))
+      : renderRegion2Markdown(runRegion2Balance(content, args.config.seedRoot, args.config.runs, args.config.sections.filter((s): s is 'cells' | 'boss' => s !== 'hourly')))
+    : renderReport(runBalance(content, REGION_1_SCENARIO, args.config), args.format);
   if (args.out === null) {
     io.stdout(text);
   } else {

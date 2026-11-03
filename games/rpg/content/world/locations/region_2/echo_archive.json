@@ -1,0 +1,11 @@
+{
+  "id": "loc:region_2.echo_archive",
+  "nameKey": "loc.region_2.echo_archive.name",
+  "tags": ["ordinary", "safe"],
+  "exits": [
+    { "id": "exit:region_2.archive_shallows", "to": "loc:region_2.signal_shallows" },
+    { "id": "exit:region_2.archive_court", "to": "loc:region_2.resonance_court" }
+  ],
+  "resources": [],
+  "hotspots": [{ "id": "echo_archive_inscription", "type": "lore", "textKey": "hotspot.region_2.echo_archive_inscription" }]
+}
