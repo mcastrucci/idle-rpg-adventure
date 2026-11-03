@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buyInventoryCommand, claimStarterKitCommand, equipInventoryCommand, moveInventoryCommand, unequipInventoryCommand } from './api.ts';
+import { buyInventoryCommand, claimStarterKitCommand, equipInventoryCommand, moveInventoryCommand, sellMaterialCommand, unequipInventoryCommand } from './api.ts';
 
 const actorId = 'a2f4acdd-23a5-47b3-9fc6-dc2bf87d61e6';
 const itemId = 'c20ce3a7-cf7a-44bc-8d82-6a4370c3a02c';
@@ -16,6 +16,8 @@ describe('inventory command builders', () => {
       .toMatchObject({ operation: 'inventory.move', payload: { actorId, item: 'item:minor_healing_potion', quantity: 2, from: 'inventory', to: 'storage' } });
     expect(buyInventoryCommand(actorId, 'offer:minor_healing_potion', 1, makeId).envelope)
       .toMatchObject({ operation: 'inventory.buy', payload: { actorId, offerId: 'offer:minor_healing_potion', quantity: 1 } });
+    expect(sellMaterialCommand(actorId, 'item:boar_hide', 3, makeId)).toMatchObject({ method: 'POST', path: `/characters/${actorId}/inventory/commands`,
+      envelope: { command_id: commandId, operation: 'inventory.sellMaterial', payload: { actorId, item: 'item:boar_hide', quantity: 3 } } });
     expect(claimStarterKitCommand(actorId, makeId)).toMatchObject({ method: 'POST', path: `/characters/${actorId}/inventory/commands`,
       envelope: { command_id: commandId, operation: 'inventory.claimStarterKit', payload: { actorId } } });
   });
