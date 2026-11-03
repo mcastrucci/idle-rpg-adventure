@@ -46,9 +46,12 @@ level-4 reference builds. Details and sources in the [spike report](../spikes/sp
 - **Determinism evidence.** Golden replays (combat and idle timelines, append-only per engine version) run in `pnpm check`
   on Node 22 and 24 in CI (`.github/workflows/ci.yml`, run 65 green on both); the kernel contract checker re-runs every
   simulator input twice, including a deep-cloned copy, and checks resumption from every `stateAfter`.
-- **Not measured.** Hash equality over 1,000 repeated runs and heap/GC behaviour of internal mutation versus immutable
-  copies have no existing test or benchmark and are recorded as gaps in the report; the per-tick time of both styles is
-  known. Neither blocks acceptance: the precompute budget has a 2x margin and determinism is covered by the above.
+- **Repeated-run determinism and memory/GC (measured).** `expedition/determinism.test.ts` repeats an idle hunt and a
+  combat case 1,000 times each from rebuilt inputs; every hash equals the golden one (about 2.2 s on Node 22 and 24).
+  `expedition/memory.bench.test.ts` (opt-in) shows the public `step` allocating about 4x more and running about 16x
+  slower than `runToEnd` over 10,000 ticks, with only minor GCs (at most one major) in both; a 200-run estimate peaks at
+  60-125 MB with 65-100 ms of total GC pause. Node 24 timings are within about 10 % of Node 22. The estimate mitigation
+  is implemented by #53 (PR #92).
 
 ### Why Accepted
 The model (encounter budget, per-segment seeded streams, same engine for live and idle) is implemented twice over the
