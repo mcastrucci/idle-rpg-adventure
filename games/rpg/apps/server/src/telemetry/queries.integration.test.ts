@@ -122,8 +122,8 @@ describe.skipIf(!adminUrl)('internal telemetry SQL (real PostgreSQL)', () => {
         (id,actor_id,account_id,area_id,activity_id,status,starts_at_ms,planned_ends_at_ms,ends_at_ms,duration_min,
          pace_bp,seed,revision,kernel_version,simulator_id,simulator_version,content_hash,budget,config,snapshot,escrow,
          timeline_compressed,timeline_hash,settled_at,settled_reason,settled_cutoff,outcome,terminal_report,created_at)
-        VALUES ($1,$2,$3,'area:fixture','activity:test',$4,$5,$6,$7,1,10000,'seed',0,'kernel','sim','sim:1',
-         'hash',1,'{}'::jsonb,'{}'::jsonb,'[]'::jsonb,'timeline','hash',$8,$9,$10,$11,$12::jsonb,to_timestamp($5/1000.0))`,
+        VALUES ($1,$2,$3,'area:fixture','activity:test',$4,$5::bigint,$6::bigint,$7::bigint,1,10000,'seed',0,'kernel','sim','sim:1',
+         'hash',1,'{}'::jsonb,'{}'::jsonb,'[]'::jsonb,'timeline','hash',$8,$9,$10,$11,$12::jsonb,to_timestamp($5::bigint/1000.0))`,
         [id, character.actorId, session.accountId, status, startMs, startMs + 180_000, endMs, settledAt, settledReason,
           settledCutoff, outcome, report === null ? null : JSON.stringify(report)]);
     }
