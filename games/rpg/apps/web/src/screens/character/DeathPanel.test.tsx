@@ -57,8 +57,8 @@ describe('DeathPanel', () => {
     const client = api(null, async () => { reads++; return Response.json({ death: DEATH }); });
     const first = render(<DeathPanel actorId="actor-1" api={client} />);
     expect(await screen.findByText('Wraith · 24 damage')).toBeDefined();
-    expect(screen.getByText(/Lost 10 XP/).textContent).toContain('Before: level 3, 90 XP in level (290 total)');
-    expect(screen.getByText(/Lost 10 XP/).textContent).toContain('After: level 3, 80 XP in level (280 total)');
+    expect(screen.getByText(/Lost 10 XP/).textContent).toContain('total XP 290 → 280.');
+    expect(screen.getByText(/Lost 10 XP/).textContent).toContain('Level 3 → 3; XP in level 90 → 80.');
     expect(screen.getByText('Copper ring')).toBeDefined();
     expect(screen.getByText('7')).toBeDefined();
     expect(screen.getByText(/Sanctuary alone cannot recover it/)).toBeDefined();
@@ -71,7 +71,7 @@ describe('DeathPanel', () => {
 
   it('does not invent a cause when the server has no attributable damage', async () => {
     render(<DeathPanel actorId="actor-1" api={api({ death: { ...DEATH, causes: [] } })} />);
-    expect(await screen.findByText(/no recorded damage source could be tied to the fatal event/)).toBeDefined();
+    expect(await screen.findByText(/Damage source details are unavailable for this fight/)).toBeDefined();
   });
 
   it('refreshes only for this actor’s committed death/recovery events and after any terminal close', async () => {

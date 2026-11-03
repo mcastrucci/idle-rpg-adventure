@@ -55,6 +55,7 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
   const pendingCommand = useRef<string | null>(null);
   const processedAck = useRef<string | null>(null);
   const riskRequestCursor = useRef<{ epoch: number; seq: number } | null>(null);
+  const combatStartCursor = useRef<string | null>(null);
   const processedTerminal = useRef(false);
   const processedDeathSeq = useRef<string | null>(null);
   const mounted = useRef(true);
@@ -130,6 +131,12 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
 
   useEffect(() => {
     if (!sessionState) return;
+    const combatStart = [...sessionState.recentEvents].reverse().find((row) => row.source === 'game' && record(row.event)?.['type'] === 'combatStarted');
+    const startKey = combatStart ? `${current?.instanceId ?? ''}:${combatStart.epoch}:${combatStart.seq}` : null;
+    if (startKey && startKey !== combatStartCursor.current) {
+      combatStartCursor.current = startKey;
+      if (!pendingCommand.current) setNotice(null);
+    }
     // The host sends a current view snapshot after commands. Use that sequenced socket baseline directly;
     // HTTP has no cursor and cannot safely reconcile every event without risking a rollback.
     const newestWarning = [...sessionState.recentEvents].reverse().find((row) => {
@@ -148,10 +155,10 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
     if (sessionState.lastAck && sessionState.lastAck.commandId === pendingCommand.current && processedAck.current !== sessionState.lastAck.commandId) {
       processedAck.current = sessionState.lastAck.commandId;
       if (sessionState.lastAck.status === 'rejected') {
-        setNotice({ kind: 'rejected', text: `The server rejected that action (${sessionState.lastAck.reason ?? 'unknown'}).` });
+        setNotice({ kind: 'rejected', text: `The server rejected the command (${sessionState.lastAck.reason ?? 'unknown'}).` });
         pendingCommand.current = null;
       } else {
-        setNotice({ kind: 'confirmed', text: 'The server confirmed the action.' });
+        setNotice({ kind: 'confirmed', text: 'The server received the command.' });
         pendingCommand.current = null;
       }
     }
@@ -170,7 +177,7 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
       setCurrent(null);
       void onCharacterRefresh().catch(() => {});
     }
-  }, [actorId, onCharacterRefresh, refreshCurrent, riskExit, sessionState]);
+  }, [actorId, current?.instanceId, onCharacterRefresh, refreshCurrent, riskExit, sessionState]);
 
   const submit = useCallback((command: LiveJson): string => {
     if (!session || !canCommand) {
@@ -248,6 +255,7 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
     pendingStart.current = null;
     pendingCommand.current = null;
     processedAck.current = null;
+    combatStartCursor.current = null;
     processedTerminal.current = false;
     processedDeathSeq.current = null;
     sessionSnapshotSeen.current = false;
@@ -302,7 +310,7 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
       </div>
       {view && <>
         {view.phase === 'combat' && <LiveCombat view={sessionState?.view ?? serverView ?? {}} events={sessionState?.recentEvents ?? sessionState?.events ?? []}
-          actorId={actorId} pendingCommandIds={sessionState?.pendingCommandIds ?? []} lastAck={sessionState?.lastAck ?? null}
+          actorId={actorId} pendingCommandIds={sessionState?.pendingCommandIds ?? []}
           connection={combatConnection} onSubmit={submit} />}
 
         <section className="live-scene" aria-labelledby="live-scene-title">
@@ -375,7 +383,7 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
       <section className="live-risk-dialog" role="alertdialog" aria-modal="true" aria-labelledby="live-risk-dialog-title" aria-describedby="live-risk-dialog-description">
         <h2 id="live-risk-dialog-title">Boss room risk</h2>
         <p id="live-risk-dialog-description">The server sent this risk summary. Review it before explicitly entering.</p>
-        <ProvisionalLiveRiskNotice risk={risk} />
+        <ProvisionalLiveRiskNotice risk={risk} actorId={actorId} />
         <div className="live-risk-dialog__actions">
           <button type="button" className="button button--secondary" onClick={cancelRisk}>Cancel</button>
           <button type="button" className="button" disabled={!readyForActions || busy} onClick={confirmRisk}>Confirm entry</button>
