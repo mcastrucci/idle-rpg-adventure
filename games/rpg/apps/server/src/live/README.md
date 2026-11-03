@@ -18,6 +18,13 @@ provisionally and recorded in [open-decisions](../../../../../docs/open-decision
   which snapshots equipment, consumable stock and server-recorded progress (`readRpgEvalContext`) and validates that
   snapshot under the actor locks before creating the instance (participants CAS `none → live`). Party formation and the
   Sanctuary portal flow are future work.
+- `entry-http.ts` — authenticated owner-scoped solo entry routes. `GET /live/options/:actorId` offers Region 1 and the
+  owner's server-recorded consumable stock; `POST /live/start` accepts only `{ commandId, actorId, areaId, supplies }`.
+  The start command uses shared `runCommand` idempotency, prepares the real character snapshot under its actor lock, and
+  commits command response, instance checkpoint and `none → live` CAS in one transaction before adopting the host.
+  `GET /live/current/:actorId` returns a fresh owner-specific in-memory view, or `current: null` once the actor has no
+  active live instance. If a committed instance's lease is still held by a restarted node, current returns
+  `instance_unavailable` until the normal lease recovery can claim it.
 
 Version `0.4.0` added the instance identity, run bag, hero XP and validated start snapshot to checkpoint state. Version
 `0.5.0` adds owner corpse snapshots and unique-item bag projection. Older checkpoints are intentionally incompatible and
@@ -50,9 +57,9 @@ Events (`live.event` → `event.type`): `traveled`, `discovered`, `combatStarted
 `combatEnded` (`victory` | `defeat` | `retreated`), `combatRewards`, `heroDied`, `corpseRecovered`, `retreated`, `bossRoomWarning`, `hotspotInteracted`, `gathered`,
 `consumableUsed`, `returned`, `heroLeft`. `GET /characters/:actorId/live-death` returns the latest owner-only durable death summary, with XP totals, actual causes, corpse state and historical bag contents. The snapshot view lists the current location's groups, exits (open/reasons,
 locked secrets hidden), hotspots, resource nodes, flags, `canReturn` and the combat summary. On attach/resume, corpse
-hotspot metadata is included only for the viewing owner and only when already at its location. Navigation does not yet
-publish a fresh view, so the persistent death endpoint is the recovery-location source until the live navigation UI
-refresh is delivered with #40/#41.
+hotspot metadata is included only for the viewing owner and only when already at its location. `GET /live/current/:actorId`
+projects the latest hosted state for that owner after navigation, combat ticks and durable actions; clients use this
+view for scene/combat presentation rather than deriving game state from event payloads.
 
 ## Persistence
 
@@ -83,7 +90,9 @@ On `/auth/live` (inside `{ "type": "command", "command": … }`):
 ```
 
 Replies: `live.attached { mode }`, `live.ack { commandId, status, duplicate, reason? }`, `live.error { error }`.
-Pushes: `live.snapshot`, `live.event`, `live.closed`, `live.evicted`.
+Pushes: `live.snapshot`, `live.event`, `live.closed`, `live.evicted`. A `live.snapshot` is also pushed after every
+host step to each connected participant with that actor's fresh client-safe view; combat ticks do not require the client
+to simulate or predict cooldown/effect state.
 
 Tests: `game.test.ts` (plugin on the real compiled content, no database) and `live.integration.test.ts` (two nodes,
 real PostgreSQL and WebSockets: spike 3 adversarial scenarios plus exploration on Region 1 — rejected commands,

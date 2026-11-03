@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { CharacterScreen } from '../screens/CharacterScreen.tsx';
 import { ExpeditionScreen } from '../screens/ExpeditionScreen.tsx';
 import { InventoryScreen } from '../screens/InventoryScreen.tsx';
+import { LiveScreen } from '../screens/LiveScreen.tsx';
 import { PlaceholderScreen } from '../screens/Placeholder.tsx';
 import { RulesScreen } from '../screens/RulesScreen.tsx';
 import { ConnectionBanner } from './ConnectionBanner.tsx';
@@ -78,7 +79,8 @@ function Screen({ tab, subroute, character, canCommand, run, api, live, runExped
     case 'inventory':
       return <InventoryScreen character={character} canCommand={canCommand} api={api} runCommand={runExpedition} refreshCharacter={refreshCharacter} />;
     case 'world':
-      return <PlaceholderScreen title="World map">The world map needs a client content endpoint and the client-kit map.</PlaceholderScreen>;
+      return character ? <LiveScreen actorId={character.actorId} api={api} live={live} canCommand={canCommand} onCharacterRefresh={refreshCharacter} />
+        : <PlaceholderScreen title="Live adventure">Create a character before entering a live adventure.</PlaceholderScreen>;
     case 'expeditions':
       return <ExpeditionScreen character={character} canCommand={canCommand} api={api} runCommand={runExpedition} refreshCharacter={refreshCharacter} />;
   }

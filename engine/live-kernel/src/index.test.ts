@@ -86,6 +86,20 @@ describe('@engine/live-kernel InstanceHost', () => {
     await expect(host.create({ participants: [A], setup: null })).rejects.toBeInstanceOf(ActivityConflictError);
   });
 
+  it('separates preparation, durable create, and idempotent post-commit adoption', async () => {
+    const { host, store } = setup();
+    const prepared = host.prepareCreate({ participants: [A], setup: null });
+    expect(Object.isFrozen(prepared.input)).toBe(true);
+    expect(host.has(prepared.input.instanceId)).toBe(false);
+    expect(store.rows.has(prepared.input.instanceId)).toBe(false);
+    const lease = await store.create(prepared.input);
+    expect(host.adoptCreated(prepared, lease)).toBe(prepared.input.instanceId);
+    expect(host.has(prepared.input.instanceId)).toBe(true);
+    expect(host.adoptCreated(prepared, lease)).toBe(prepared.input.instanceId);
+    expect(host.inspect(prepared.input.instanceId)?.state).toMatchObject({ counter: 0 });
+    expect(() => host.adoptCreated(prepared, { ...lease, generation: 2 })).toThrow('prepared instance lease mismatch');
+  });
+
   it('ticks only while the game is ticking, on a drift-free schedule, with bounded catch-up', async () => {
     const { host, clock } = setup();
     const id = await host.create({ participants: [A], setup: null });
@@ -103,6 +117,17 @@ describe('@engine/live-kernel InstanceHost', () => {
     const ticks = host.stats.ticks;
     clock.now += 500; await host.pump();
     expect(host.stats.ticks).toBe(ticks + 1);
+  });
+
+  it('publishes a fresh owner view after each authoritative tick', async () => {
+    const { host, clock } = setup();
+    const id = await host.create({ participants: [A], setup: null });
+    const client = connection('view-client');
+    await host.attach(id, A.actorId, A.accountId, client);
+    await host.submit(id, A.actorId, A.accountId, 'run-view', { op: 'run', ticks: 2 });
+    clock.now += 500; await host.pump();
+    const views = client.messages.filter((message) => message.type === 'live.snapshot');
+    expect(views.at(-1)).toMatchObject({ type: 'live.snapshot', instanceId: id, seq: host.inspect(id)?.seq, view: { counter: 10, ticksLeft: 1 } });
   });
 
   it('applies a replayed command_id once, including after a crash restore', async () => {

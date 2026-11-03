@@ -46,25 +46,28 @@ export class PostgresInstanceStore implements InstanceStore {
   constructor(database: Database, hooks: PostgresInstanceStoreHooks = {}) { this.#database = database; this.#hooks = hooks; }
 
   async create(input: CreateInstanceInput): Promise<InstanceLease> {
+    return this.#database.db.transaction((tx) => this.createInTransaction(tx, input));
+  }
+
+  /** Creates inside a caller-owned transaction (e.g. shared command idempotency + live start). */
+  async createInTransaction(tx: ActorTransaction, input: CreateInstanceInput): Promise<InstanceLease> {
     const now = new Date(input.nowMs);
-    return this.#database.db.transaction(async (tx) => {
-      const locked = await lockActors(tx, input.participants.map((p) => p.actorId));
-      for (const actor of locked) {
-        const participant = input.participants.find((p) => p.actorId.toLowerCase() === actor.actorId);
-        if (!participant || participant.accountId !== actor.accountId) throw new ActivityConflictError('participant is not owned by the given account');
-        if (actor.activityState !== 'none' || actor.activityId !== null) throw new ActivityConflictError();
-      }
-      await this.#hooks.validateCreate?.(tx, input);
-      for (const actor of locked) {
-        const moved = await transitionActivity(tx, actor.actorId, { state: 'none', activityId: null }, { state: 'live', activityId: input.instanceId });
-        if (!moved) throw new ActivityConflictError();
-      }
-      await tx.insert(liveInstances).values({ instanceId: input.instanceId, gameId: input.gameId, gameVersion: input.gameVersion,
-        contentHash: input.contentHash, participants: [...input.participants], status: 'active', nodeId: input.nodeId,
-        leaseGeneration: 1, leaseExpiresAt: new Date(input.nowMs + input.leaseMs), checkpoint: input.checkpoint, checkpointSeq: 0,
-        createdAt: now, updatedAt: now });
-      return { instanceId: input.instanceId, nodeId: input.nodeId, generation: 1, checkpointSeq: 0 };
-    });
+    const locked = await lockActors(tx, input.participants.map((p) => p.actorId));
+    for (const actor of locked) {
+      const participant = input.participants.find((p) => p.actorId.toLowerCase() === actor.actorId);
+      if (!participant || participant.accountId !== actor.accountId) throw new ActivityConflictError('participant is not owned by the given account');
+      if (actor.activityState !== 'none' || actor.activityId !== null) throw new ActivityConflictError();
+    }
+    await this.#hooks.validateCreate?.(tx, input);
+    for (const actor of locked) {
+      const moved = await transitionActivity(tx, actor.actorId, { state: 'none', activityId: null }, { state: 'live', activityId: input.instanceId });
+      if (!moved) throw new ActivityConflictError();
+    }
+    await tx.insert(liveInstances).values({ instanceId: input.instanceId, gameId: input.gameId, gameVersion: input.gameVersion,
+      contentHash: input.contentHash, participants: [...input.participants], status: 'active', nodeId: input.nodeId,
+      leaseGeneration: 1, leaseExpiresAt: new Date(input.nowMs + input.leaseMs), checkpoint: input.checkpoint, checkpointSeq: 0,
+      createdAt: now, updatedAt: now });
+    return { instanceId: input.instanceId, nodeId: input.nodeId, generation: 1, checkpointSeq: 0 };
   }
 
   #fence(lease: InstanceLease, nowMs: number) {

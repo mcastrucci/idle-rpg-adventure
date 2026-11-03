@@ -2,12 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { HostError, InstanceHost } from '@engine/live-kernel';
-import type { JsonValue, LiveGame } from '@engine/live-kernel';
+import type { CreateInstanceInput, InstanceLease, JsonValue, LiveGame } from '@engine/live-kernel';
 
 import type { LiveSocketConnection } from '../auth/live.ts';
 import { UUID_PATTERN } from '../commands/run.ts';
 import type { ModuleContext, ServerModule } from '../server.ts';
 import type { MigrationSet } from '../database.ts';
+import type { ActorTransaction } from '../actors/service.ts';
 import { PostgresInstanceStore } from './store.ts';
 import type { PostgresInstanceStoreHooks } from './store.ts';
 
@@ -38,6 +39,8 @@ export interface LiveHostHandle<S> {
   readonly module: ServerModule;
   /** The node's host; available once the module is registered. */
   host(): InstanceHost<S>;
+  /** Create persistence participant for a transaction already opened by shared `runCommand`. */
+  createInTransaction(tx: ActorTransaction, input: CreateInstanceInput): Promise<InstanceLease>;
   /**
    * WebSocket command hook for `createAuthModule({ onCommand })`. Returns `undefined` for payloads that are not
    * `live.*` operations so the composition can route them to its other command handlers.
@@ -57,21 +60,28 @@ type LiveOp =
  */
 export function createLiveHostModule<S>(options: LiveHostModuleOptions<S>): LiveHostHandle<S> {
   let host: InstanceHost<S> | undefined;
+  let store: PostgresInstanceStore | undefined;
   const nodeId = options.nodeId ?? `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
   const requireHost = (): InstanceHost<S> => {
     if (!host) throw new Error('live host module is not registered');
     return host;
   };
+  const requireStore = (): PostgresInstanceStore => {
+    if (!store) throw new Error('live host module is not registered');
+    return store;
+  };
   const module: ServerModule = {
     name: 'live-host', roles: ['live'],
     async register(app, context) {
-      const created = new InstanceHost({ game: options.game(context), store: new PostgresInstanceStore(context.database, options.hooks),
+      const createdStore = new PostgresInstanceStore(context.database, options.hooks);
+      const created = new InstanceHost({ game: options.game(context), store: createdStore,
         clock: context.clock, nodeId, contentHash: context.content.contentHash,
         ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
         ...(options.renewEveryMs === undefined ? {} : { renewEveryMs: options.renewEveryMs }),
         ...(options.graceMs === undefined ? {} : { graceMs: options.graceMs }),
         onError: (error, instanceId) => { app.log.error({ instanceId, err: error }, 'live instance error'); } });
       host = created;
+      store = createdStore;
       let sweep: ReturnType<typeof setInterval> | undefined;
       if (options.autoStart !== false) {
         created.start();
@@ -90,6 +100,7 @@ export function createLiveHostModule<S>(options: LiveHostModuleOptions<S>): Live
   return {
     module,
     host: requireHost,
+    createInTransaction: (tx, input) => requireStore().createInTransaction(tx, input),
     async handleSocketCommand(payload, identity, connection) {
       const op = parseLiveOp(payload);
       if (op === undefined) return undefined;

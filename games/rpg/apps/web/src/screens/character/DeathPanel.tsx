@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { LiveDeathSummaryDto } from '@rpg/protocol';
+import type { LiveBossRiskDto, LiveDeathSummaryDto } from '@rpg/protocol';
 import type { ApiClient } from '../../api/http.ts';
 import type { LiveClient } from '../../live/client.ts';
 
@@ -42,12 +42,36 @@ export function DeathPanel({ actorId, api, live }: { actorId: string; api: ApiCl
   </section>;
 }
 
-/** Reusable warning for a future reachable live boss/risk entry point; all listed Live values remain provisional. */
-export function ProvisionalLiveRiskNotice() {
-  return <aside className="live-risk-notice" aria-label="Provisional live death consequences">
+/** Formats the server's boss-entry warning without estimating or deriving risk in the client. */
+export function ProvisionalLiveRiskNotice({ risk }: { risk?: LiveBossRiskDto } = {}) {
+  if (risk === undefined) return <aside className="live-risk-notice" aria-label="Provisional live death consequences">
     <h2>Death consequences · provisional</h2>
     <p>The current live rules apply an XP loss of 10% of the XP required for the next level. That loss can drop a level, but never below level 1. Your run bag moves to a corpse for 24 hours; equipped gear is kept. The server calculates and records the actual result. These rules remain provisional.</p>
     <p>Recovering a corpse leaves its contents at risk in your run bag until you return to Sanctuary.</p>
+  </aside>;
+  return <aside className="live-risk-notice" aria-label="Provisional live death consequences">
+    <h3>Server risk summary · provisional rules</h3>
+    <p>Location: <code>{risk.locationId}</code>. Retreat is blocked in this boss room.</p>
+    <div className="live-risk-notice__section">
+      <h4>Enemies</h4>
+      {risk.enemies.length === 0 ? <p>None listed by the server.</p> : <ul>{risk.enemies.map((enemy, index) =>
+        <li key={`${enemy.enemy}:${index}`}>{enemy.enemy} · {enemy.rank} rank · level {enemy.level}</li>)}</ul>}
+    </div>
+    <div className="live-risk-notice__section">
+      <h4>Party status</h4>
+      {risk.heroes.length === 0 ? <p>No hero details returned.</p> : <ul>{risk.heroes.map((hero) =>
+        <li key={hero.actorId}>{hero.actorId}: {hero.hp} / {hero.maxHp} HP · {hero.healingConsumables} healing supplies</li>)}</ul>}
+    </div>
+    <div className="live-risk-notice__section">
+      <h4>What is at risk if you die</h4>
+      {risk.deathConsequences.length === 0 ? <p>The server returned no per-hero loss estimate.</p> : <ul>{risk.deathConsequences.map((consequence) => {
+        const bag = consequence.runBag;
+        const itemCount = bag.items.reduce((sum, item) => sum + item.qty, 0);
+        return <li key={consequence.actorId}>{consequence.actorId}: {consequence.xpLost} XP and run bag ({itemCount} stack item(s), {bag.gold} gold, {bag.uniques.length} unique item(s)) would move to a corpse.</li>;
+      })}</ul>}
+      {risk.onDeath.length > 0 && <p>Server-listed consequences: {risk.onDeath.join(', ')}.</p>}
+    </div>
+    <p>The server computes and records any actual loss. Recovering a corpse leaves its contents at risk until you return to Sanctuary.</p>
   </aside>;
 }
 

@@ -10,7 +10,7 @@ import { App } from './App.tsx';
 import type { LiveConnection } from './services.ts';
 
 const CHARACTER: CharacterDto = {
-  actorId: 'a', accountId: 'acc', gameId: 'rpg', name: 'Ada', level: 3, xp: 120,
+  actorId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', accountId: 'acc', gameId: 'rpg', name: 'Ada', level: 3, xp: 120,
   attributes: { STR: 9, AGI: 4, INT: 2, VIT: 10, SPI: 5 }, unspentPoints: 0,
   skillLoadout: ['skill:shield_bash', 'skill:guard'], automationRules: [], activityState: 'none', activityId: null, version: 1,
 };
@@ -36,6 +36,8 @@ function services(characters: CharacterDto[]) {
   const fetch: FetchLike = async (input) => {
     if (input === '/auth/session') return Response.json({ accountId: 'acc', guest: true, email: null, expiresAtMs: 1 });
     if (input === '/characters') return Response.json(characters);
+    if (input.startsWith('/live/current/')) return Response.json({ current: null });
+    if (input.startsWith('/live/options/')) return Response.json({ actorId: input.split('/').at(-1), areas: [], supplies: [] });
     return Response.json({ error: 'not_found' }, { status: 404 });
   };
   return { api: new ApiClient(fetch), live: fakeLive(), storage: { getItem: () => null, setItem: () => {} } };
@@ -58,7 +60,7 @@ describe('App shell', () => {
     expect([...links].map((link) => link.textContent)).toEqual(['Character', 'Inventory', 'World map', 'Expeditions']);
     expect(screen.getByRole('link', { name: 'Character' }).getAttribute('aria-current')).toBe('page');
 
-    for (const [label, heading] of [['Inventory', 'Inventory'], ['World map', 'World map'], ['Expeditions', 'Expeditions']] as const) {
+    for (const [label, heading] of [['Inventory', 'Inventory'], ['World map', 'Live adventure'], ['Expeditions', 'Expeditions']] as const) {
       fireEvent.click(screen.getByRole('link', { name: label }));
       act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
       expect(await screen.findByRole('heading', { name: heading })).toBeDefined();
@@ -84,7 +86,7 @@ describe('App shell', () => {
   it('opens a deep-linked tab', async () => {
     window.location.hash = '/world';
     render(<App services={services([CHARACTER])} />);
-    expect(await screen.findByRole('heading', { name: 'World map' })).toBeDefined();
+    expect(await screen.findByRole('heading', { name: 'Live adventure' })).toBeDefined();
   });
 
   it('loads the durable death summary with the character after opening the app', async () => {

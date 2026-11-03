@@ -194,7 +194,53 @@ h1, h2, p, dl, ol { margin: 0; }
 .death-panel__loot li strong { flex: none; font-variant-numeric: tabular-nums; }
 .death-panel__recovery { border-color: var(--warn); }
 .live-risk-notice { border-color: var(--warn); background: #30251d; }
-.live-risk-notice h2 { color: var(--warn); }
+.live-risk-notice h2, .live-risk-notice h3 { color: var(--warn); font-size: .95rem; }
+.live-risk-notice h4, .live-risk-notice__section { margin: 0; }
+.live-risk-notice h4 { font-size: .85rem; color: var(--muted); }
+.live-risk-notice__section { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid var(--border); }
+.live-risk-notice ul { margin: 0; padding-left: 20px; }
+.live-risk-notice li { overflow-wrap: anywhere; margin-top: 3px; }
+.live-risk-notice code { overflow-wrap: anywhere; }
+
+/* Live exploration entry and accessible DOM scene presentation (#40 interim surface). */
+.live-screen__heading { display: flex; flex-direction: column; gap: 4px; }
+.live-entry, .live-scene, .live-terminal, .live-action-status {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+}
+.live-entry h2, .live-scene h2, .live-terminal h2 { font-size: 1.05rem; }
+.live-entry__field { display: flex; flex-direction: column; gap: 5px; }
+.live-entry__field select, .live-entry__supply input {
+  min-height: 48px; min-width: 0; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-2); color: var(--text); font: inherit;
+}
+.live-entry__supplies { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
+.live-entry__supplies legend { padding: 0 4px; color: var(--muted); }
+.live-entry__supply { display: grid; grid-template-columns: minmax(0, 1fr) 84px; gap: 8px; align-items: center; min-height: 48px; }
+.live-entry__supply span { overflow-wrap: anywhere; }
+.live-entry__supply small { display: block; color: var(--muted); }
+.live-entry__supply input { width: 100%; text-align: center; font-variant-numeric: tabular-nums; }
+.live-entry__start, .live-return { width: 100%; }
+.live-screen__connection { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px dashed var(--warn); border-radius: 8px; color: #ffe3c7; background: #3a2a1d; }
+.live-scene { background: linear-gradient(160deg, var(--surface) 0%, #252032 100%); }
+.live-scene__area { color: var(--muted); overflow-wrap: anywhere; }
+.live-scene__actors { display: flex; flex-direction: column; gap: 6px; }
+.live-scene__actors p { display: flex; justify-content: space-between; gap: 10px; min-height: 44px; align-items: center; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); }
+.live-scene__actors span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.live-scene__actions, .live-scene__section { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.live-scene__actions h3, .live-scene__section h3 { margin: 0; font-size: .9rem; color: var(--muted); }
+.live-action { display: flex; flex-direction: column; justify-content: center; gap: 2px; width: 100%; min-height: 48px; padding: 8px 12px; text-align: left; overflow-wrap: anywhere; }
+.live-action small { font-size: .78rem; font-weight: 400; color: inherit; opacity: .85; }
+.live-scene__section ul { margin: 0; padding-left: 20px; }
+.live-scene__section li { overflow-wrap: anywhere; margin-top: 4px; }
+.live-action-status { border-color: var(--warn); }
+.live-action-status--confirmed { border-color: var(--ok); }
+.live-action-status--rejected, .live-action-status--error { border-color: var(--danger); }
+.live-risk-dialog-backdrop { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; padding: 16px; background: #09070ddd; }
+.live-risk-dialog { display: flex; flex-direction: column; gap: 12px; width: min(100%, 440px); max-height: 90dvh; overflow: auto; padding: 16px; border: 1px solid var(--warn); border-radius: var(--radius); background: var(--surface); box-shadow: 0 18px 60px #0008; }
+.live-risk-dialog h2 { font-size: 1.1rem; }
+.live-risk-dialog__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.live-risk-dialog__actions button { min-height: 48px; }
 
 .presets__list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .preset { display: flex; flex-direction: column; gap: 4px; }

@@ -23,18 +23,21 @@ export interface LiveSessionState {
 
 interface PendingCommand { readonly commandId: string; readonly command: LiveJson; sent: boolean }
 export interface LiveSessionOptions {
-  readonly client: LiveClient;
+  readonly client: LiveSessionClient;
   readonly instanceId: string;
   readonly actorId: string;
   readonly newId?: () => string;
 }
+
+/** Minimal surface of the app-wide authenticated socket needed by a game session. */
+export type LiveSessionClient = Pick<LiveClient, 'state' | 'subscribe' | 'subscribeFrames' | 'sendFrame' | 'start' | 'stop'>;
 
 /**
  * Game-session state layered on the app's single authenticated LiveClient socket. Commands remain pending with the
  * same ID until a live.ack arrives, so reconnect can safely replay an ambiguous send through the server dedupe log.
  */
 export class LiveSession {
-  readonly #client: LiveClient;
+  readonly #client: LiveSessionClient;
   readonly #instanceId: string;
   readonly #actorId: string;
   readonly #newId: () => string;
