@@ -7,7 +7,7 @@ record the outcome here (and in an ADR if architectural).
 | # | Decision | Provisional proposal | Resolve in | Status |
 |---|---|---|---|---|
 | 1 | Combat tick duration | 500 ms | Spike 1 / ADR-0013 | Open (spike 1: idle cost is independent of tick; 500 ms kept as engine constant, feel to be judged in M4 playtests) |
-| 2 | XP, damage, defense and progression formulas | Integer formulas in [combat-engine.md](spec/combat-engine.md#4-formulas-provisional-integer-only); XP curve table | M1 balance pass | Open |
+| 2 | XP, damage, defense and progression formulas | Integer formulas in [combat-engine.md](spec/combat-engine.md#4-formulas-provisional-integer-only); XP curve table | M1 balance pass | Open (method checkpoint: compare production idle settlement with a bounded no-regen idle counterfactual; live combat/navigation measurement remains pending; validate resource pressure, death and XP curve before setting targets; progression points remain #13) |
 | 3 | Party loot distribution | Equal gold/XP split; round-robin loot (idle); personal loot (live) | M8 | Open |
 | 4 | Max party size | 4 (POC validates 2) | M8 | Open |
 | 5 | Live disconnection policy | 60 s grace; combat continues on automation; then `left` — **amended by spike 3**, see [below](#5-live-disconnection-policy-spike-3) | Spike 3 / M4 | Confirmed with amendments (values provisional) |
@@ -29,6 +29,14 @@ record the outcome here (and in an ADR if architectural).
 | 21 | Out-of-combat consumable use in live | Healing consumables only; `heal` and a whole `hot` apply at once — [exact rules](#14-17-18-20-21-live-exploration-rules-38) | M4 playtest | Implemented provisionally (#38), pending playtest |
 
 ## Notes
+
+### #2 Balance evidence checkpoint
+
+The comparison baseline is being rebuilt around the production idle simulation and settlement path in [runtime pass baseline](design/balance/runtime-pass-baseline.md), with the [economy sinks audit](design/balance/economy-sinks-audit.md) documenting which modeled values can actually be realized. Older hourly assumptions are not observations: free live regeneration, free group rerolls, 36 fights/hour and vendor value for drops are scenario assumptions (there is no sell command). Likewise, scenario/admin fixtures such as +4 attributes per level, design gear and Thornblade skills do not describe current new-player progression.
+
+Current character creation seeds provisional attributes STR 9 / AGI 4 / INT 2 / VIT 10 / SPI 5 and four skills (shield bash, guard, cleave, mend), with zero unspent points and no starter equipment; see [character validation](../games/rpg/apps/server/src/characters/validation.ts) and [character service](../games/rpg/apps/server/src/characters/service.ts). Existing #13 behavior grants no attribute points on level change. The [production runtime baseline](design/balance/runtime-pass-baseline.md) uses the runtime starter with naked gear and explicit supplies. Its no-regen row is a counterfactual idle simulation, not a live combat-chain measurement; live navigation, input delays, loot grants, and death handling remain unmeasured.
+
+This is a methodological checkpoint, not a numeric finding or approval. Next, compare live and idle using measured timing, validate resource pressure, death behavior and the XP curve, then decide progression #13 separately before final formula targets. #2 remains open.
 
 ### #5 Live disconnection policy (spike 3)
 
