@@ -11,7 +11,8 @@ import { BP_SCALE, deriveSeed } from '@engine/sim-core';
 import type { Seed } from '@engine/sim-core';
 import rpgContentPlugin from '@rpg/content-plugin';
 import { applyXpLoss, totalXpAtLevelStart } from '@rpg/rpg-stats';
-import { AutomationRulesSchema, XpCurveSchema } from '@rpg/rpg-schema';
+import { AutomationRulesSchema, EquipmentItemSchema, XpCurveSchema } from '@rpg/rpg-schema';
+import type { EquipmentItem } from '@rpg/rpg-schema';
 import {
   DEFAULT_RPG_IDLE_TUNING,
   RPG_IDLE_SIMULATOR_VERSION,
@@ -32,6 +33,9 @@ const LEVELS = [1, 3, 5] as const;
 const SUPPLY_COUNTS = [0, 5] as const;
 const RUNS = 100;
 const SEED_ROOT = 56;
+const STARTER_KIT: readonly { id: string; slot: EquipmentItem['slot'] }[] = [
+  { id: 'item:rusty_sword', slot: 'weapon' }, { id: 'item:padded_vest', slot: 'chest' }, { id: 'item:wooden_buckler', slot: 'offhand' },
+];
 
 // Mirrors PROVISIONAL_STARTER_ATTRIBUTES / starter skills and rules in server characters/validation.ts.
 // L1/L3/L5 are character levels only: level-up grants no attribute points under the current open decision #13.
@@ -99,10 +103,10 @@ function round(value: number, places = 2): number {
   return Math.round(value * scale) / scale;
 }
 
-function actor(level: number): RpgActorSnapshot {
+function actor(level: number, equipment: readonly EquipmentItem[] = []): RpgActorSnapshot {
   return {
     actorId: ACTOR_ID,
-    build: { level, attributes: { ...STARTER_ATTRIBUTES }, equipment: [] },
+    build: { level, attributes: { ...STARTER_ATTRIBUTES }, equipment: equipment.map(({ stats }) => ({ stats })) },
     skills: [...STARTER_SKILLS],
     rules: [...STARTER_RULES],
   };
@@ -118,6 +122,7 @@ function runCell(
   runs: number,
   budget: number,
   seedRoot: Seed,
+  equipment: readonly EquipmentItem[] = [],
 ): RuntimePassRow {
   let segments = 0;
   let deaths = 0;
@@ -137,7 +142,7 @@ function runCell(
         consumables: carriedPotions === 0 ? [] : [{ item: 'item:minor_healing_potion', qty: carriedPotions }],
         retreat: { belowHpBp: 0, onlyWhenNoHealing: false },
       },
-      actors: [actor(level)],
+      actors: [actor(level, equipment)],
       seed: deriveSeed(seedRoot, 'runtime-pass', i),
       budget,
       activityId: ACTIVITY,
@@ -181,6 +186,69 @@ function runCell(
     meanItemsRetained: Object.fromEntries([...items.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([id, qty]) => [id, round(qty / runs)])),
     meanPotionsUsed: round(potionsUsed / runs),
   };
+}
+
+export function resolveStarterKit(items: readonly unknown[]): readonly EquipmentItem[] {
+  const parsed = items.map(item => EquipmentItemSchema.safeParse(item)).filter(result => result.success).map(result => result.data);
+  return STARTER_KIT.map(({ id, slot }) => {
+    const item = parsed.find(candidate => candidate.id === id);
+    if (item === undefined || item.slot !== slot) throw new Error(`starter kit item ${id} is missing, invalid, or not in slot ${slot}`);
+    return item;
+  });
+}
+
+export interface RuntimePairedComparison {
+  readonly engineVersion: string; readonly idleSimulatorVersion: string; readonly contentHash: string;
+  readonly seedRoot: number; readonly runsPerCell: number; readonly activity: string; readonly plannedBudget: number;
+  readonly command: string; readonly equipment: readonly { id: string; slot: string; stats: Readonly<Record<string, number>> }[];
+  readonly rows: readonly { model: RuntimePassRow['model']; level: number; carriedPotions: number;
+    naked: RuntimePassRow; starterKit: RuntimePassRow; delta: { deaths: number; grossXpPerRequestedHour: number;
+      netXpPerRequestedHour: number; meanGoldRetained: number; meanPotionsUsed: number; meanCombatTicks: number } }[];
+}
+
+export function runRuntimePassStarterKitComparison(options: { readonly runs?: number; readonly seedRoot?: number } = {}): RuntimePairedComparison {
+  const base = runRuntimePass(options);
+  const compiled = compileContentDirectory(CONTENT_ROOT, rpgContentPlugin);
+  if (!compiled.ok) throw new Error(`RPG content failed to compile:\n${formatErrors(compiled.errors)}`);
+  if (compiled.bundle.contentHash !== base.contentHash) throw new Error('starter-kit comparison compiled content hash differs from naked baseline');
+  const equipment = resolveStarterKit(compiled.bundle.collections['items'] ?? []);
+  const content = rpgIdleContentFromBundle(compiled.bundle);
+  const progression = compiled.bundle.collections['progression']?.[0] as { readonly xpToNext?: unknown } | undefined;
+  if (progression === undefined) throw new Error('compiled RPG content has no progression curve');
+  const curve = XpCurveSchema.parse({ xpToNext: progression.xpToNext });
+  const rows = base.rows.map(naked => {
+    const tuning: RpgIdleTuning = naked.model === 'idle-default-regen' ? DEFAULT_RPG_IDLE_TUNING : { ...DEFAULT_RPG_IDLE_TUNING, regenBetweenFightsBp: 0 };
+    const geared = runCell(content, curve, naked.level, naked.carriedPotions, tuning, naked.model, base.runsPerCell,
+      base.plannedBudget, base.seedRoot as Seed, equipment);
+    return { model: naked.model, level: naked.level, carriedPotions: naked.carriedPotions, naked, starterKit: geared,
+      delta: { deaths: geared.deaths - naked.deaths,
+        grossXpPerRequestedHour: round(geared.grossXpPerRequestedHour - naked.grossXpPerRequestedHour),
+        netXpPerRequestedHour: round(geared.netXpPerRequestedHour - naked.netXpPerRequestedHour),
+        meanGoldRetained: round(geared.meanGoldRetained - naked.meanGoldRetained),
+        meanPotionsUsed: round(geared.meanPotionsUsed - naked.meanPotionsUsed),
+        meanCombatTicks: round(geared.meanCombatTicks - naked.meanCombatTicks) } };
+  });
+  return { engineVersion: base.engineVersion, idleSimulatorVersion: base.idleSimulatorVersion, contentHash: base.contentHash,
+    seedRoot: base.seedRoot, runsPerCell: base.runsPerCell, activity: base.activity, plannedBudget: base.plannedBudget,
+    command: 'node games/rpg/tools/balance-sim/src/runtime-pass.ts --compare-starter-kit',
+    equipment: equipment.map(item => ({ id: item.id, slot: item.slot, stats: item.stats })), rows };
+}
+
+export function renderRuntimePassStarterKitComparison(report: RuntimePairedComparison): string {
+  const lines = ['# Region 1 idle starter-kit paired baseline', '',
+    `- ENGINE_VERSION: \`${report.engineVersion}\`; idle simulator: \`${report.idleSimulatorVersion}\``,
+    `- Content hash: \`${report.contentHash}\`; seed root: ${report.seedRoot}; ${report.runsPerCell} paired seeds per cell`,
+    `- Command: \`${report.command}\`; activity: \`${report.activity}\`; requested-hour budget: ${report.plannedBudget} slots`,
+    `- Resolved production gear: ${report.equipment.map(item => `${item.id} (${item.slot}; ${Object.entries(item.stats).map(([k,v]) => `${k} ${v}`).join(', ') || 'no stats'})`).join('; ')}`,
+    '', 'Each naked/geared pair uses the same level, potion provision, rules, activity, and seed (`deriveSeed(seedRoot, \'runtime-pass\', i)`). The kit is equipped in the snapshot; level-up does not add attributes. `idle-default-regen` is the current production idle tuning; `idle-no-regen-counterfactual` is a counterfactual sensitivity run, not another production policy.',
+    '', '| Model | Level | Potions | Deaths naked → kit | Timeouts naked → kit | Censored | Gross XP naked → kit | Net XP naked → kit | Gold retained proxy naked → kit | Potions used naked → kit | Combat ticks naked → kit | Δ deaths | Δ gross XP | Δ net XP | Δ gold proxy |',
+    '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+    ...report.rows.map(r => `| ${r.model} | ${r.level} | ${r.carriedPotions} | ${r.naked.deaths}/${r.naked.runs} → ${r.starterKit.deaths}/${r.starterKit.runs} | ${r.naked.timeouts} → ${r.starterKit.timeouts} | 0 | ${r.naked.grossXpPerRequestedHour} → ${r.starterKit.grossXpPerRequestedHour} | ${r.naked.netXpPerRequestedHour} → ${r.starterKit.netXpPerRequestedHour} | ${r.naked.meanGoldRetained} → ${r.starterKit.meanGoldRetained} | ${r.naked.meanPotionsUsed} → ${r.starterKit.meanPotionsUsed} | ${r.naked.meanCombatTicks} → ${r.starterKit.meanCombatTicks} | ${r.delta.deaths} | ${r.delta.grossXpPerRequestedHour} | ${r.delta.netXpPerRequestedHour} | ${r.delta.meanGoldRetained} |`),
+    '', '## Limits', '',
+    '- Gross XP is credited before death loss; net XP applies the production idle death penalty. Gold retained is the result of in-memory idle settlement math, not DB-confirmed banking or sales. Idle settlement has no live corpse flow; this gold quantity is not corpse-at-risk gold. Timeout count is reported separately and censored is zero for this completed idle matrix.',
+    '- Access to the Region 1 hunt activity is assumed already unlocked; a new level-1 character is not necessarily eligible to start it. Kit ownership/acquisition and potion provision are also assumed. L3/L5 potion cohorts are provisioned. Current server kit claim reachability is not evidence of a ledger grant, equipment transaction, or banked sales. This does not measure human play, DB evidence, or sustainable rates.',
+    '- This is a bounded current-code comparison, not a target or a balance verdict. Thornblade unlocks and level-scaled attributes are excluded.', ''];
+  return lines.join('\n');
 }
 
 export function runRuntimePass(options: { readonly runs?: number; readonly seedRoot?: number } = {}): RuntimePassReport {
@@ -258,5 +326,7 @@ export function renderRuntimePass(report: RuntimePassReport): string {
 }
 
 if (process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  writeFileSync(1, renderRuntimePass(runRuntimePass()));
+  writeFileSync(1, process.argv.includes('--compare-starter-kit')
+    ? renderRuntimePassStarterKitComparison(runRuntimePassStarterKitComparison())
+    : renderRuntimePass(runRuntimePass()));
 }

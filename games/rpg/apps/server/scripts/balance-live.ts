@@ -7,7 +7,8 @@ import { compileContentDirectory, formatErrors } from '@engine/content-compiler'
 import { deriveSeed } from '@engine/sim-core';
 import type { JsonValue, LiveCommandResult, LiveStep } from '@engine/live-kernel';
 import plugin from '@rpg/content-plugin';
-import { AutomationRulesSchema } from '@rpg/rpg-schema';
+import { AutomationRulesSchema, EquipmentItemSchema } from '@rpg/rpg-schema';
+import type { EquipmentItem } from '@rpg/rpg-schema';
 import { ENGINE_VERSION } from '@rpg/rpg-sim';
 
 import { PROVISIONAL_STARTER_ATTRIBUTES, PROVISIONAL_STARTER_RULES, PROVISIONAL_STARTER_SKILLS, BASIC_ATTACK } from '../src/characters/validation.ts';
@@ -33,6 +34,9 @@ const TRAVEL = ROUTE.slice(1).map((name, i) => {
 const RETURN_TRAVEL = [{ type: 'travel', exitId: E('old_well', 'overgrown_causeway') },
   { type: 'travel', exitId: E('overgrown_causeway', 'portal_clearing') }];
 const RETURN_MS = [0, 5_000, 30_000] as const;
+const STARTER_KIT: readonly { id: string; slot: EquipmentItem['slot'] }[] = [
+  { id: 'item:rusty_sword', slot: 'weapon' }, { id: 'item:padded_vest', slot: 'chest' }, { id: 'item:wooden_buckler', slot: 'offhand' },
+];
 
 export interface LiveRun {
   readonly seed: number; readonly level: number; readonly carriedPotions: number;
@@ -63,8 +67,8 @@ function ok<T>(result: LiveCommandResult<T>): LiveStep<T> {
   if ('rejected' in result) throw new Error(`live command rejected: ${result.rejected}`);
   return result;
 }
-function actor(level: number, carriedPotions: number): RpgLiveHeroSetup {
-  return { actorId: ACTOR, build: { level, attributes: { ...PROVISIONAL_STARTER_ATTRIBUTES }, equipment: [] },
+function actor(level: number, carriedPotions: number, equipment: readonly EquipmentItem[] = []): RpgLiveHeroSetup {
+  return { actorId: ACTOR, build: { level, attributes: { ...PROVISIONAL_STARTER_ATTRIBUTES }, equipment: equipment.map(({ stats }) => ({ stats })) },
     skills: [BASIC_ATTACK, ...PROVISIONAL_STARTER_SKILLS], rules: potionRules,
     consumables: carriedPotions ? [{ item: 'item:minor_healing_potion', qty: carriedPotions }] : [] };
 }
@@ -125,13 +129,21 @@ function runOne(game: ReturnType<typeof createRpgLiveGame>, setup: RpgLiveSetup,
 }
 
 function round(n: number, digits = 2): number { const p = 10 ** digits; return Math.round(n * p) / p; }
-export function runBalanceLive(options: { runs?: number; seedRoot?: number } = {}): LiveReport {
+export function resolveLiveStarterKit(items: readonly unknown[]): readonly EquipmentItem[] {
+  const parsed = items.map(item => EquipmentItemSchema.safeParse(item)).filter(result => result.success).map(result => result.data);
+  return STARTER_KIT.map(({ id, slot }) => {
+    const item = parsed.find(candidate => candidate.id === id);
+    if (item === undefined || item.slot !== slot) throw new Error(`starter kit item ${id} is missing, invalid, or not in slot ${slot}`);
+    return item;
+  });
+}
+function runBalanceLiveWithEquipment(options: { runs?: number; seedRoot?: number } = {}, equipment?: readonly EquipmentItem[]): LiveReport {
   const runs = options.runs ?? RUNS; const seedRoot = options.seedRoot ?? SEED_ROOT;
   if (!Number.isSafeInteger(runs) || runs < 1 || runs > 10_000) throw new RangeError('runs must be in [1, 10000]');
   const compiled = compileContentDirectory(CONTENT_ROOT, plugin);
   if (!compiled.ok) throw new Error(`RPG content failed to compile:\n${formatErrors(compiled.errors)}`);
   const game = createRpgLiveGame(compiled.bundle);
-  const setup = (level: number, carriedPotions: number): RpgLiveSetup => ({ area: AREA, heroes: [actor(level, carriedPotions)] });
+  const setup = (level: number, carriedPotions: number): RpgLiveSetup => ({ area: AREA, heroes: [actor(level, carriedPotions, equipment)] });
   const all: LiveRun[] = [];
   for (const level of LEVELS) for (const carriedPotions of POTIONS) for (let i = 0; i < runs; i++)
     all.push(runOne(game, setup(level, carriedPotions), level, carriedPotions, deriveSeed(seedRoot, 'runtime-pass', i)));
@@ -156,6 +168,56 @@ export function runBalanceLive(options: { runs?: number; seedRoot?: number } = {
     seedRoot, runsPerCell: runs, route: [...ROUTE.map(R), R('overgrown_causeway'), R('portal_clearing'), 'returnToSanctuary'], command: 'node games/rpg/apps/server/scripts/balance-live.ts', rows,
     diagnostic };
 }
+export function runBalanceLive(options: { runs?: number; seedRoot?: number } = {}): LiveReport {
+  return runBalanceLiveWithEquipment(options);
+}
+export interface LiveStarterKitComparison {
+  readonly engineVersion: string; readonly liveVersion: string; readonly tickMs: number; readonly contentHash: string;
+  readonly seedRoot: number; readonly runsPerCell: number; readonly route: readonly string[]; readonly command: string;
+  readonly equipment: readonly { id: string; slot: string; stats: Readonly<Record<string, number>> }[];
+  readonly rows: readonly { level: number; carriedPotions: number; naked: LiveReport['rows'][number]; starterKit: LiveReport['rows'][number];
+    delta: { returned: number; dead: number; meanXpGranted: number; meanGoldEligibleOnReturn: number; meanCorpseAtRiskGold: number;
+      meanPotionsUsed: number; meanCombatTicks: number; meanCommands: number } }[];
+}
+export function runBalanceLiveStarterKitComparison(options: { runs?: number; seedRoot?: number } = {}): LiveStarterKitComparison {
+  const naked = runBalanceLive(options);
+  const compiled = compileContentDirectory(CONTENT_ROOT, plugin);
+  if (!compiled.ok) throw new Error(`RPG content failed to compile:\n${formatErrors(compiled.errors)}`);
+  if (compiled.bundle.contentHash !== naked.contentHash) throw new Error('starter-kit comparison compiled content hash differs from naked baseline');
+  const equipment = resolveLiveStarterKit(compiled.bundle.collections['items'] ?? []);
+  const kit = runBalanceLiveWithEquipment(options, equipment);
+  if (kit.contentHash !== naked.contentHash) throw new Error('starter-kit live run content hash differs from naked baseline');
+  const rows = naked.rows.map(a => {
+    const b = kit.rows.find(r => r.level === a.level && r.carriedPotions === a.carriedPotions);
+    if (!b) throw new Error('starter-kit live comparison matrix is incomplete');
+    return { level: a.level, carriedPotions: a.carriedPotions, naked: a, starterKit: b,
+      delta: { returned: b.returned - a.returned, dead: b.dead - a.dead,
+        meanXpGranted: round(b.meanXpGranted - a.meanXpGranted),
+        meanGoldEligibleOnReturn: round(b.meanGoldEligibleOnReturn - a.meanGoldEligibleOnReturn),
+        meanCorpseAtRiskGold: round(b.meanCorpseAtRiskGold - a.meanCorpseAtRiskGold),
+        meanPotionsUsed: round(b.meanPotionsUsed - a.meanPotionsUsed),
+        meanCombatTicks: round(b.meanCombatTicks - a.meanCombatTicks), meanCommands: round(b.meanCommands - a.meanCommands) } };
+  });
+  return { engineVersion: naked.engineVersion, liveVersion: naked.liveVersion, tickMs: naked.tickMs, contentHash: naked.contentHash,
+    seedRoot: naked.seedRoot, runsPerCell: naked.runsPerCell, route: naked.route,
+    command: 'node games/rpg/apps/server/scripts/balance-live.ts --compare-starter-kit',
+    equipment: equipment.map(item => ({ id: item.id, slot: item.slot, stats: item.stats })), rows };
+}
+export function renderBalanceLiveStarterKitComparison(report: LiveStarterKitComparison): string {
+  return ['# Region 1 production live starter-kit paired baseline', '',
+    `- Engine: \`${report.engineVersion}\`; live plugin: \`${report.liveVersion}\`; tick: ${report.tickMs} ms`,
+    `- Content hash: \`${report.contentHash}\`; seed root: ${report.seedRoot}; ${report.runsPerCell} paired seeds per cell`,
+    `- Command: \`${report.command}\`; route: ${report.route.join(' → ')}`,
+    `- Resolved production gear: ${report.equipment.map(item => `${item.id} (${item.slot}; ${Object.entries(item.stats).map(([k,v]) => `${k} ${v}`).join(', ') || 'no stats'})`).join('; ')}`,
+    '', 'Each naked/geared pair is the same starter build, level cohort, potion provision, route, rules, and seed (`deriveSeed(seedRoot, \'runtime-pass\', i)`). Live XP can level the hero during the route; level-up grants no attributes. This finite production plugin trace reports event counts and effects; it does not estimate sustainable XP/hour.',
+    '', '| Level | Potions | Returned naked → kit | Dead naked → kit | Censored naked → kit | Gross XP grant naked → kit | Gold eligible on return naked → kit | Corpse-at-risk gold naked → kit | Potions used naked → kit | Combat ticks naked → kit | Commands naked → kit | Δ returned | Δ dead | Δ XP | Δ return gold | Δ corpse gold |',
+    '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+    ...report.rows.map(r => `| ${r.level} | ${r.carriedPotions} | ${r.naked.returned} → ${r.starterKit.returned} | ${r.naked.dead} → ${r.starterKit.dead} | ${r.naked.censored} → ${r.starterKit.censored} | ${r.naked.meanXpGranted} → ${r.starterKit.meanXpGranted} | ${r.naked.meanGoldEligibleOnReturn} → ${r.starterKit.meanGoldEligibleOnReturn} | ${r.naked.meanCorpseAtRiskGold} → ${r.starterKit.meanCorpseAtRiskGold} | ${r.naked.meanPotionsUsed} → ${r.starterKit.meanPotionsUsed} | ${r.naked.meanCombatTicks} → ${r.starterKit.meanCombatTicks} | ${r.naked.meanCommands} → ${r.starterKit.meanCommands} | ${r.delta.returned} | ${r.delta.dead} | ${r.delta.meanXpGranted} | ${r.delta.meanGoldEligibleOnReturn} | ${r.delta.meanCorpseAtRiskGold} |`),
+    '', '## Limits', '',
+    '- XP is gross live grant only; no net XP is projected. Gold eligible on return is a plugin bag proxy, not banked ledger evidence. Corpse-at-risk gold is the grants from deaths before the run bag is cleared; censored runs remain unsettled.',
+    '- Access to this route is assumed; starter-kit ownership/acquisition and potion provision are also assumptions. L3/L5 with potions are provisioned cohorts. Claim reachability does not measure actual ledger grant or equipment transactions. No human or DB evidence is included.',
+    '- The route is one finite authored path and excludes the Region 1 Matriarch/boss room. A 100/100 return count therefore does not show R1 conquest or boss success. Do not compare these live denominators with idle requested-hour denominators or treat the trace as a sustainable rate. Thornblade unlocks and level-scaled attributes are excluded.', ''].join('\n');
+}
 export function renderBalanceLive(report: LiveReport): string {
   return ['# Region 1 production live route trace', '', `- Engine: \`${report.engineVersion}\`; live plugin: \`${report.liveVersion}\`; tick: ${report.tickMs} ms`,
     `- Content hash: \`${report.contentHash}\`; seed root: ${report.seedRoot}; ${report.runsPerCell} seeds per cell`,
@@ -175,4 +237,5 @@ export function renderBalanceLive(report: LiveReport): string {
     '- A deterministic successful L5/0-potion run is retained as a compact diagnostic trace by the exported function for test assertions; the baseline includes aggregate counts only.', '',
   ].join('\n');
 }
-if (process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) writeFileSync(1, renderBalanceLive(runBalanceLive()));
+if (process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) writeFileSync(1,
+  process.argv.includes('--compare-starter-kit') ? renderBalanceLiveStarterKitComparison(runBalanceLiveStarterKitComparison()) : renderBalanceLive(runBalanceLive()));
