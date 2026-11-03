@@ -170,9 +170,10 @@ describe.skipIf(!adminUrl)('guest/email/session authentication against real Post
     let releaseCommand: (() => void) | undefined;
     const held = new Promise<void>((resolve) => { releaseCommand = resolve; });
     const calls: unknown[] = [];
+    const lifecycle: { type: string; accountId: string; connectionId: string; atMs: number }[] = [];
     const instance = await app({ onCommand: async (payload, identity) => {
       calls.push(payload); await held; return { type: 'command.result', accountId: identity.accountId, payload };
-    } });
+    }, onLifecycle: async (event) => { lifecycle.push(event); throw new Error('optional telemetry failed'); } });
     const address = await instance.listen({ host: '127.0.0.1', port: 0 });
     const endpoint = address.replace('http:', 'ws:') + '/auth/live';
     const connections = new Set<WebSocket>();
@@ -212,6 +213,13 @@ describe.skipIf(!adminUrl)('guest/email/session authentication against real Post
       // Real TCP FIN/close lifecycle is essential here: injectWS's duplex stream leaves the server CLOSING.
       first.socket.close(); await first.closed;
       await waitUntil(async () => (await database.db.select().from(liveSessions).where(eq(liveSessions.accountId, session.accountId))).length === 0);
+      await waitUntil(async () => lifecycle.some((event) => event.type === 'stopped'));
+      expect(lifecycle[0]?.type).toBe('authenticated');
+      expect(lifecycle.at(-1)?.type).toBe('stopped');
+      expect(lifecycle.slice(1, -1).length).toBeGreaterThanOrEqual(2);
+      expect(lifecycle.slice(1, -1).every((event) => event.type === 'heartbeat')).toBe(true);
+      expect(lifecycle.every((event) => event.accountId === session.accountId && Number.isSafeInteger(event.atMs))).toBe(true);
+      expect(new Set(lifecycle.map((event) => event.connectionId))).toHaveProperty('size', 1);
       const reconnect = connect({ cookie: `${SESSION_COOKIE}=${session.sessionToken}` });
       await reconnect.opened;
       expect(JSON.parse(await reconnect.next())).toMatchObject({ type: 'authenticated' });

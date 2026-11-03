@@ -50,6 +50,20 @@
       "when": 1793670000000,
       "tag": "0006_live_deaths",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793671000000,
+      "tag": "0007_gameplay_telemetry",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793679000000,
+      "tag": "0008_connection_telemetry",
+      "breakpoints": true
     }
   ]
 }

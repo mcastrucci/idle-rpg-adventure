@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
 import { createRpgDatabase, createRpgServer } from '../index.ts';
+import { rpgLiveEntries } from '../telemetry/schema.ts';
 import { createRpgLiveHost, prepareRpgLiveStart } from './index.ts';
 import type { RpgLiveHost } from './index.ts';
 
@@ -166,6 +167,7 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
     const startBody = { commandId, actorId: character.actorId, areaId: REGION, supplies: [] };
     expect((await n.app.inject({ method: 'POST', url: '/live/start', payload: startBody })).statusCode).toBe(401);
     expect((await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(stranger), payload: startBody })).statusCode).toBe(404);
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.actorId, character.actorId))).toEqual([]);
     const duplicateSupplyId = randomUUID();
     const duplicateSupply = await start(n, session, character, duplicateSupplyId, { supplies: [
       { item: POTION, qty: 1 }, { item: POTION, qty: 1 },
@@ -220,6 +222,8 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
     const first = await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(session), payload: body });
     expect(first.statusCode).toBe(200);
     const instanceId = first.json<{ instanceId: string }>().instanceId;
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.instanceId, instanceId)))
+      .toMatchObject([{ instanceId, actorId: character.actorId, areaId: REGION, startedAt: new Date(clock.nowMs()) }]);
     const client = await new Client(n.url, session).ready();
     await attach(client, character.actorId, instanceId);
     client.request({ op: 'live.command', actorId: character.actorId, instanceId, commandId: randomUUID(), command: { type: 'returnToSanctuary' } });
@@ -230,6 +234,7 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
     expect(replay.statusCode).toBe(200);
     expect(replay.json()).toEqual({ instanceId });
     expect((await database.db.select().from(liveInstances).where(eq(liveInstances.instanceId, instanceId)))).toHaveLength(1);
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.instanceId, instanceId))).toHaveLength(1);
     const changed = await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(session), payload: { ...body,
       supplies: [{ item: POTION, qty: 1 }] } });
     expect(changed.statusCode).toBe(409);
@@ -272,19 +277,20 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
     const n = await node('entry-crash-a');
     const { session, character } = await fixture(n);
     const commandId = randomUUID();
-    await database.pool.query(`CREATE FUNCTION fail_live_entry_insert() RETURNS trigger LANGUAGE plpgsql AS $$
-      BEGIN RAISE EXCEPTION 'test forced live insert rollback'; END; $$`);
-    await database.pool.query('CREATE TRIGGER fail_live_entry_insert BEFORE INSERT ON live_instances FOR EACH ROW EXECUTE FUNCTION fail_live_entry_insert()');
+    await database.pool.query(`CREATE FUNCTION fail_live_entry_telemetry() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'test forced live entry telemetry rollback'; END; $$`);
+    await database.pool.query('CREATE TRIGGER fail_live_entry_telemetry BEFORE INSERT ON rpg_live_entries FOR EACH ROW EXECUTE FUNCTION fail_live_entry_telemetry()');
     const failed = await start(n, session, character, commandId);
     expect(failed.statusCode).toBe(500);
     expect((await activity(character.actorId))).toMatchObject({ activityState: 'none', activityId: null });
     const activeRows = await database.pool.query(`SELECT instance_id FROM live_instances WHERE status = 'active' AND participants @> $1::jsonb`,
       [JSON.stringify([{ actorId: character.actorId }])]);
     expect(activeRows.rows).toEqual([]);
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.actorId, character.actorId))).toEqual([]);
     expect(await database.db.select().from(commandLog).where(and(eq(commandLog.accountId, session.accountId), eq(commandLog.commandId, commandId))))
       .toEqual([]);
-    await database.pool.query('DROP TRIGGER fail_live_entry_insert ON live_instances');
-    await database.pool.query('DROP FUNCTION fail_live_entry_insert()');
+    await database.pool.query('DROP TRIGGER fail_live_entry_telemetry ON rpg_live_entries');
+    await database.pool.query('DROP FUNCTION fail_live_entry_telemetry()');
     const successfulRetry = await start(n, session, character, commandId);
     expect(successfulRetry.statusCode).toBe(200);
     const createdId = successfulRetry.json<{ instanceId: string }>().instanceId;
