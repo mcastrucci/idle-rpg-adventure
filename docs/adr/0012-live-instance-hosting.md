@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (in-house `InstanceHost`)
 - **Date:** 2026-11-01 (proposed) · 2026-11-02 (accepted after spike 3, #13)
+- **Report:** [Spike 3 report](../spikes/spike-3-live.md) (coverage map of the adversarial scenarios and the seeded economy fuzz)
 - **Validation:** Spike 3 — `engine/live-kernel`, `engine/server-kit/src/live-host`, `games/rpg/apps/server/src/live`,
   throwaway comparison prototype (commit `10652c4`, removed from the workspace after the decision)
 
