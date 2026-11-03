@@ -18,6 +18,8 @@ pnpm --filter @rpg/server db:migrate
 pnpm --filter @rpg/server start
 ```
 
+For a repeatable PostgreSQL + API/live/worker container setup, see [the local container guide](../../../../docs/ops/container.md). The web client remains a separate `pnpm --filter @rpg/web dev` process.
+
 Node must support built-in TypeScript stripping (Node 22.18+ or 24). The same executable supports `ROLES=api`,
 `ROLES=live` or `ROLES=worker`. `GET /content` is API-only and exposes `{ game, format, contentHash }`; it does not
 publish a bundle containing server-only tables. `/health/live` and `/health/ready` are available for every role.

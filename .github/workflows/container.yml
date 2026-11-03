@@ -1,0 +1,86 @@
+name: RPG container smoke
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container-smoke:
+    name: Compose build, migrate, boot, authenticate and stop
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COMPOSE_PROJECT_NAME: rpg-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+      SMOKE_BASE_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate the documented Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build and start PostgreSQL through Compose
+        run: |
+          docker compose build server
+          docker compose up -d db
+
+      - name: Apply migrations using the image that will boot
+        run: docker compose --profile ops run --rm migrate
+
+      - name: Boot API, live and worker roles through Compose
+        run: docker compose up -d server
+
+      - name: Check readiness, guest authentication and authenticated WebSocket ping/pong
+        run: pnpm --filter @rpg/server exec node scripts/container-smoke.ts
+
+      - name: Wait for Docker health check
+        run: |
+          server_id="$(docker compose ps -q server)"
+          test -n "$server_id"
+          for attempt in $(seq 1 30); do
+            health="$(docker inspect --format='{{.State.Health.Status}}' "$server_id")"
+            if [ "$health" = "healthy" ]; then
+              echo "Docker health status: $health"
+              exit 0
+            fi
+            if [ "$health" = "unhealthy" ]; then
+              docker inspect --format='{{json .State.Health}}' "$server_id"
+              exit 1
+            fi
+            sleep 2
+          done
+          docker inspect --format='{{json .State.Health}}' "$server_id"
+          echo "Docker health check did not become healthy within 60 seconds" >&2
+          exit 1
+
+      - name: Verify bounded graceful SIGTERM shutdown
+        run: |
+          server_id="$(docker compose ps -q server)"
+          test -n "$server_id"
+          docker stop --time 15 "$server_id"
+          exit_code="$(docker inspect --format='{{.State.ExitCode}}' "$server_id")"
+          test "$exit_code" = "0"
+          docker logs "$server_id" 2>&1 | tee /tmp/rpg-container-smoke.log
+          grep -q 'shutting down' /tmp/rpg-container-smoke.log
+          echo "SIGTERM shutdown completed with exit code $exit_code"
+
+      - name: Show server logs on failure and remove CI containers and volumes
+        if: always()
+        run: |
+          docker compose logs server || true
+          docker compose down --volumes --remove-orphans
