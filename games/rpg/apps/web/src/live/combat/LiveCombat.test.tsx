@@ -18,15 +18,15 @@ const ack = (status: 'applied' | 'rejected', reason?: string): Extract<LiveServe
 function view(overrides: Record<string, unknown> = {}): LiveViewDto {
   return {
     phase: 'combat', heroes: [{ actorId, hp: 60, maxHp: 100, present: true, consumables: [{ item: 'item:potion', qty: 2 }],
-      skills: [{ id: 'skill:guard', labelKey: 'skill.guard', slot: 0, cooldownRemainingTicks: 0, cooldownTicks: 6, windupTicks: 0 },
-        { id: 'skill:cleave', labelKey: 'skill.cleave', slot: 1, cooldownRemainingTicks: 2, cooldownTicks: 8, windupTicks: 0 }],
+      skills: [{ id: 'skill:shield_bash', labelKey: 'skill.shield_bash.name', slot: 0, cooldownRemainingTicks: 0, cooldownTicks: 6, windupTicks: 0 },
+        { id: 'skill:cleave', labelKey: 'skill.cleave.name', slot: 1, cooldownRemainingTicks: 2, cooldownTicks: 8, windupTicks: 0 }],
       automation: { enabled: false } }],
     combat: { tick: 12, groupId: 'ogre', actors: [
       { id: actorId, side: 'hero', hp: 60, maxHp: 100, alive: true, effects: [
         { id: 1, origin: 'skill:guard', originLabelKey: 'skill.guard', type: 'shield', remaining: 3, unit: 'actions', amount: 12 },
       ], auto: false, queued: null, windup: null },
-      { id: enemyId, labelKey: 'enemy.ogre', side: 'enemy', hp: 80, maxHp: 100, alive: true, effects: [], auto: false, queued: null,
-        windup: { skill: 'skill:heavy_strike', skillLabelKey: 'skill.heavy_strike', targetIds: [actorId], startedTick: 10, resolveAtTick: 15 } },
+      { id: 'enemy:thornback_boar', labelKey: 'enemy.thornback_boar.name', side: 'enemy', hp: 80, maxHp: 100, alive: true, effects: [], auto: false, queued: null,
+        windup: { skill: 'skill:heavy_strike', skillLabelKey: 'skill.heavy_strike.name', targetIds: [actorId], startedTick: 10, resolveAtTick: 15 } },
     ] },
     ...overrides,
   } as unknown as LiveViewDto;
@@ -48,9 +48,11 @@ describe('LiveCombat', () => {
       type: 'combat', event: { type: 'TelegraphStarted', actorId: enemyId, skill: 'skill:heavy_strike', tick: 10, resolveAtTick: 15 },
     } as unknown as LiveJson }] });
     expect(screen.getByText('Resolves in 3 ticks')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Slot 1.*Guard/i }));
+    expect(screen.getByText('Shield Bash')).toBeTruthy();
+    expect(screen.getByText(/Thornback Boar is winding up Heavy Strike/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Slot 1.*Shield Bash/i }));
     expect(submit).toHaveBeenCalledTimes(1);
-    expect(submit).toHaveBeenCalledWith({ type: 'useSkill', skill: 'skill:guard' });
+    expect(submit).toHaveBeenCalledWith({ type: 'useSkill', skill: 'skill:shield_bash' });
     rerender(<LiveCombat {...props} view={view({ combat: { ...(view() as unknown as { combat: object }).combat, tick: 13 } })} />);
     expect(submit).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Resolves in 2 ticks')).toBeTruthy();
@@ -74,7 +76,7 @@ describe('LiveCombat', () => {
     expect(screen.getByText(/Offline · actions paused/)).toBeTruthy();
     expect(screen.getByText('Action awaiting server acknowledgement.')).toBeTruthy();
     expect(screen.getByText(/server rejected.*onCooldown/i)).toBeTruthy();
-    const skill = screen.getByRole('button', { name: /Slot 1.*Guard/i }) as HTMLButtonElement;
+    const skill = screen.getByRole('button', { name: /Slot 1.*Shield Bash/i }) as HTMLButtonElement;
     expect(skill.disabled).toBe(true);
     fireEvent.click(skill);
     expect(submit).not.toHaveBeenCalled();
@@ -85,7 +87,7 @@ describe('LiveCombat', () => {
       type: 'combat', event: { type: 'DamageDealt', sourceId: enemyId, targetId: actorId, amount: 7, tick: 12 },
     } as unknown as LiveJson }] });
     fireEvent.click(screen.getByRole('checkbox', { name: 'Auto' }));
-    fireEvent.click(screen.getByRole('button', { name: /Use potion.*Stock 2/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Use Potion.*Stock 2/i }));
     expect(submit).toHaveBeenNthCalledWith(1, { type: 'setAuto', auto: true });
     expect(submit).toHaveBeenNthCalledWith(2, { type: 'useConsumable', itemId: 'item:potion' });
     fireEvent.click(screen.getByRole('button', { name: /Combat log/ }));

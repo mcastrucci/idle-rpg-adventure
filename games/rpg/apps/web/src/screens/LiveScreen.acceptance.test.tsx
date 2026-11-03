@@ -26,7 +26,7 @@ function view(location: string, options: { phase?: 'exploring' | 'combat'; boss?
     phase: options.phase ?? 'exploring', area: areaId, location,
     heroes: [{ actorId, level: 2, xp: 22, hp: 42, maxHp: 50, present: true,
       consumables: [{ item: 'item:minor_healing_potion', qty: 2 }],
-      skills: [{ id: 'skill:basic_attack', slot: 1, cooldownTicks: 0, cooldownRemainingTicks: 0, windupTicks: 0 }], automationEnabled: false }],
+      skills: [{ id: 'skill:basic_attack', labelKey: 'skill.basic_attack.name', slot: 1, cooldownTicks: 0, cooldownRemainingTicks: 0, windupTicks: 0 }], automationEnabled: false }],
     groups: [],
     exits: options.boss ? [{ id: 'exit:region_1.boss_gate', to: 'loc:region_1.seed_vault_heart', open: true,
       reasons: [], bossRoom: true, visited: false }] : location === 'loc:region_1.portal_clearing'
@@ -37,8 +37,8 @@ function view(location: string, options: { phase?: 'exploring' | 'combat'; boss?
     runBag: [{ actorId, items: [{ item: 'item:test_grove.herb', qty: 2 }], gold: 4, uniques: [] }],
     ...(isCombat ? { combat: { tick: 0, groupId: 'group:acceptance', actors: [
       { id: actorId, side: 'hero', hp: 42, maxHp: 50, alive: true, auto: false, queued: null, windup: null, effects: [] },
-      { id: 'enemy:acceptance_guard', side: 'enemy', hp: 90, maxHp: 90, alive: true, auto: true, queued: null,
-        windup: { skill: 'skill:heavy_blow', targetIds: [actorId], startedTick: 0, resolveAtTick: 1 }, effects: [] },
+      { id: 'enemy:thornback_boar', labelKey: 'enemy.thornback_boar.name', side: 'enemy', hp: 90, maxHp: 90, alive: true, auto: true, queued: null,
+        windup: { skill: 'skill:heavy_blow', labelKey: 'skill.heavy_blow.name', targetIds: [actorId], startedTick: 0, resolveAtTick: 1 }, effects: [] },
     ] } } : {}),
   };
 }
@@ -143,9 +143,9 @@ describe('LiveScreen fullflow acceptance', () => {
     const liveCurrent = deps.current;
     if (!liveCurrent) throw new Error('start did not return the server current instance');
     await attach(socket0, liveCurrent);
-    expect(await screen.findByRole('heading', { name: 'loc:region_1.portal_clearing' })).toBeDefined();
+    expect(await screen.findByRole('heading', { name: 'Portal Clearing' })).toBeDefined();
     expect(screen.getByRole('button', { name: 'Recover your corpse' })).toBeDefined();
-    fireEvent.click(screen.getByRole('button', { name: 'Travel to loc:region_1.overgrown_causeway' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Travel to Overgrown Causeway' }));
     const travel = sentCommands(socket0).filter(command => command.op === 'live.command').at(-1);
     expect(travel?.command).toEqual({ type: 'travel', exitId: 'exit:region_1.portal_clearing.overgrown_causeway' });
     deps.current = { ...liveCurrent, view: view('loc:region_1.overgrown_causeway', { corpse: true }) };
@@ -156,7 +156,7 @@ describe('LiveScreen fullflow acceptance', () => {
       socket0.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 1, view: traveled.view, participants: traveled.participants });
       socket0.receive({ type: 'live.ack', instanceId, commandId: travel?.commandId, status: 'applied', duplicate: false });
     });
-    expect(await screen.findByRole('heading', { name: 'loc:region_1.overgrown_causeway' })).toBeDefined();
+    expect(await screen.findByRole('heading', { name: 'Overgrown Causeway' })).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'Recover your corpse' }));
     const recover = sentCommands(socket0).filter(command => command.op === 'live.command').at(-1);
     expect(recover?.command).toEqual({ type: 'interact', hotspotId: `corpse:${deathId}` });
@@ -189,9 +189,9 @@ describe('LiveScreen fullflow acceptance', () => {
       event(socket0, 1, { type: 'combatStarted', groupId: 'group:acceptance' });
       socket0.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 1, view: combatStart.view, participants: initial.participants });
     });
-    expect(await screen.findByText('guard is winding up blow')).toBeDefined();
+    expect(await screen.findByText('Thornback Boar is winding up Heavy Blow')).toBeDefined();
     expect(screen.getByText('Resolves in 1 tick')).toBeDefined();
-    const skill = screen.getByRole('button', { name: /Slot 1 attack/ });
+    const skill = screen.getByRole('button', { name: /Slot 1.*Basic Attack/ });
     fireEvent.click(skill);
     const firstSkill = sentCommands(socket0).filter(command => command.op === 'live.command' && command.command?.['type'] === 'useSkill');
     expect(firstSkill).toHaveLength(1);
@@ -213,7 +213,7 @@ describe('LiveScreen fullflow acceptance', () => {
       combat: { tick: 1, groupId: 'group:acceptance', actors: [
         { id: actorId, side: 'hero', hp: 42, maxHp: 50, alive: true, auto: false,
           queued: { kind: 'useSkill', skill: 'skill:basic_attack', target: 'enemy:acceptance_guard' }, windup: null, effects: [] },
-        { id: 'enemy:acceptance_guard', side: 'enemy', hp: 72, maxHp: 90, alive: true, auto: true,
+        { id: 'enemy:acceptance_guard', labelKey: 'enemy.thornback_boar.name', side: 'enemy', hp: 72, maxHp: 90, alive: true, auto: true,
           queued: null, windup: null, effects: [] },
       ] },
     } };
@@ -224,7 +224,7 @@ describe('LiveScreen fullflow acceptance', () => {
       socket1.receive({ type: 'live.ack', instanceId, commandId: stableId, status: 'applied', duplicate: true });
     });
     await waitFor(() => expect(screen.getByText('The server confirmed the action.')).toBeDefined());
-    expect(screen.getByLabelText('guard HP 72 of 90')).toBeDefined();
+    expect(screen.getByLabelText('Thornback Boar HP 72 of 90')).toBeDefined();
     expect(screen.getByText('Last action accepted by the server.')).toBeDefined();
     expect(sentCommands(socket1).filter(command => command.op === 'live.command').map(command => command.commandId)).toEqual([stableId]);
     deps.client.stop();

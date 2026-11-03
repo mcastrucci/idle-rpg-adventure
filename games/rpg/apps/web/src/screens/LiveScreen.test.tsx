@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { LiveCurrentResponseDto, LiveOptionsDto } from '@rpg/protocol';
+import type { LiveCurrentResponseDto, LiveOptionsDto, LiveViewDto } from '@rpg/protocol';
 import { ApiClient } from '../api/http.ts';
 import type { LiveConnection } from '../app/services.ts';
 import { LiveClient } from '../live/client.ts';
@@ -79,6 +79,27 @@ async function attach(socket: Socket, current: NonNullable<ReturnType<typeof set
 afterEach(() => { cleanup(); });
 
 describe('LiveScreen navigation controller', () => {
+  it('humanizes production location/group/resource labels and reflects explicit initial full HP and an empty bag', async () => {
+    const snapshot = { ...view('loc:region_2.glass_echo_chamber'), area: 'area:region_1',
+      heroes: [{ actorId, hp: null, maxHp: 50, present: true, consumables: [] }],
+      groups: [{ id: 'loc:region_2.glass_echo_chamber/0', enemies: ['enemy:thornback_boar'], boss: false, defeated: false }],
+      resources: [{ nodeId: 'res:region_2.prism_vein', resource: 'res.region_2.prism_vein.name', gathered: false }],
+      hotspots: [{ id: 'hotspot:region_2.signal_bloom', type: 'lore', textKey: 'hotspot.region_2.signal_bloom.name', done: false }], runBag: [] };
+    const deps = setup({ instanceId, actorId, view: snapshot as unknown as LiveViewDto, participants: [{ actorId, status: 'connected' }] });
+    const socket = await connect(deps);
+    render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
+    await attach(socket, deps.current as NonNullable<typeof deps.current>);
+    expect(await screen.findByRole('heading', { name: 'Glass Echo Chamber' })).toBeDefined();
+    expect(screen.getByText(/Area:/).textContent).toContain('The Verdant Hollow');
+    expect(screen.getByText('You')).toBeDefined();
+    expect(screen.getByText('50 / 50 HP')).toBeDefined();
+    expect(screen.getByRole('button', { name: /Interact: Signal Bloom/ })).toBeDefined();
+    expect(screen.getByRole('button', { name: /Prism Vein/ })).toBeDefined();
+    expect(screen.getByText(/Glass Echo Chamber group: Thornback Boar/)).toBeDefined();
+    expect(screen.getByText('0 items · 0 gold · 0 unique items')).toBeDefined();
+    deps.client.stop();
+  });
+
   it('starts from server options and retries the exact same start command after an ambiguous failure', async () => {
     const deps = setup(null);
     deps.setStartFailure();
@@ -94,8 +115,8 @@ describe('LiveScreen navigation controller', () => {
     expect(deps.startBodies[0]).toMatchObject({ actorId, areaId: 'area:region_1', supplies: [{ item: 'item:potion', qty: 2 }] });
     expect(typeof (deps.startBodies[0] as { commandId?: unknown }).commandId).toBe('string');
     await attach(socket, deps.current as NonNullable<typeof deps.current>);
-    expect(await screen.findByRole('heading', { name: 'location:glade' })).toBeDefined();
-    expect(screen.getByText('item:herb ×2')).toBeDefined();
+    expect(await screen.findByRole('heading', { name: 'Glade' })).toBeDefined();
+    expect(screen.getByText('Herb ×2')).toBeDefined();
     deps.client.stop();
   });
 

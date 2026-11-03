@@ -6,6 +6,8 @@ import type { FetchLike } from '../api/http.ts';
 import type { CharacterDto } from '../api/types.ts';
 import type { LiveState } from '../live/state.ts';
 import { INITIAL_LIVE_STATE } from '../live/state.ts';
+import { LiveClient } from '../live/client.ts';
+import type { WebSocketLike } from '../live/client.ts';
 import { App } from './App.tsx';
 import type { LiveConnection } from './services.ts';
 
@@ -14,6 +16,20 @@ const CHARACTER: CharacterDto = {
   attributes: { STR: 9, AGI: 4, INT: 2, VIT: 10, SPI: 5 }, unspentPoints: 0,
   skillLoadout: ['skill:shield_bash', 'skill:guard'], automationRules: [], activityState: 'none', activityId: null, version: 1,
 };
+
+class AppSocket implements WebSocketLike {
+  readyState = 0;
+  onopen: WebSocketLike['onopen'] = null;
+  onmessage: WebSocketLike['onmessage'] = null;
+  onclose: WebSocketLike['onclose'] = null;
+  onerror: WebSocketLike['onerror'] = null;
+  readonly sent: string[] = [];
+  send(data: string) { this.sent.push(data); }
+  close() { this.readyState = 3; }
+  receive(frame: unknown) { this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(frame) })); }
+  open() { this.readyState = 1; this.onopen?.(new Event('open')); }
+  authenticate() { this.readyState = 1; this.receive({ type: 'authenticated', accountId: '44444444-4444-4444-8444-444444444444' }); }
+}
 
 /** Controllable stand-in for LiveClient: the test decides when the socket is open. */
 function fakeLive(): LiveConnection & { set(state: Partial<LiveState>): void; starts: number } {
@@ -108,6 +124,152 @@ describe('App shell', () => {
     window.location.hash = '/world';
     render(<App services={services([CHARACTER])} />);
     expect(await screen.findByRole('heading', { name: 'World map' })).toBeDefined();
+  });
+
+  it('discovers and resumes an existing live host when the initial character snapshot says none', async () => {
+    const instanceId = '33333333-3333-4333-8333-333333333333';
+    const actorId = CHARACTER.actorId;
+    const paths: string[] = [];
+    const fetch: FetchLike = async (input) => {
+      paths.push(input);
+      if (input === '/auth/session') return Response.json({ accountId: 'acc', guest: true, email: null, expiresAtMs: 1 });
+      if (input === '/characters') return Response.json([CHARACTER]);
+      if (input === `/live/current/${actorId}`) return Response.json({ current: { instanceId, actorId,
+        view: { phase: 'exploring', heroes: [], groups: [] }, participants: [{ actorId, status: 'connected' }] } });
+      if (input.endsWith('/world')) return Response.json({
+        hub: { id: 'area:sanctuary', label: 'area.sanctuary.name', position: { x: 0, y: 0 } }, areas: [], routes: [],
+      });
+      return Response.json({ error: 'not_found' }, { status: 404 });
+    };
+    render(<App services={{ api: new ApiClient(fetch), live: fakeLive(), storage: { getItem: () => null, setItem: () => {} } }} />);
+    fireEvent.click(await screen.findByRole('link', { name: 'World map' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    const resume = await screen.findByRole('link', { name: 'Resume live adventure' });
+    expect(screen.getByText('Live adventure', { selector: '.chip' })).toBeDefined();
+    expect(paths).toContain(`/live/current/${actorId}`);
+    fireEvent.click(resume);
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByRole('heading', { name: 'Live adventure' })).toBeDefined();
+    await waitFor(() => expect(paths.filter((path) => path === `/live/current/${actorId}`).length).toBeGreaterThanOrEqual(2));
+    expect(paths).not.toContain('/live/start');
+  });
+
+  it('refreshes activity after starting and resumes the same instance from the map', async () => {
+    const actorId = CHARACTER.actorId;
+    const instanceId = '44444444-4444-4444-8444-444444444444';
+    const paths: string[] = [];
+    let started = false;
+    const current = () => started ? { current: { instanceId, actorId,
+      view: { phase: 'exploring', heroes: [], groups: [] }, participants: [{ actorId, status: 'connected' }] } } : { current: null };
+    const world = {
+      hub: { id: 'area:sanctuary', label: 'area.sanctuary.name', position: { x: 0, y: 0 } },
+      areas: [{ id: 'area:region_1', label: 'area.region_1.name', visibility: 'known', position: { x: 0, y: 100 }, lockedReasons: [],
+        completion: { discovered: 3, required: 6, completed: false, mandatoryBosses: { required: 1, defeated: 0, complete: false, bosses: [] } },
+        danger: { status: 'known', minLevel: 1, maxLevel: 5 }, idle: { unlocked: true, activities: [] }, actions: { enterLive: true, startIdle: true } }],
+      routes: [{ id: 'route:sanctuary-region1', from: 'area:sanctuary', to: 'area:region_1' }],
+    };
+    const fetch: FetchLike = async (input, init) => {
+      paths.push(input);
+      if (input === '/auth/session') return Response.json({ accountId: 'acc', guest: true, email: null, expiresAtMs: 1 });
+      if (input === '/characters') return Response.json([CHARACTER]);
+      if (input === `/characters/${actorId}`) return Response.json(started ? { ...CHARACTER, activityState: 'live', activityId: instanceId } : CHARACTER);
+      if (input === `/live/current/${actorId}`) return Response.json(current());
+      if (input === `/live/options/${actorId}`) return Response.json({ actorId, areas: [{ id: 'area:region_1', label: 'The Verdant Hollow', startLocationId: 'loc:portal' }], supplies: [] });
+      if (input === '/live/start' && init?.method === 'POST') { started = true; return Response.json({ instanceId }); }
+      if (input.endsWith('/world')) return Response.json(world);
+      return Response.json({ error: 'not_found' }, { status: 404 });
+    };
+    const live = fakeLive();
+    render(<App services={{ api: new ApiClient(fetch), live, storage: { getItem: () => null, setItem: () => {} } }} />);
+    fireEvent.click(await screen.findByRole('link', { name: 'World map' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    fireEvent.click(await screen.findByRole('button', { name: /Verdant Hollow.*Required locations 3 \/ 6/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enter live' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByRole('heading', { name: 'Live adventure' })).toBeDefined();
+    act(() => live.set({ status: 'open' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Start live adventure' }));
+    await waitFor(() => expect(started).toBe(true));
+    fireEvent.click(screen.getByRole('link', { name: '← World map' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    const resume = await screen.findByRole('link', { name: /live adventure/ });
+    expect(paths.filter((path) => path === '/live/start')).toHaveLength(1);
+    fireEvent.click(resume);
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByRole('heading', { name: 'Live adventure' })).toBeDefined();
+    expect(paths.filter((path) => path === '/live/start')).toHaveLength(1);
+  });
+
+  it('clears live activity after the server confirms return to Sanctuary', async () => {
+    const actorId = CHARACTER.actorId;
+    const instanceId = '55555555-5555-4555-8555-555555555555';
+    const paths: string[] = [];
+    const sockets: AppSocket[] = [];
+    let started = false;
+    let returned = false;
+    const view = { phase: 'exploring', area: 'area:region_1', location: 'loc:region_1.portal_clearing', heroes: [], groups: [],
+      exits: [], hotspots: [], resources: [], canReturn: true, runBag: [] };
+    const current = () => started && !returned ? { current: { instanceId, actorId, view,
+      participants: [{ actorId, status: 'connected' }] } } : { current: null };
+    const world = { hub: { id: 'area:sanctuary', label: 'area.sanctuary.name', position: { x: 0, y: 0 } },
+      areas: [{ id: 'area:region_1', label: 'area.region_1.name', visibility: 'known', position: { x: 0, y: 100 }, lockedReasons: [],
+        completion: { discovered: 3, required: 6, completed: false, mandatoryBosses: { required: 0, defeated: 0, complete: true, bosses: [] } },
+        danger: { status: 'known', minLevel: 1, maxLevel: 5 }, idle: { unlocked: true, activities: [] }, actions: { enterLive: true, startIdle: true } }],
+      routes: [{ id: 'route:sanctuary-region1', from: 'area:sanctuary', to: 'area:region_1' }] };
+    const fetch: FetchLike = async (input, init) => {
+      paths.push(input);
+      if (input === '/auth/session') return Response.json({ accountId: 'acc', guest: true, email: null, expiresAtMs: 1 });
+      if (input === '/characters') return Response.json([CHARACTER]);
+      if (input === `/characters/${actorId}`) return Response.json(returned ? CHARACTER : { ...CHARACTER, activityState: started ? 'live' : 'none', activityId: started ? instanceId : null });
+      if (input === `/live/current/${actorId}`) return Response.json(current());
+      if (input === `/live/options/${actorId}`) return Response.json({ actorId, areas: [{ id: 'area:region_1', label: 'The Verdant Hollow', startLocationId: 'loc:region_1.portal_clearing' }], supplies: [] });
+      if (input === '/live/start' && init?.method === 'POST') { started = true; return Response.json({ instanceId }); }
+      if (input.endsWith('/world')) return Response.json(world);
+      return Response.json({ error: 'not_found' }, { status: 404 });
+    };
+    const live = new LiveClient({ url: 'ws://test/auth/live', createSocket: () => { const socket = new AppSocket(); sockets.push(socket); return socket; },
+      backoff: () => 1000, pingIntervalMs: 60_000 });
+    render(<App services={{ api: new ApiClient(fetch), live, storage: { getItem: () => null, setItem: () => {} } }} />);
+    fireEvent.click(await screen.findByRole('link', { name: 'World map' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    fireEvent.click(await screen.findByRole('button', { name: /Verdant Hollow.*Required locations 3 \/ 6/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enter live' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await screen.findByRole('heading', { name: 'Live adventure' });
+    await waitFor(() => expect(sockets[0]).toBeDefined());
+    const socket = sockets[0];
+    if (!socket) throw new Error('live socket was not created');
+    act(() => { socket.open(); socket.authenticate(); });
+    fireEvent.click(await screen.findByRole('button', { name: 'Start live adventure' }));
+    await waitFor(() => expect(started).toBe(true));
+    await waitFor(() => expect(socket.sent.some((sent) => sent.includes('live.attach'))).toBe(true));
+    act(() => {
+      socket.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 0, view, participants: [{ actorId, status: 'connected' }] });
+      socket.receive({ type: 'live.attached', instanceId, mode: 'snapshot' });
+    });
+    fireEvent.click(screen.getByRole('link', { name: '← World map' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    fireEvent.click(await screen.findByRole('link', { name: 'Resume live adventure' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByRole('button', { name: 'Return to Sanctuary' })).toBeDefined();
+    fireEvent.click(await screen.findByRole('button', { name: 'Return to Sanctuary' }));
+    await waitFor(() => expect(socket.sent.some((sent) => sent.includes('returnToSanctuary'))).toBe(true));
+    const commandFrame = socket.sent.map((sent) => { try { return JSON.parse(sent) as { command?: { commandId?: string; command?: { type?: string } } }; } catch { return {}; } })
+      .find((frame) => frame.command?.command?.type === 'returnToSanctuary')?.command;
+    if (!commandFrame?.commandId) throw new Error('return command ID missing');
+    returned = true;
+    act(() => {
+      socket.receive({ type: 'live.ack', instanceId, commandId: commandFrame.commandId, status: 'applied', duplicate: false });
+      socket.receive({ type: 'live.closed', instanceId, outcome: 'returned', result: { area: 'area:sanctuary' } });
+    });
+    expect(await screen.findByRole('heading', { name: 'Adventure ended: returned.' })).toBeDefined();
+    await waitFor(() => expect(screen.getByText('No expedition')).toBeDefined());
+    fireEvent.click(screen.getByRole('link', { name: '← World map' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByRole('link', { name: 'Open live adventure' })).toBeDefined();
+    expect(screen.queryByRole('link', { name: 'Resume live adventure' })).toBeNull();
+    expect(paths.filter((path) => path === '/live/start')).toHaveLength(1);
+    live.stop();
   });
 
   it('selecting a map area has no side effect; explicit live and idle actions route with that area', async () => {

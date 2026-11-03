@@ -7,6 +7,7 @@ import { levelProgress } from '../character/progression.ts';
  * curve (no content endpoint yet) and stays empty if the server's level does not fit it.
  */
 export function Header({ character }: { character: CharacterDto | null }) {
+  const onLive = character?.activityState === 'live';
   const onExpedition = character?.activityState === 'expedition';
   const progress = character ? levelProgress(character.level, character.xp) : null;
   return (
@@ -30,8 +31,8 @@ export function Header({ character }: { character: CharacterDto | null }) {
         <span aria-hidden="true" className="header__coin" />
         —
       </span>
-      <span className={`chip${onExpedition ? ' chip--active' : ''}`}>
-        {onExpedition ? 'On expedition' : 'No expedition'}
+      <span className={`chip${onExpedition || onLive ? ' chip--active' : ''}`}>
+        {onLive ? 'Live adventure' : onExpedition ? 'On expedition' : 'No expedition'}
       </span>
     </header>
   );

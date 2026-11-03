@@ -80,6 +80,7 @@ export function WorldMapScreen({ actorId, characterLevel, api, onEnterLive, onSt
       <span>A live adventure is already in progress.</span>
       <a className="button button--secondary button--link" href="#/world/live">Resume live adventure</a>
     </aside>}
+    {!liveActive && <p className="world-map-open-live"><a href="#/world/live">Open live adventure</a></p>}
     {idleActive && <aside className="world-map-resume" aria-label="Expedition in progress">
       <span>An expedition is already in progress.</span>
       <a className="button button--secondary button--link" href="#/expeditions">View expedition</a>

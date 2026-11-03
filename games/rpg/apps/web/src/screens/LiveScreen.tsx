@@ -5,6 +5,7 @@ import type { LiveConnection } from '../app/services.ts';
 import { currentLive, liveOptions, startLive } from '../live/api.ts';
 import { LiveSession } from '../live/session.ts';
 import type { LiveSessionClient, LiveSessionState } from '../live/session.ts';
+import { displayLabel } from '../content/labels.ts';
 import { DeathPanel, ProvisionalLiveRiskNotice } from './character/DeathPanel.tsx';
 import { LiveCombat } from '../live/combat/LiveCombat.tsx';
 
@@ -209,6 +210,8 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
     try {
       const started = await startLive(api, request);
       pendingStart.current = null;
+      // Starting the live activity is already confirmed even if refreshing the durable character fails.
+      void onCharacterRefresh().catch(() => {});
       const fresh = await refreshCurrent(true);
       if (fresh === undefined) {
         setCurrentError(`Adventure ${started.instanceId} started, but its current view is not available yet. Retry to attach.`);
@@ -218,7 +221,7 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
     } finally {
       if (mounted.current) setStartBusy(false);
     }
-  }, [actorId, api, canCommand, options, refreshCurrent, selectedArea, selectedSupplies, startBusy]);
+  }, [actorId, api, canCommand, onCharacterRefresh, options, refreshCurrent, selectedArea, selectedSupplies, startBusy]);
 
   const retryPending = useCallback(() => {
     if (!canCommand || !sessionState?.attached || !session) return;
@@ -303,50 +306,50 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
           connection={combatConnection} onSubmit={submit} />}
 
         <section className="live-scene" aria-labelledby="live-scene-title">
-          <h2 id="live-scene-title">{view.location ?? 'Current location'}</h2>
-          <p className="live-scene__area">Area: {view.area ?? 'Unknown'}</p>
+          <h2 id="live-scene-title">{view.location ? displayLabel(view.location) : 'Current location'}</h2>
+          <p className="live-scene__area">Area: {view.area ? displayLabel(view.area) : 'Unknown'}</p>
           <div className="live-scene__actors" aria-label="Party status">
             {(view.heroes ?? []).map((hero) => <p key={hero.actorId}>
-              <span>{hero.actorId === actorId ? 'You' : hero.actorId}</span>
-              <span>{hero.present ? `${hero.hp ?? 'Unknown'} / ${hero.maxHp} HP` : 'Not present'}</span>
+              <span>{hero.actorId === actorId ? 'You' : isUuid(hero.actorId) ? 'Party member' : displayLabel(hero.actorId)}</span>
+              <span>{hero.present ? `${hero.hp === null ? hero.maxHp : hero.hp ?? 'Unknown'} / ${hero.maxHp} HP` : 'Not present'}</span>
             </p>)}
           </div>
           {exploring && <div className="live-scene__actions">
             <h3>Actions</h3>
             {(view.groups ?? []).filter((group) => !group.defeated).map((group) => <button key={group.id} className="button live-action" type="button"
               disabled={!readyForActions || busy} onClick={() => submit({ type: 'engage', groupId: group.id })}>
-              Engage {group.boss ? 'boss ' : ''}group: {group.enemies.join(', ')}
+              Engage {group.boss ? 'boss ' : ''}group: {group.enemies.map(displayLabel).join(', ')}
             </button>)}
             {(view.exits ?? []).map((exit) => exit.bossRoom ? <button key={exit.id} className="button live-action" type="button"
               disabled={!readyForActions || busy || !exit.open || exit.visited}
               onClick={() => requestBossRisk(exit.id)}>
-              {exit.open ? `Review boss room risk: ${exit.to}` : `Locked boss room: ${exit.to}`}
-              {!exit.open && exit.reasons.length > 0 && <small>{exit.reasons.join(', ')}</small>}
+              {exit.open ? `Review boss room risk: ${displayLabel(exit.to)}` : `Locked boss room: ${displayLabel(exit.to)}`}
+              {!exit.open && exit.reasons.length > 0 && <small>{exit.reasons.map(displayLabel).join(', ')}</small>}
             </button> : <button key={exit.id} className="button live-action" type="button" disabled={!readyForActions || busy || !exit.open}
               onClick={() => submit({ type: 'travel', exitId: exit.id })}>
-              {exit.open ? `Travel to ${exit.to}` : `Locked route to ${exit.to}`}
-              {!exit.open && exit.reasons.length > 0 && <small>{exit.reasons.join(', ')}</small>}
+              {exit.open ? `Travel to ${displayLabel(exit.to)}` : `Locked route to ${displayLabel(exit.to)}`}
+              {!exit.open && exit.reasons.length > 0 && <small>{exit.reasons.map(displayLabel).join(', ')}</small>}
             </button>)}
             {(view.hotspots ?? []).map((hotspot) => <button key={hotspot.id} className="button live-action" type="button"
               disabled={!readyForActions || busy || hotspot.done} onClick={() => submit({ type: 'interact', hotspotId: hotspot.id })}>
-              {hotspot.id.startsWith('corpse:') ? 'Recover your corpse' : `Interact: ${hotspot.textKey}`}
+              {hotspot.id.startsWith('corpse:') ? 'Recover your corpse' : `Interact: ${displayLabel(hotspot.textKey)}`}
               {hotspot.done && <small>Already completed</small>}
             </button>)}
           </div>}
           {(view.groups?.length ?? 0) > 0 && <section className="live-scene__section" aria-labelledby="live-groups-title">
-            <h3 id="live-groups-title">Groups</h3><ul>{view.groups?.map((group) => <li key={group.id}>{group.id}: {group.defeated ? 'defeated' : group.enemies.join(', ')}</li>)}</ul>
+            <h3 id="live-groups-title">Groups</h3><ul>{view.groups?.map((group) => <li key={group.id}>{displayLabel(group.id.replace(/\/\d+$/, ''))} group: {group.defeated ? 'defeated' : group.enemies.map(displayLabel).join(', ')}</li>)}</ul>
           </section>}
           {(view.resources?.length ?? 0) > 0 && <section className="live-scene__section" aria-labelledby="live-resources-title">
             <h3 id="live-resources-title">Resources</h3>{view.resources?.map((resource) => <button className="button live-action" type="button" key={resource.nodeId}
               disabled={!exploring || !readyForActions || busy || resource.gathered} onClick={() => submit({ type: 'gather', nodeId: resource.nodeId })}>
-              {resource.resource} · {resource.gathered ? 'gathered' : 'Gather resource'}
+              {displayLabel(resource.resource)} · {resource.gathered ? 'gathered' : 'Gather resource'}
             </button>)}
           </section>}
           {exploring && (view.heroes?.find((hero) => hero.actorId === actorId)?.consumables.length ?? 0) > 0 && <section className="live-scene__section" aria-labelledby="live-supplies-title">
             <h3 id="live-supplies-title">Live supplies</h3>
             {view.heroes?.find((hero) => hero.actorId === actorId)?.consumables.map((item) => <button className="button live-action" type="button" key={item.item}
               disabled={!readyForActions || busy || item.qty <= 0} onClick={() => submit({ type: 'useConsumable', itemId: item.item })}>
-              Use {item.item} · stock {item.qty}
+              Use {displayLabel(item.item)} · stock {item.qty}
             </button>)}
           </section>}
           <section className="live-scene__section" aria-labelledby="live-runbag-title">
@@ -414,13 +417,14 @@ function EntryForm({ options, selectedArea, setSelectedArea, supplies, setSupply
 }
 
 function RunBag({ bags, actorId }: { bags: Snapshot['runBag']; actorId: string }) {
+  if (bags === undefined) return <p className="muted">Waiting for bag details.</p>;
   const bag = bags?.find((value) => value.actorId === actorId);
-  if (!bag) return <p className="muted">No run bag projection yet.</p>;
+  if (!bag) return <p>0 items · 0 gold · 0 unique items</p>;
   const totalStacks = bag.items.reduce((sum, item) => sum + item.qty, 0);
   return <div><p>{totalStacks} item(s) · {bag.gold} gold · {(bag.uniques ?? []).length} unique item(s)</p>
     {(bag.items.length > 0 || (bag.uniques?.length ?? 0) > 0) && <ul>
-      {bag.items.map((item) => <li key={item.item}>{item.item} ×{item.qty}</li>)}
-      {(bag.uniques ?? []).map((item) => <li key={item.itemId}>{item.definition}</li>)}
+      {bag.items.map((item) => <li key={item.item}>{displayLabel(item.item)} ×{item.qty}</li>)}
+      {(bag.uniques ?? []).map((item) => <li key={item.itemId}>{displayLabel(item.definition)}</li>)}
     </ul>}
   </div>;
 }
@@ -444,3 +448,4 @@ function clampInt(value: string, maximum: number): number {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? Math.max(0, Math.min(maximum, parsed)) : 0;
 }
+function isUuid(value: string): boolean { return /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(value); }

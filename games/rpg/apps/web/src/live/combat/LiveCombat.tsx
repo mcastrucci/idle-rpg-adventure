@@ -1,6 +1,7 @@
 import type { LiveJson, LiveServerFrame, LiveViewDto } from '@rpg/protocol';
 import { useState } from 'react';
 
+import { displayLabel } from '../../content/labels.ts';
 import type { LiveState } from '../state.ts';
 import './combat.css';
 
@@ -92,7 +93,7 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, lastAck, 
       if (!windup) return null;
       const remaining = Math.max(0, windup.resolveAtTick - combat.tick);
       return <aside className="live-combat__telegraph" key={actor.id} role="status" aria-live="polite">
-        <strong>{label(actor.labelKey ?? actor.id)} is winding up {label(windup.skillLabelKey ?? windup.skill)}</strong>
+        <strong>{actorLabel(actor, actorId)} is winding up {displayLabel(windup.skillLabelKey ?? windup.skill)}</strong>
         <span>Resolves in {remaining} {remaining === 1 ? 'tick' : 'ticks'}</span>
       </aside>;
     })}
@@ -100,7 +101,7 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, lastAck, 
     <div className="live-combat__frames" aria-label="Combatants">
       {(['hero', 'enemy'] as const).map((side) => <div className="live-combat__side" key={side}>
         <h3>{side === 'hero' ? 'Party' : 'Enemies'}</h3>
-        {actors.filter((actor) => actor.side === side).map((actor) => <ActorCard key={actor.id} actor={actor} />)}
+        {actors.filter((actor) => actor.side === side).map((actor) => <ActorCard key={actor.id} actor={actor} actorId={actorId} />)}
       </div>)}
     </div>
 
@@ -118,7 +119,7 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, lastAck, 
           const skill = skills[index];
           return <button className="live-combat__action" type="button" key={skill?.id ?? `slot-${index + 1}`} disabled={!online || !skill}
             onClick={() => skill && onSubmit({ type: 'useSkill', skill: skill.id })}>
-            <span>Slot {index + 1}</span><strong>{skill ? label(skill.labelKey ?? skill.id) : 'Empty'}</strong>
+            <span>Slot {index + 1}</span><strong>{skill ? displayLabel(skill.labelKey ?? skill.id) : 'Empty'}</strong>
             {skill && <small>{skill.cooldownRemainingTicks > 0 ? `Cooldown ${skill.cooldownRemainingTicks} ticks` : 'Ready'} · cooldown {skill.cooldownTicks} ticks</small>}
           </button>;
         })}
@@ -126,11 +127,11 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, lastAck, 
       <div className="live-combat__items" aria-label="Consumables">
         {me?.consumables.map((item) => <button className="live-combat__item" type="button" key={item.item} disabled={!online}
           onClick={() => onSubmit({ type: 'useConsumable', itemId: item.item })}>
-          Use {label(item.item)} <span>Stock {item.qty}</span>
+          Use {displayLabel(item.item)} <span>Stock {item.qty}</span>
         </button>)}
         {(!me || me.consumables.length === 0) && <p>No consumables in the live loadout.</p>}
       </div>
-      {queued.length > 0 && <p className="live-combat__queued" role="status">Queued: {queued.map((actor) => `${label(actor.id)} · ${describeQueued(actor.queued)}`).join('; ')}</p>}
+      {queued.length > 0 && <p className="live-combat__queued" role="status">Queued: {queued.map((actor) => `${actorLabel(actor, actorId)} · ${describeQueued(actor.queued)}`).join('; ')}</p>}
       {pendingCommandIds.length > 0 && <p className="live-combat__pending" role="status">Action awaiting server acknowledgement.</p>}
       {ackMessage && <p className={`live-combat__ack live-combat__ack--${lastAck?.status}`} role="status">{ackMessage}</p>}
     </div>
@@ -140,24 +141,25 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, lastAck, 
         Combat log ({events.length})
       </button>
       {logOpen && <ol aria-label="Combat event log">
-        {latestEvents.map((row) => <li key={`${row.epoch}:${row.seq}`}>{formatEvent(row.event)}</li>)}
+        {latestEvents.map((row) => <li key={`${row.epoch}:${row.seq}`}>{formatEvent(row.event, actorId)}</li>)}
         {latestEvents.length === 0 && <li>Waiting for combat events.</li>}
       </ol>}
     </div>
   </section>;
 }
 
-function ActorCard({ actor }: { readonly actor: CombatActorProjection }) {
+function ActorCard({ actor, actorId }: { readonly actor: CombatActorProjection; readonly actorId: string }) {
+  const name = actorLabel(actor, actorId);
   const hpPercent = actor.maxHp > 0 ? Math.max(0, Math.min(100, actor.hp / actor.maxHp * 100)) : 0;
   return <article className={`live-combat__actor${actor.alive ? '' : ' live-combat__actor--down'}`}>
-    <div className="live-combat__actor-title"><strong>{label(actor.labelKey ?? actor.id)}</strong><span>{actor.alive ? `${actor.hp} / ${actor.maxHp} HP` : 'Down'}</span></div>
-    <div className="live-combat__hp" role="img" aria-label={`${label(actor.labelKey ?? actor.id)} HP ${actor.hp} of ${actor.maxHp}`}>
+    <div className="live-combat__actor-title"><strong>{name}</strong><span>{actor.alive ? `${actor.hp} / ${actor.maxHp} HP` : 'Down'}</span></div>
+    <div className="live-combat__hp" role="img" aria-label={`${name} HP ${actor.hp} of ${actor.maxHp}`}>
       <span style={{ width: `${hpPercent}%` }} />
     </div>
-    {actor.effects.length > 0 && <ul className="live-combat__effects" aria-label={`${label(actor.id)} effects`}>
+    {actor.effects.length > 0 && <ul className="live-combat__effects" aria-label={`${name} effects`}>
       {actor.effects.map((effect) => <li key={effect.id}>
-        {label(effect.type)} {effect.amount !== undefined ? `· ${effect.amount}${effect.school ? ` ${effect.school}` : ''}` : ''}
-        {effect.stat ? ` · ${effect.stat}` : ''} · {effect.remaining} {effect.unit} remaining
+        {displayLabel(effect.type)} {effect.amount !== undefined ? `· ${effect.amount}${effect.school ? ` ${displayLabel(effect.school)}` : ''}` : ''}
+        {effect.stat ? ` · ${displayLabel(effect.stat)}` : ''} · {effect.remaining} {effect.unit} remaining
       </li>)}
     </ul>}
     {actor.queued && <p className="live-combat__actor-queued">Queued {describeQueued(actor.queued)}</p>}
@@ -166,20 +168,25 @@ function ActorCard({ actor }: { readonly actor: CombatActorProjection }) {
 
 function describeQueued(value: CombatActorProjection['queued']): string {
   if (!value) return '';
-  if (value.kind === 'useSkill') return label(value.skill ?? 'skill');
-  if (value.kind === 'useConsumable') return `item ${label(value.item ?? 'consumable')}`;
-  return label(value.kind);
+  if (value.kind === 'useSkill') return displayLabel(value.skill ?? 'skill');
+  if (value.kind === 'useConsumable') return `item ${displayLabel(value.item ?? 'consumable')}`;
+  return displayLabel(value.kind);
 }
-function label(key: string): string { return key.split(/[.:/_-]/).filter(Boolean).at(-1)?.replace(/([a-z])([A-Z])/g, '$1 $2') ?? key; }
-function formatEvent(value: LiveJson): string {
+function actorLabel(actor: CombatActorProjection, actorId: string): string {
+  if (actor.id === actorId) return 'You';
+  if (actor.side === 'hero' && isUuid(actor.id)) return 'Party member';
+  return displayLabel(actor.labelKey ?? actor.id);
+}
+function isUuid(value: string): boolean { return /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(value); }
+function formatEvent(value: LiveJson, actorId: string): string {
   if (value === null || Array.isArray(value) || typeof value !== 'object') return 'Combat event received.';
   const event = value as { readonly [key: string]: LiveJson };
   if (event['type'] === 'combat' && event['event'] !== null && !Array.isArray(event['event']) && typeof event['event'] === 'object') {
-    return formatEvent(event['event']);
+    return formatEvent(event['event'], actorId);
   }
   const type = typeof event['type'] === 'string' ? event['type'] : 'Combat event';
-  const actor = typeof event['actorId'] === 'string' ? ` · ${label(event['actorId'])}` : '';
-  const skill = typeof event['skill'] === 'string' ? ` · ${label(event['skill'])}` : '';
+  const actor = typeof event['actorId'] === 'string' ? ` · ${event['actorId'] === actorId ? 'You' : isUuid(event['actorId']) ? 'Party member' : displayLabel(event['actorId'])}` : '';
+  const skill = typeof event['skill'] === 'string' ? ` · ${displayLabel(event['skill'])}` : '';
   const reason = typeof event['reason'] === 'string' ? ` · ${event['reason']}` : '';
   return `${type}${actor}${skill}${reason}`;
 }

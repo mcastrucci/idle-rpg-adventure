@@ -5,6 +5,7 @@ import { sendCommand } from '../api/commands.ts';
 import type { CommandRequest } from '../api/commands.ts';
 import type { CharacterDto, SessionDto } from '../api/types.ts';
 import type { AppServices } from './services.ts';
+import { currentLive } from '../live/api.ts';
 
 export type GameSession =
   | { readonly phase: 'loading' }
@@ -25,6 +26,7 @@ export function useGameSession({ api, live, storage }: AppServices) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const [attempt, setAttempt] = useState(0);
+  const refreshSequence = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,7 +35,20 @@ export function useGameSession({ api, live, storage }: AppServices) {
         const session = await ensureSession(api, storage);
         const characters = await api.listCharacters();
         if (cancelled) return;
-        setState({ phase: 'ready', session, character: characters[0] ?? null });
+        let character = characters[0] ?? null;
+        // The live host can outlive a browser page. Reconcile once at boot so a durable character snapshot
+        // that missed the start transition cannot strand an existing host instance behind the map.
+        if (character?.activityState === 'none') {
+          try {
+            const hosted = await currentLive(api, character.actorId);
+            if (cancelled) return;
+            if (hosted.current?.actorId === character.actorId) {
+              character = { ...character, activityState: 'live', activityId: hosted.current.instanceId };
+            }
+          } catch { /* Character loading remains usable if live-host discovery is temporarily unavailable. */ }
+        }
+        if (cancelled) return;
+        setState({ phase: 'ready', session, character });
         live.start();
       } catch (error) {
         if (!cancelled) setState({ phase: 'error', error: describeError(error) });
@@ -101,8 +116,29 @@ export function useGameSession({ api, live, storage }: AppServices) {
   const refreshCharacter = useCallback(async () => {
     const current = stateRef.current;
     if (current.phase !== 'ready' || !current.character) return;
-    const character = await api.character(current.character.actorId);
-    setState((latest) => latest.phase === 'ready' ? { ...latest, character } : latest);
+    const actorId = current.character.actorId;
+    const sequence = ++refreshSequence.current;
+    let character = current.character;
+    try {
+      character = await api.character(actorId);
+    } catch (error) {
+      // A character refresh can fail independently of the live host. Still discover the host so a
+      // successfully started instance remains reachable from the map.
+      const hosted = await currentLive(api, actorId);
+      if (hosted.current?.actorId !== actorId) throw error;
+      character = { ...current.character, activityState: 'live', activityId: hosted.current.instanceId };
+    }
+    if (character.activityState === 'none') {
+      try {
+        const hosted = await currentLive(api, actorId);
+        if (hosted.current?.actorId === actorId) {
+          character = { ...character, activityState: 'live', activityId: hosted.current.instanceId };
+        }
+      } catch { /* A valid character response wins; live-host discovery is an optional reconciliation. */ }
+    }
+    if (sequence !== refreshSequence.current) return;
+    setState((latest) => latest.phase === 'ready' && latest.character?.actorId === actorId
+      ? { ...latest, character } : latest);
   }, [api]);
 
   const dismissExpeditionNotice = useCallback(() => {
