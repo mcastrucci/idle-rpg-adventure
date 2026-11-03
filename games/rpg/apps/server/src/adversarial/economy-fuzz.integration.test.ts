@@ -41,6 +41,8 @@ const HUNT = 'idle:region_1.hunt';
 const POTION = 'item:minor_healing_potion';
 const SAP = 'item:sap_tonic';
 const SWORD = 'item:rusty_sword';
+/** Authored materials with a sell value (glowcap 2, amber resin 3 gold). */
+const MATERIALS = [{ item: 'item:glowcap', value: 2 }, { item: 'item:amber_resin', value: 3 }] as const;
 const START_AT = 1_800_000_000_000;
 const MINUTE = 60_000;
 const OFFERS = [
@@ -64,6 +66,8 @@ function intFromEnv(name: string, fallback: number, min: number, max: number): n
 const SEED = intFromEnv('ECONOMY_FUZZ_SEED', randomInt(1, 0xffff_ffff), 1, 0xffff_ffff);
 const ROUNDS = intFromEnv('ECONOMY_FUZZ_ROUNDS', 30, 1, 500);
 const OPS_PER_ROUND = intFromEnv('ECONOMY_FUZZ_OPS', 20, 1, 200);
+/** Explicit budget: about 0.3 s per round alone, 2 s per round of headroom for a loaded CI machine (default size: 2 min). */
+const FUZZ_TIMEOUT_MS = 60_000 + ROUNDS * 2_000;
 
 /** mulberry32: tiny, fast, 32-bit deterministic generator; test infrastructure only (not simulator code). */
 class Prng {
@@ -91,7 +95,7 @@ interface Player {
   readonly sessionToken: string;
   readonly actorId: string;
   readonly swords: readonly string[];
-  readonly model: { spentGold: number; bought: Map<string, number>; starts: number };
+  readonly model: { spentGold: number; earnedGold: number; bought: Map<string, number>; sold: Map<string, number>; starts: number };
 }
 interface Reply { readonly status: number; readonly body: unknown }
 interface Applied { readonly atMs: number; readonly player: Player; readonly url: string; readonly envelope: unknown; readonly reply: Reply;
@@ -161,18 +165,19 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
   const envelope = (operation: string, payload: Record<string, unknown>, commandId: string = randomUUID()) =>
     ({ command_id: commandId, operation, payload });
 
-  async function createPlayer(label: string, options: { gold: number; potions: number; swords: number }): Promise<Player> {
+  async function createPlayer(label: string, options: { gold: number; potions: number; swords: number; materials?: number }): Promise<Player> {
     const session = await auth.guest(randomBytes(32).toString('base64url'));
     const hero = await database.db.transaction(tx => createCharacterService(tx, content as never).create(session.accountId, { name: 'Fuzz hero' }));
     const deltas = [] as { actorId: string; asset: { kind: 'currency'; currency: 'gold' } | { kind: 'stack'; item: string } | { kind: 'unique_mint'; item: string }; qty: number }[];
     if (options.gold) deltas.push({ actorId: hero.actorId, asset: { kind: 'currency', currency: 'gold' }, qty: options.gold });
     if (options.potions) deltas.push({ actorId: hero.actorId, asset: { kind: 'stack', item: POTION }, qty: options.potions });
     if (options.swords) deltas.push({ actorId: hero.actorId, asset: { kind: 'unique_mint', item: SWORD }, qty: options.swords });
+    if (options.materials) for (const material of MATERIALS) deltas.push({ actorId: hero.actorId, asset: { kind: 'stack', item: material.item }, qty: options.materials });
     if (deltas.length) await database.db.transaction(tx => applyLedgerDeltas(tx, { type: 'test_fixture', id: `${hero.actorId}:fuzz` }, deltas));
     await database.db.transaction(tx => recordAreaCompletion(tx, clock, hero.actorId, REGION));
     const swords = (await database.db.select().from(itemInstances).where(eq(itemInstances.actorId, hero.actorId))).map(row => row.id).sort();
     const player: Player = { label, accountId: session.accountId, sessionToken: session.sessionToken, actorId: hero.actorId, swords,
-      model: { spentGold: 0, bought: new Map(), starts: 0 } };
+      model: { spentGold: 0, earnedGold: 0, bought: new Map(), sold: new Map(), starts: 0 } };
     players.push(player);
     return player;
   }
@@ -187,12 +192,13 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
   }
 
   /** Classifies one reply: only the listed statuses/error codes are acceptable; anything else is recorded as a failure. */
-  function expectReply(name: string, reply: Reply, allowed: { ok: readonly number[]; rejected?: readonly string[]; gate?: boolean }): boolean {
+  function expectReply(name: string, reply: Reply, allowed: { ok: readonly number[]; rejected?: readonly string[]; gate?: boolean; badRequest?: readonly string[] }): boolean {
     const error = errorOf(reply.body);
     if (allowed.ok.includes(reply.status)) { bump(`${name}:${reply.status}`); return true; }
     const business = reply.status === 409 && error !== undefined && (allowed.rejected ?? []).includes(error);
     const gate = allowed.gate === true && reply.status === 400 && error !== undefined && (error.startsWith('start.') || error === 'invalid_live_start');
-    if (business || gate) { bump(`${name}:${reply.status}:${error}`); return false; }
+    const badRequest = reply.status === 400 && error !== undefined && (allowed.badRequest ?? []).includes(error);
+    if (business || gate || badRequest) { bump(`${name}:${reply.status}:${error}`); return false; }
     violate(`${name}: unexpected ${reply.status} ${JSON.stringify(reply.body)}`);
     return false;
   }
@@ -226,8 +232,24 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
         remember(player, INVENTORY(player), env, reply, () => envelope('inventory.buy', { actorId: player.actorId, offerId: offer.id, quantity: quantity + 1 }, env.command_id));
       }
     },
+    async sellMaterial(player: Player) {
+      // Mostly authored materials; sometimes a consumable (potion), which must never be sellable (escrowed or not).
+      const material = rng.chance(85) ? rng.pick(MATERIALS) : { item: POTION, value: 0 }; const quantity = 1 + rng.int(3);
+      const env = envelope('inventory.sellMaterial', { actorId: player.actorId, item: material.item, quantity });
+      const reply = await post(player, INVENTORY(player), env);
+      if (material.item === POTION) {
+        if (reply.status === 200) violate(`sellMaterial: a consumable was sold: ${JSON.stringify(reply.body)}`);
+        else expectReply('sellPotion', reply, { ok: [], rejected: ['busy'], badRequest: ['invalid_sell_item'] });
+        return;
+      }
+      if (expectReply('sellMaterial', reply, { ok: [200], rejected: REJECTED })) {
+        player.model.earnedGold += material.value * quantity;
+        player.model.sold.set(material.item, (player.model.sold.get(material.item) ?? 0) + quantity);
+        remember(player, INVENTORY(player), env, reply, () => envelope('inventory.sellMaterial', { actorId: player.actorId, item: material.item, quantity: quantity + 1 }, env.command_id));
+      }
+    },
     async moveStack(player: Player) {
-      const item = rng.pick([POTION, SAP]); const quantity = 1 + rng.int(2);
+      const item = rng.pick([POTION, SAP, MATERIALS[0].item]); const quantity = 1 + rng.int(2);
       const [from, to] = rng.chance(50) ? ['inventory', 'storage'] : ['storage', 'inventory'];
       const env = envelope('inventory.move', { actorId: player.actorId, item, quantity, from, to });
       const reply = await post(player, INVENTORY(player), env);
@@ -310,7 +332,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
   } as const;
   type OperationName = keyof typeof operations;
   const MIX: readonly (readonly [OperationName, number])[] = [
-    ['buy', 16], ['moveStack', 12], ['equip', 8], ['unequip', 6], ['moveUnique', 8], ['startExpedition', 14], ['cancel', 8], ['read', 8],
+    ['buy', 16], ['sellMaterial', 8], ['moveStack', 12], ['equip', 8], ['unequip', 6], ['moveUnique', 8], ['startExpedition', 14], ['cancel', 8], ['read', 8],
     ['startLive', 7], ['replaySame', 8], ['replayDifferent', 5],
   ];
   function pickOperation(): OperationName {
@@ -354,6 +376,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
       const attempts = await Promise.all([
         post(player, INVENTORY(player), envelope('inventory.buy', { actorId, offerId: OFFERS[0].id, quantity: 1 })),
         post(player, INVENTORY(player), envelope('inventory.move', { actorId, item: POTION, quantity: 1, from: 'inventory', to: 'storage' })),
+        post(player, INVENTORY(player), envelope('inventory.sellMaterial', { actorId, item: MATERIALS[0].item, quantity: 1 })),
         post(player, INVENTORY(player), envelope('inventory.equip', { actorId, itemId: player.swords[0] ?? randomUUID(), slot: 'weapon' })),
         post(player, '/expeditions', envelope('expedition.start', { actorId, request: { areaId: REGION, activityId: HUNT, durationMin: 15, paceBp: 10_000 },
           config: { consumables: [], retreat: { belowHpBp: 0, onlyWhenNoHealing: false } } })),
@@ -459,6 +482,16 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
           SELECT COALESCE(sum(qty), 0)::text AS spent FROM ledger_entries WHERE actor_id = ${player.actorId}::uuid AND source_type = 'rpg_command'
             AND asset_kind = 'currency' AND asset_ref = 'gold' AND from_container = 'inventory' AND to_container IS NULL`);
         if (Number(spent[0]?.spent) !== player.model.spentGold) found.push(`${player.label}: ledger spent ${spent[0]?.spent} gold, model says ${player.model.spentGold}`);
+        const earned = await q<{ earned: string }>(sql`
+          SELECT COALESCE(sum(qty), 0)::text AS earned FROM ledger_entries WHERE actor_id = ${player.actorId}::uuid AND source_type = 'rpg_command'
+            AND asset_kind = 'currency' AND asset_ref = 'gold' AND from_container IS NULL AND to_container = 'inventory'`);
+        if (Number(earned[0]?.earned) !== player.model.earnedGold) found.push(`${player.label}: ledger earned ${earned[0]?.earned} gold from sales, model says ${player.model.earnedGold}`);
+        for (const material of MATERIALS) {
+          const sold = await q<{ qty: string }>(sql`
+            SELECT COALESCE(sum(qty), 0)::text AS qty FROM ledger_entries WHERE actor_id = ${player.actorId}::uuid AND source_type = 'rpg_command'
+              AND asset_kind = 'stack' AND asset_ref = ${material.item} AND from_container = 'inventory' AND to_container IS NULL`);
+          if (Number(sold[0]?.qty) !== (player.model.sold.get(material.item) ?? 0)) found.push(`${player.label}: ledger sold ${sold[0]?.qty} ${material.item}, model says ${player.model.sold.get(material.item) ?? 0}`);
+        }
         for (const offer of OFFERS) {
           const got = await q<{ qty: string }>(sql`
             SELECT COALESCE(sum(qty), 0)::text AS qty FROM ledger_entries WHERE actor_id = ${player.actorId}::uuid AND source_type = 'rpg_command'
@@ -481,7 +514,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
   it(`holds every economy invariant over ${ROUNDS} rounds x ${OPS_PER_ROUND} concurrent operations`, async () => {
     console.info(`economy fuzz: seed=${SEED} rounds=${ROUNDS} opsPerRound=${OPS_PER_ROUND} (reproduce with ECONOMY_FUZZ_SEED=${SEED})`);
     for (let index = 0; index < BASE_PLAYERS; index++) {
-      await createPlayer(`p${index}`, { gold: STARTING_GOLD, potions: STARTING_POTIONS, swords: 2 });
+      await createPlayer(`p${index}`, { gold: STARTING_GOLD, potions: STARTING_POTIONS, swords: 2, materials: 8 });
     }
     const started = Date.now();
     for (round = 1; round <= ROUNDS; round++) {
@@ -535,7 +568,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     expect(count('buy:200')).toBeGreaterThan(0);
     expect(count('startExpedition:201')).toBeGreaterThan(0);
     expect(count('replaySame:identical')).toBeGreaterThan(0);
-  }, 90_000);
+  }, FUZZ_TIMEOUT_MS);
 
   it('audit self-check: the invariants fail on corrupted balances, orphaned activity locks and double settlement', async () => {
     round = 0;

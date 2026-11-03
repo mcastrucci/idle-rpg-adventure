@@ -34,10 +34,13 @@ they skip without the variable. "New" marks evidence added by this report.
 | Ledger invariant checker (sum of ledger equals balances, no negatives) | `engine/server-kit/src/ledger/ledger.integration.test.ts` "checks invariants with empty and multi-actor UUID arrays"; `inventory/ledger-audit.integration.test.ts` "detects corruption, scans atomically during concurrent ledger writes, and continues scheduling future windows" (periodic job); `checkLedgerInvariants` is asserted at the end of most economy tests | Yes | **Missing: zero violations under fuzzing** (success criterion; checklist item "Ledger invariant checker passes after fuzzing"). **New:** `adversarial/economy-fuzz.integration.test.ts` |
 
 Additional checklist items from rewards-and-persistence §8 (not part of the issue list, listed for completeness): "cannot use
-or sell an escrowed consumable" (inventory tests with escrow, fuzz moves/buys while escrowed), "cancelling after the
-actual end cannot skip the death penalty" (expeditions test above, plus the fuzz cancel-at-end race), "no endpoint accepts
-client-computed rewards" (inventory test "prices offers from server content, ignores/rejects forged client prices ..."; strict payload schemas). Sale code does not
-exist yet, so selling is out of scope.
+or sell an escrowed consumable" (inventory tests with escrow; `inventory.integration.test.ts` "rejects non-owned, active,
+storage-only, and non-material sale requests ..."; the fuzz also tries to sell potions, which must always be refused),
+"cancelling after the actual end cannot skip the death penalty" (expeditions test above, plus the fuzz cancel-at-end race),
+"no endpoint accepts client-computed rewards" (inventory test "prices offers from server content, ignores/rejects forged
+client prices ..."; strict payload schemas). Material sales (#114, merged while this report was written) are covered by
+`inventory.integration.test.ts` "serializes concurrent sales of the same stack so fresh command IDs cannot oversell" and are
+part of the fuzz mix.
 
 ## Seeded economy fuzz
 
@@ -45,7 +48,7 @@ File: `games/rpg/apps/server/src/adversarial/economy-fuzz.integration.test.ts` (
 
 **Setup.** One Fastify node (`api` + `live` roles) with an in-process `InstanceHost`, plus a second Fastify instance with the
 `worker` role, which runs the real PostgreSQL job queue. Both share one manual clock and one fresh PostgreSQL 16 database
-with the real migrations and the real Region 1 content. Six players start with 160 gold, 3 potions and 2 swords and a
+with the real migrations and the real Region 1 content. Six players start with 160 gold, 3 potions, 2 swords, 8 glowcap and 8 amber resin and a
 persisted Region 1 completion; one more fresh player is created per round for the last-potion race.
 
 **Seed.** A 32-bit mulberry32 seed is drawn at random per run, printed as
@@ -60,9 +63,10 @@ failing seed is a strong lead but not a byte-exact replay.
    supply and a storage move run concurrently in shuffled order. Exactly one may win and exactly one potion unit may exist.
 2. *Concurrent batch* of 20 operations on random players, all through the public routes with real `command_id`s. Weights:
    buy 16, move stack 12, start expedition 14, move unique 8, equip 8, cancel 8, read/lazy settle 8, replay identical 8,
-   start live 7, unequip 6, replay with changed payload 5.
+   sell material 8 (15% of these try to sell a potion, which must be refused), start live 7, unequip 6, replay with
+   changed payload 5.
 3. *Audit* (below).
-4. *Live closeout*: every actor that is live gets five concurrent mutations (buy, move, equip, expedition start, second
+4. *Live closeout*: every actor that is live gets six concurrent mutations (buy, move, sell, equip, expedition start, second
    live start), all of which must be 409 `busy`/`activity_conflict`; then the instance is closed with `returnToSanctuary`
    submitted twice concurrently (one applies, the other is a duplicate ack or finds the closed instance gone).
 5. *Settlement race* (50% of rounds): the clock moves to a random running expedition's exact end (or +1 ms, or +90 s) and
@@ -74,8 +78,8 @@ A final drain moves the clock past every end, settles all remaining expeditions 
 concurrently, and checks that nothing is running, no actor is busy and the whole ledger has no issues.
 
 **Expected vs unexpected.** Business rejections are expected and counted: 409 `busy`, `insufficient_funds`,
-`item_not_owned`, `activity_conflict`, `command_id_conflict`, and the start gates (400 `start.*` / `invalid_live_start` for
-carrying more than owned). Anything else, in particular any 5xx, a 401 or an exception, fails the test.
+`item_not_owned`, `activity_conflict`, `command_id_conflict`, and the 400 gates (`start.*` / `invalid_live_start` for
+carrying more than owned, `invalid_sell_item` for selling a consumable). Anything else, in particular any 5xx, a 401 or an exception, fails the test.
 
 **Audit** (one REPEATABLE READ transaction, so the concurrent worker cannot skew it):
 
@@ -86,8 +90,8 @@ carrying more than owned). Anything else, in particular any 5xx, a 401 or an exc
   every running expedition's actor is `expedition` with its id and has only one; the same for `live` and active instances;
 - settlement at most once: no expedition has more than one settlement batch; terminal expeditions have exactly one and
   running ones none; each expedition has exactly one start escrow batch;
-- model accounting per player: gold spent and units bought in the ledger equal the sum of first-time successful purchases
-  (replays and rejected commands never change balances), and persisted expeditions equal successful distinct starts.
+- model accounting per player: gold spent, gold earned from sales, and units bought and sold in the ledger equal the sum of first-time successful
+  purchases and sales (replays and rejected commands never change balances), and persisted expeditions equal successful distinct starts.
 
 **Self-check.** A second test corrupts the database on purpose (inflated balance, orphan activity lock, a second settlement
 batch) and requires the audit to report each one, then restores it. This guards against a vacuous audit.
@@ -99,14 +103,13 @@ All runs: Node 22.23.4, PostgreSQL 16.15 on the same machine, default size (30 r
 
 | Run | Seed | Fuzz phase | File duration (2 tests, incl. setup) | Notable counts |
 |---|---|---|---|---|
-| 1 | 2265343391 | 4.5 s | 6.3 s | 61 expeditions started, 54 settled (19 completed, 35 failed/death), 7 cancelled; 21 live instances closed; 54 identical replays, 31 conflicting replays |
-| 2 | 465734418 | 4.8 s | 6.6 s | 59 started, 50 settled, 9 cancelled; 40 live closed; 59 identical replays, 32 conflicting replays |
-| 3 | 2274665678 | 4.1 s | 5.8 s | 46 started, 36 settled, 10 cancelled; 32 live closed; 50 identical replays, 25 conflicting replays |
-| Full suite (`vitest run`, all projects in parallel) | 2703073094 | 8.2 s | n/a | the file's default budget under load; the test timeout is 90 s |
-| Soak | 77 | 58 s (150 rounds x 30 ops) | 61 s | 319 expeditions started, 4,500 random operations, 154 live instances closed; 378 identical replays, 196 conflicting replays |
+| 1 | 2027522032 | 5.5 s | 7.2 s | 52 expeditions started: 43 settled (11 completed, 32 failed/death), 9 cancelled; 33 live instances closed; 42 identical replays, 30 conflicting replays; 28 material sales |
+| 2 | 1273517370 | 5.5 s | 7.3 s | 59 started: 52 settled (17 completed, 35 failed), 7 cancelled; 27 live closed; 48 identical replays, 20 conflicting replays; 18 sales |
+| 3 | 2018728676 | 4.9 s | 6.7 s | 52 started: 44 settled (18 completed, 26 failed), 8 cancelled; 28 live closed; 38 identical replays, 36 conflicting replays; 18 sales |
+| Soak (150 rounds x 30 ops) | 77 | 93 s | 97 s | 345 expeditions started (257 settled, 88 cancelled), 4,500 random operations, 171 live instances closed; 355 identical replays, 200 conflicting replays; 108 sales; 1,026 mutations refused while live |
 
-Every kind of consumer won the last-potion race over the runs (expedition 11-21, live start 4-12, storage move 5-9 per 30
-rounds), the worker completed 22-28 settlement jobs per run, and `whileLive:refused` recorded 105-200 refused mutations.
+Every kind of consumer won the last-potion race in the soak (expedition 80, live start 39, storage move 31 of 150 rounds), the
+real worker completed 340 settlement jobs in it, and no run recorded a violation.
 
 ## Environment
 
@@ -127,7 +130,7 @@ rounds), the worker completed 22-28 settlement jobs per run, and `whileLive:refu
   the 24 h command-retention window. Clock skew across nodes is not simulated.
 - Replay of a changed payload is only generated for operations that have a valid alternative payload (not unequip or cancel).
 - Not fuzzed: character configuration edits, starter kit claim, estimates, the version-recovery settlement path, party
-  (multi-participant) live instances and the periodic ledger audit job. Selling does not exist yet.
+  (multi-participant) live instances and the periodic ledger audit job.
 - Concurrency is at most a few dozen in-flight requests on a 10-connection pool; this is a correctness fuzz, not a load test.
 - A pre-existing `pg` deprecation warning ("client.query() when the client is already executing a query") appears in the
   server integration tests, caused by `Promise.all` inside one transaction in `readRpgEvalContext`; it is unrelated to this spike.
