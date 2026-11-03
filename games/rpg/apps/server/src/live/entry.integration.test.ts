@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 import { compileContentDirectory } from '@engine/content-compiler';
-import { applyLedgerDeltas, actors, cleanupExpiredCommands, commandLog, createDatabase, liveInstances, ManualClock, parseServerConfig, runCommand } from '@engine/server-kit';
+import { applyLedgerDeltas, actors, cleanupExpiredCommands, commandLog, createDatabase, liveInstances, liveSessions, ManualClock, parseServerConfig, runCommand } from '@engine/server-kit';
 import type { Database, ServerConfig } from '@engine/server-kit';
 import plugin from '@rpg/content-plugin';
 import { and, eq } from 'drizzle-orm';
@@ -110,19 +110,30 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
     return n.app.inject({ method: 'GET', url: `/live/current/${actorId}`, headers: headers(session) });
   }
 
+  async function waitForLiveLeaseRelease(accountId: string) {
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const rows = await database.db.select().from(liveSessions).where(eq(liveSessions.accountId, accountId));
+      if (rows.length === 0) return;
+      await delay(10);
+    }
+    throw new Error(`live session lease did not release for account ${accountId}`);
+  }
+
   class Client {
     readonly socket: WebSocket;
     readonly inbox: Message[] = [];
+    closeDetails = 'not closed';
     constructor(url: string, session: Session) {
       this.socket = new WebSocket(url, { headers: headers(session) });
       sockets.add(this.socket);
       this.socket.on('message', data => this.inbox.push(JSON.parse(data.toString()) as Message));
+      this.socket.on('close', (code, reason) => { this.closeDetails = `${code}: ${reason.toString()}`; });
     }
     async wait(predicate: (message: Message) => boolean, timeoutMs = 5000): Promise<Message> {
       for (let waited = 0; waited < timeoutMs; waited += 5) {
         const index = this.inbox.findIndex(predicate);
         if (index >= 0) return this.inbox.splice(index, 1)[0] as Message;
-        if (this.socket.readyState === WebSocket.CLOSED) throw new Error('socket closed before expected frame');
+        if (this.socket.readyState === WebSocket.CLOSED) throw new Error(`socket closed before expected frame (${this.closeDetails})`);
         await delay(5);
       }
       throw new Error('timed out waiting for live frame');
@@ -203,6 +214,7 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
     const fresh = await getCurrent(n, session, character.actorId);
     expect(fresh.json()).toMatchObject({ current: { instanceId, view: { location: 'loc:region_1.overgrown_causeway' } } });
     await first.drop();
+    await waitForLiveLeaseRelease(session.accountId);
 
     const resumed = await new Client(n.url, session).ready();
     resumed.request({ op: 'live.attach', actorId: character.actorId, instanceId, resume: cursor });
