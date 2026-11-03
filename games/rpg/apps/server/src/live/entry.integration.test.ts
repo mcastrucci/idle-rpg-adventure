@@ -5,18 +5,17 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
 
-import { compileContentDirectory } from '@engine/content-compiler';
 import { applyLedgerDeltas, actors, cleanupExpiredCommands, commandLog, createDatabase, liveInstances, liveSessions, ManualClock, parseServerConfig, runCommand } from '@engine/server-kit';
 import type { Database, ServerConfig } from '@engine/server-kit';
-import plugin from '@rpg/content-plugin';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
 import { createRpgDatabase, createRpgServer } from '../index.ts';
 import { rpgLiveEntries } from '../telemetry/schema.ts';
+import { recordAreaCompletion } from '../expeditions/progress.ts';
+import { HIDDEN_FIXTURE, SECOND_LIVE_AREA, SECOND_LIVE_START, NONSTARTABLE_FIXTURE, compileWorldViewFixture } from '../world/test-content.ts';
 import { createRpgLiveHost, prepareRpgLiveStart } from './index.ts';
 import type { RpgLiveHost } from './index.ts';
 
@@ -45,10 +44,9 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
 
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), 'live-entry-'));
-    const compiled = compileContentDirectory(fileURLToPath(new URL('../../../../content', import.meta.url)), plugin);
-    if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
+    const compiled = await compileWorldViewFixture(directory);
     const bundlePath = join(directory, 'bundle.json');
-    await writeFile(bundlePath, JSON.stringify(compiled.bundle));
+    await writeFile(bundlePath, JSON.stringify(compiled));
     const base = parseServerConfig({ DATABASE_URL: adminUrl, CONTENT_BUNDLE_PATH: bundlePath, LOG_LEVEL: 'silent', ROLES: 'api,live' });
     admin = createDatabase(base);
     await admin.pool.query(`CREATE DATABASE "${databaseName}"`);
@@ -224,6 +222,101 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
     expect((await getCurrent(n, session, character.actorId)).json()).toMatchObject({
       current: { instanceId, view: { location: 'loc:region_1.overgrown_causeway' } },
     });
+  }, 30_000);
+
+  it('offers and starts a second authored area only after persisted completion unlocks it', async () => {
+    const n = await node('entry-multi-area');
+    const { session, character } = await fixture(n);
+    const otherSession = await guest(n.app);
+    const worldUrl = `/characters/${character.actorId}/world`;
+    const optionsUrl = `/live/options/${character.actorId}`;
+    const beforeOptions = await n.app.inject({ method: 'GET', url: optionsUrl, headers: headers(session) });
+    expect(beforeOptions.statusCode).toBe(200);
+    expect(beforeOptions.body).not.toContain(SECOND_LIVE_AREA);
+    expect(beforeOptions.body).not.toContain('area.live_fixture_two.name');
+    expect(beforeOptions.body).not.toContain('area:test_grove');
+    expect(beforeOptions.json<{ areas: Array<{ id: string }> }>().areas).toContainEqual(expect.objectContaining({ id: REGION }));
+    const lockedWorld = await n.app.inject({ method: 'GET', url: worldUrl, headers: headers(session) });
+    expect(lockedWorld.json<{ areas: Array<{ id: string; visibility: string; actions: { enterLive: boolean } }> }>().areas)
+      .toContainEqual(expect.objectContaining({ id: SECOND_LIVE_AREA, visibility: 'locked', actions: expect.objectContaining({ enterLive: false }) }));
+
+    const lockedCommandId = randomUUID();
+    const locked = await start(n, session, character, lockedCommandId, { areaId: SECOND_LIVE_AREA });
+    expect(locked.statusCode).toBe(409);
+    expect(locked.json()).toEqual({ error: 'region_locked' });
+    expect(locked.body).not.toContain(SECOND_LIVE_AREA);
+    expect(locked.body).not.toContain('area.live_fixture_two.name');
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, lockedCommandId))).toEqual([]);
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.actorId, character.actorId))).toEqual([]);
+
+    await database.db.transaction(tx => recordAreaCompletion(tx, clock, character.actorId, REGION));
+    const world = await n.app.inject({ method: 'GET', url: worldUrl, headers: headers(session) });
+    expect(world.statusCode).toBe(200);
+    expect(world.json<{ areas: Array<{ id: string; actions: { enterLive: boolean } }> }>().areas)
+      .toContainEqual(expect.objectContaining({ id: SECOND_LIVE_AREA, actions: expect.objectContaining({ enterLive: true }) }));
+    expect(world.json<{ areas: Array<{ id: string; actions: { enterLive: boolean } }> }>().areas)
+      .toContainEqual(expect.objectContaining({ id: 'area:test_grove', actions: expect.objectContaining({ enterLive: false }) }));
+    const unlockedOptions = await n.app.inject({ method: 'GET', url: optionsUrl, headers: headers(session) });
+    expect(unlockedOptions.json<{ areas: Array<{ id: string; startLocationId: string }> }>().areas)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ id: SECOND_LIVE_AREA, startLocationId: SECOND_LIVE_START })]));
+    expect(unlockedOptions.json<{ areas: Array<{ id: string }> }>().areas.map(area => area.id))
+      .toEqual([SECOND_LIVE_AREA, REGION]);
+
+    const foreignCommandId = randomUUID();
+    const foreign = await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(otherSession), payload: {
+      commandId: foreignCommandId, actorId: character.actorId, areaId: SECOND_LIVE_AREA, supplies: [],
+    } });
+    expect(foreign.statusCode).toBe(404);
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, foreignCommandId))).toEqual([]);
+    const invalidAreaIds = ['area:sanctuary', 'area:missing_fixture', NONSTARTABLE_FIXTURE, 'area:test_grove'];
+    for (const areaId of invalidAreaIds) {
+      const commandId = randomUUID();
+      const invalid = await start(n, session, character, commandId, { areaId });
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json()).toEqual({ error: 'invalid_live_start' });
+      expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, commandId))).toEqual([]);
+    }
+    expect(await activity(character.actorId)).toMatchObject({ activityState: 'none', activityId: null });
+    const unknownId = randomUUID();
+    const hiddenId = randomUUID();
+    const unknown = await start(n, session, character, unknownId, { areaId: 'area:missing_fixture' });
+    const hidden = await start(n, session, character, hiddenId, { areaId: HIDDEN_FIXTURE });
+    expect([hidden.statusCode, hidden.json()]).toEqual([unknown.statusCode, unknown.json()]);
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, unknownId))).toEqual([]);
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, hiddenId))).toEqual([]);
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.actorId, character.actorId))).toEqual([]);
+    expect(await activity(character.actorId)).toMatchObject({ activityState: 'none', activityId: null });
+
+    const commandId = randomUUID();
+    const body = { commandId, actorId: character.actorId, areaId: SECOND_LIVE_AREA, supplies: [] };
+    const started = await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(session), payload: body });
+    expect(started.statusCode).toBe(200);
+    const instanceId = started.json<{ instanceId: string }>().instanceId;
+    expect((await getCurrent(n, session, character.actorId)).json())
+      .toMatchObject({ current: { instanceId, view: { area: SECOND_LIVE_AREA, location: SECOND_LIVE_START } } });
+    expect(await row(instanceId)).toMatchObject({ checkpoint: { state: { area: SECOND_LIVE_AREA, location: SECOND_LIVE_START } } });
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.instanceId, instanceId)))
+      .toMatchObject([{ instanceId, actorId: character.actorId, areaId: SECOND_LIVE_AREA }]);
+
+    const replay = await n.app.inject({ method: 'POST', url: '/live/start', headers: headers(session), payload: body });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toEqual({ instanceId });
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.instanceId, instanceId))).toHaveLength(1);
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, commandId))).toHaveLength(1);
+
+    const busyCommandId = randomUUID();
+    const busy = await start(n, session, character, busyCommandId, { areaId: SECOND_LIVE_AREA });
+    expect(busy.statusCode).toBe(409);
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, busyCommandId))).toEqual([]);
+    expect(await database.db.select().from(rpgLiveEntries).where(eq(rpgLiveEntries.actorId, character.actorId))).toHaveLength(1);
+
+    const busyUnknownId = randomUUID();
+    const busyHiddenId = randomUUID();
+    const busyUnknown = await start(n, session, character, busyUnknownId, { areaId: 'area:missing_fixture' });
+    const busyHidden = await start(n, session, character, busyHiddenId, { areaId: HIDDEN_FIXTURE });
+    expect([busyHidden.statusCode, busyHidden.json()]).toEqual([busyUnknown.statusCode, busyUnknown.json()]);
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, busyUnknownId))).toEqual([]);
+    expect(await database.db.select().from(commandLog).where(eq(commandLog.commandId, busyHiddenId))).toEqual([]);
   }, 30_000);
 
   it('replays the exact durable start after close, rejects changed payload, and preserves a tombstone conflict', async () => {

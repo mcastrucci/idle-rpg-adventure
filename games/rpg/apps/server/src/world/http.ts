@@ -11,10 +11,9 @@ import { createExpeditionService } from '../expeditions/service.ts';
 import { readRpgEvalContext } from '../expeditions/progress.ts';
 import { characters } from '../characters/schema.ts';
 import { publicCommandError } from '../character-commands.ts';
-import { computeRpgWorldView } from './access.ts';
+import { computeRpgWorldView, getRpgLiveStartAreas } from './access.ts';
 
 const ActorParams = z.strictObject({ actorId: z.uuid().transform(id => id.toLowerCase()) });
-const LIVE_START_AREA = 'area:region_1';
 const GENERIC_BOSS_LABEL = 'Mandatory boss';
 
 /** Owner-scoped, read-only world map. Requirements and hidden content are evaluated on the server and never serialized. */
@@ -46,6 +45,7 @@ export const worldModule: ServerModule = {
             return [area.id, area] as const;
           }));
           const engineView = computeRpgWorldView(context.content, evalContext);
+          const liveStartIds = new Set(getRpgLiveStartAreas(context.content).map(area => area.id));
           const visibleAreas = engineView.areas.filter(area => area.kind !== 'hub' && area.visibility !== 'hidden');
           const knownAreaIds = new Set([...visibleAreas.map(area => area.id), ...world.areas.filter(area => area.kind === 'hub').map(area => area.id)]);
           const hub = world.areas.find(area => area.kind === 'hub');
@@ -84,7 +84,7 @@ export const worldModule: ServerModule = {
                   ? { status: 'known' as const, minLevel: authored.recommendedLevel[0], maxLevel: authored.recommendedLevel[1] }
                   : { status: 'unknown' as const },
                 idle: { unlocked: idleUnlocked, activities },
-                actions: { enterLive: free && view.visibility === 'known' && view.id === LIVE_START_AREA,
+                actions: { enterLive: free && view.visibility === 'known' && liveStartIds.has(view.id),
                   startIdle: free && view.visibility === 'known' && idleUnlocked },
               };
             }),

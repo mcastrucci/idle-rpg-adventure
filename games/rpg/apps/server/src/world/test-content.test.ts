@@ -16,7 +16,7 @@ describe('world view authored PostgreSQL fixture', () => {
   it('compiles its private areas, locations, and routes through the real content compiler', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'world-view-content-'));
     dirs.push(dir);
-    const bundle = await compileWorldViewFixture(dir);
+    const bundle = await compileWorldViewFixture(dir, { gateRegionOne: true });
     expect(() => validateRpgBundle(bundle)).not.toThrow();
     expect(bundle.world.areas.find(area => area.id === LOCKED_FIXTURE)?.startLocation).toBe('loc:locked_fixture.entry');
     expect(bundle.world.areas.find(area => area.id === HIDDEN_FIXTURE)?.locations).toEqual(['loc:hidden_fixture.entry']);
