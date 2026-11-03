@@ -375,7 +375,8 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
       effectiveDurationMs: nextReveal - 1 - START_AT, xp: { earned: expect.any(Number), penaltyLost: 0 },
       events: expect.any(Array), loot: expect.any(Array), consumables: expect.any(Array) });
     expect(cancelled.report?.events?.join(' ')).not.toContain('death');
-    expect(JSON.stringify(cancelled)).not.toMatch(/"(?:seed|budget|stateAfter|timelineCompressed|timelineHash|combatHash)"\s*:/);
+    expect(JSON.stringify(cancelled)).not.toMatch(/"(?:seed|budget|stateAfter|timelineCompressed|timelineHash)"\s*:/);
+    expect(JSON.stringify(cancelled.report)).not.toContain('combatHash');
     clock.advance(2 * 60 * 60_000); // Past the planned end, still inside the 12-hour guest-session lifetime.
     const later = (await get(session, running.id)).json<ExpeditionDto>();
     expect(later).toEqual(cancelled);

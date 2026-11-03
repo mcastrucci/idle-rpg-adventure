@@ -458,11 +458,14 @@ describe.skipIf(!adminUrl)('expedition deployment compatibility against real Pos
       effectiveDurationMs: null, enemiesDefeated: null,
       xp: { earned: null, penaltyLost: null, net: null }, gold: { earned: null, lost: null, secured: null },
       loot: null, events: null, finalState: { hp: null, maxHp: null, xpTotal: null } });
-    expect(recovered.report?.consumables).toEqual([{ item: POTION, used: null, returned: 2 }]);
+    const expectedRefund = (row.escrow as readonly { actorId: string; asset: { kind: string; item?: string }; qty: number; from: string; to: string }[])
+      .map(delta => ({ ...delta, from: 'escrow', to: delta.from }));
+    const returnedPotion = expectedRefund.filter(delta => delta.actorId === character.actorId && delta.asset.kind === 'stack' &&
+      delta.asset.item === POTION && delta.to === 'inventory')
+      .reduce((total, delta) => total + delta.qty, 0);
+    expect(recovered.report?.consumables).toEqual([{ item: POTION, used: null, returned: returnedPotion }]);
     const report = await terminalReport(started.id);
     expect(report).toEqual(recovered.terminalReport);
-    const expectedRefund = (row.escrow as readonly { actorId: string; asset: unknown; qty: number; from: string; to: string }[])
-      .map(delta => ({ ...delta, from: 'escrow', to: delta.from }));
     expect(report?.settledDeltas).toEqual(expectedRefund);
     const final = await persisted(started.id);
     expect(final.status).toBe('cancelled');

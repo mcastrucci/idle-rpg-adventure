@@ -152,7 +152,8 @@ function safeDto(row: typeof expeditions.$inferSelect, timeline: ExpeditionTimel
     segments: view.segments.map(({ index, revealAtMs, events }) => ({ index, revealAtMs, events })),
     revealedDeltas: view.revealedDeltas, ...(summary ? { summary } : {}), ...(cancelPreview ? { cancelPreview } : {}),
     ...(row.status === 'running' && !policy ? { recoveryAvailable: true } : {}),
-    ...(row.status !== 'running' && !row.terminalReport ? { terminalReport: null } : {}),
+    ...(row.status !== 'running' && !row.terminalReport ? { terminalReport: null,
+      report: projectExpeditionResultReport(row, null) } : {}),
     ...(row.status === 'cancelled'
       ? { endsAtMs: row.settledAt?.getTime() ?? row.endsAtMs, outcome: 'cancelled' as const }
       : row.status === 'completed' ? { endsAtMs: view.endedAtMs, outcome: view.outcome } : {}),
