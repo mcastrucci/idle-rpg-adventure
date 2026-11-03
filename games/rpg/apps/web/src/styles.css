@@ -177,6 +177,25 @@ h1, h2, p, dl, ol { margin: 0; }
 }
 .rules-summary { display: flex; flex-direction: column; gap: 4px; padding-left: 1.4em; color: var(--text); font-size: 0.9rem; }
 
+.death-panel, .live-risk-notice {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+}
+.death-panel__heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.death-panel__refresh { min-height: 44px; padding: 0 12px; }
+.death-panel__record, .death-panel__section, .death-panel__recovery { display: flex; flex-direction: column; gap: 6px; }
+.death-panel__date, .death-panel__section h3, .death-panel__recovery h3, .live-risk-notice h2 { font-size: .9rem; color: var(--muted); }
+.death-panel__section, .death-panel__recovery { padding-top: 8px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.death-panel__record code { overflow-wrap: anywhere; font-size: .85em; color: var(--accent); }
+.death-panel__causes, .death-panel__loot { margin: 0; padding-left: 20px; }
+.death-panel__causes li { margin-top: 4px; }
+.death-panel__loot { display: flex; flex-direction: column; gap: 4px; padding-left: 0; list-style: none; }
+.death-panel__loot li { display: flex; justify-content: space-between; gap: 12px; }
+.death-panel__loot li strong { flex: none; font-variant-numeric: tabular-nums; }
+.death-panel__recovery { border-color: var(--warn); }
+.live-risk-notice { border-color: var(--warn); background: #30251d; }
+.live-risk-notice h2 { color: var(--warn); }
+
 .presets__list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .preset { display: flex; flex-direction: column; gap: 4px; }
 .preset .button { width: 100%; }

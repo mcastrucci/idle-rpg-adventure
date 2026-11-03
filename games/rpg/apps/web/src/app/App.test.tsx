@@ -87,6 +87,28 @@ describe('App shell', () => {
     expect(await screen.findByRole('heading', { name: 'World map' })).toBeDefined();
   });
 
+  it('loads the durable death summary with the character after opening the app', async () => {
+    const actorId = '22222222-2222-4222-8222-222222222222';
+    const paths: string[] = [];
+    const death = {
+      deathId: '33333333-3333-4333-8333-333333333333', occurredAt: 1_800_000_000_000, areaId: 'area:ruins', locationId: 'location:crypt',
+      xpBefore: { level: 3, xpIntoLevel: 90, totalXp: 290 }, xpLost: 10,
+      xpAfter: { level: 3, xpIntoLevel: 80, totalXp: 280 }, causes: [{ sourceId: 'enemy:wraith', label: 'Wraith', damage: 24 }],
+      corpse: { id: '33333333-3333-4333-8333-333333333333', status: 'active', expiresAt: 1_800_086_400_000, contents: { stacks: [], gold: 0, uniques: [] } },
+    };
+    const fetch: FetchLike = async (input) => {
+      paths.push(input);
+      if (input === '/auth/session') return Response.json({ accountId: 'acc', guest: true, email: null, expiresAtMs: 1 });
+      if (input === '/characters') return Response.json([{ ...CHARACTER, actorId }]);
+      if (input === `/characters/${actorId}/live-death`) return Response.json({ death });
+      return Response.json({ error: 'not_found' }, { status: 404 });
+    };
+    render(<App services={{ api: new ApiClient(fetch), live: fakeLive(), storage: { getItem: () => null, setItem: () => {} } }} />);
+    expect(await screen.findByText('Wraith · 24 damage')).toBeDefined();
+    expect(paths).toContain(`/characters/${actorId}/live-death`);
+    expect(screen.getByText('The corpse held no loot.')).toBeDefined();
+  });
+
   it('shows the connection banner and disables commands while disconnected', async () => {
     const deps = services([]);
     render(<App services={deps} />);

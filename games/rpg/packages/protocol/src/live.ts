@@ -27,7 +27,22 @@ export interface LiveRunBagDto {
   readonly actorId: string;
   readonly items: readonly { readonly item: string; readonly qty: number }[];
   readonly gold: number;
+  readonly uniques?: readonly { readonly itemId: string; readonly definition: string; readonly slot: string | null; readonly rolls: LiveJson }[];
 }
+export interface LiveDeathContentsDto {
+  readonly stacks: readonly { readonly item: string; readonly qty: number }[];
+  readonly gold: number;
+  readonly uniques: readonly { readonly itemId: string; readonly definition: string; readonly slot: string | null; readonly rolls: LiveJson }[];
+}
+export interface LiveDeathSummaryDto {
+  readonly deathId: string; readonly occurredAt: number; readonly areaId: string; readonly locationId: string;
+  readonly xpBefore: { readonly level: number; readonly xpIntoLevel: number; readonly totalXp: number };
+  readonly xpLost: number;
+  readonly xpAfter: { readonly level: number; readonly xpIntoLevel: number; readonly totalXp: number };
+  readonly causes: readonly { readonly sourceId: string; readonly label: string; readonly damage: number }[];
+  readonly corpse: { readonly id: string; readonly status: 'active' | 'recovered' | 'expired' | 'invalidated'; readonly expiresAt: number; readonly contents: LiveDeathContentsDto };
+}
+export interface LiveDeathResponseDto { readonly death: LiveDeathSummaryDto | null }
 /** Client-safe projection of the current game view. Game-specific view fields remain JSON data. */
 export interface LiveViewDto {
   readonly phase?: string;
@@ -48,8 +63,8 @@ export const LIVE_JSON_MAX_BYTES = 256 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PRIVATE_KEYS = new Set(['checkpoint', 'state', 'stateAfter', 'seed', 'content', 'contentHash', 'contentBundle', 'compiledContent',
   'rngState', 'rng', 'commandsLog', 'setup', 'pending', 'rawContent']);
-const GAME_EVENT_TYPES = new Set(['traveled', 'discovered', 'combatStarted', 'combat', 'combatEnded', 'retreated', 'bossRoomWarning',
-  'hotspotInteracted', 'gathered', 'consumableUsed', 'returned', 'heroLeft', 'participant']);
+const GAME_EVENT_TYPES = new Set(['traveled', 'discovered', 'combatStarted', 'combat', 'combatEnded', 'combatRewards', 'retreated', 'bossRoomWarning',
+  'hotspotInteracted', 'gathered', 'consumableUsed', 'returned', 'heroLeft', 'heroDied', 'corpseRecovered', 'participant']);
 const COMBAT_EVENT_TYPES = new Set(['CombatStarted', 'ActionStarted', 'TelegraphStarted', 'ActionInterrupted', 'ActionSkipped', 'DamageDealt',
   'Healed', 'EffectApplied', 'EffectExpired', 'Cleansed', 'EffectNegated', 'ConsumableUsed', 'ActorDied', 'PhaseChanged', 'AutoToggled',
   'InputRejected', 'CombatEnded']);
@@ -65,7 +80,16 @@ const clientRequestSchema = z.discriminatedUnion('op', [
 ]);
 const participantSchema = z.strictObject({ actorId: uuidSchema, status: z.enum(['connected', 'disconnected', 'leaving', 'left']) });
 const runBagSchema = z.strictObject({ actorId: uuidSchema, items: z.array(z.strictObject({ item: z.string().min(1).max(128), qty: z.number().int().min(1).max(1_000_000) })).max(256),
-  gold: z.number().int().safe().nonnegative() });
+  gold: z.number().int().safe().nonnegative(), uniques: z.array(z.strictObject({ itemId: uuidSchema, definition: z.string().min(1).max(128),
+    slot: z.string().max(64).nullable(), rolls: jsonSchema })).max(256).optional() });
+const deathContentsSchema = z.strictObject({ stacks: z.array(z.strictObject({ item: z.string().min(1).max(128), qty: z.number().int().min(1).max(1_000_000) })).max(512),
+  gold: z.number().int().safe().nonnegative(), uniques: z.array(z.strictObject({ itemId: uuidSchema, definition: z.string().min(1).max(128),
+    slot: z.string().max(64).nullable(), rolls: jsonSchema })).max(512) });
+const deathSummarySchema = z.strictObject({ deathId: uuidSchema, occurredAt: counterSchema, areaId: boundedText, locationId: boundedText,
+  xpBefore: z.strictObject({ level: positiveCounterSchema, xpIntoLevel: counterSchema, totalXp: counterSchema }), xpLost: counterSchema,
+  xpAfter: z.strictObject({ level: positiveCounterSchema, xpIntoLevel: counterSchema, totalXp: counterSchema }),
+  causes: z.array(z.strictObject({ sourceId: boundedText, label: boundedText, damage: counterSchema })).max(3),
+  corpse: z.strictObject({ id: uuidSchema, status: z.enum(['active', 'recovered', 'expired', 'invalidated']), expiresAt: counterSchema, contents: deathContentsSchema }) });
 const liveViewSchema = z.strictObject({
   phase: z.enum(['exploring', 'combat', 'dead', 'closing']).optional(), area: boundedText.optional(), location: boundedText.optional(),
   heroes: z.array(z.strictObject({ actorId: uuidSchema, level: z.number().int().nonnegative().optional(), xp: z.number().int().nonnegative().optional(),
@@ -106,6 +130,11 @@ export function parseLiveServerFrame(input: unknown): LiveServerFrame {
   return serverFrameSchema.parse(input) as LiveServerFrame;
 }
 
+/** Shared authenticated character endpoint contract for latest durable live death summary. */
+export function parseLiveDeathResponse(input: unknown): LiveDeathResponseDto {
+  return z.strictObject({ death: deathSummarySchema.nullable() }).parse(input) as LiveDeathResponseDto;
+}
+
 function parseView(input: unknown): LiveViewDto {
   const view = safeJson(input);
   if (view === null || Array.isArray(view) || typeof view !== 'object') throw new TypeError('invalid live view');
@@ -122,10 +151,12 @@ function parsePublicEvent(input: LiveJson): LiveJson {
   const keys: Readonly<Record<string, readonly string[]>> = {
     traveled: ['type', 'exitId', 'from', 'to'], discovered: ['type', 'locationId', 'actorIds'],
     combatStarted: ['type', 'groupId', 'boss'], combat: ['type', 'event'],
-    combatEnded: ['type', 'outcome', 'groupId', 'rewards'], retreated: ['type', 'from', 'to', 'hpCost'],
+    combatEnded: ['type', 'outcome', 'groupId', 'rewards'], combatRewards: ['type', 'groupId', 'rewards'],
+    retreated: ['type', 'from', 'to', 'hpCost'],
     bossRoomWarning: ['type', 'exitId', 'risk'], hotspotInteracted: ['type', 'hotspotId', 'hotspotType', 'textKey', 'repeat', 'flagsSet', 'revealedExits'],
     gathered: ['type', 'nodeId', 'resource', 'lootTable', 'drops', 'gold'], consumableUsed: ['type', 'actorId', 'itemId', 'hpBefore', 'hp'],
-    returned: ['type', 'locationId'], heroLeft: ['type', 'actorId'], participant: ['type', 'actorId', 'status'],
+    returned: ['type', 'locationId'], heroLeft: ['type', 'actorId'], heroDied: ['type', 'actorId', 'causes'],
+    corpseRecovered: ['type', 'actorId', 'corpseId', 'repeat'], participant: ['type', 'actorId', 'status'],
   };
   const allowed = new Set(keys[type] ?? []);
   if (Object.keys(event).some((key) => !allowed.has(key))) throw new TypeError('unknown live event field');
