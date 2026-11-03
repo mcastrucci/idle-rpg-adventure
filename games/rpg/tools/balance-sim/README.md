@@ -70,18 +70,20 @@ inputs; no farming, drops, merchant purchase history, travel, retreat, or gold a
 costs in the report are arithmetic at the documented merchant prices.
 
 The tool validates each assumed equipment item's kind, required level and slot uniqueness. It uses the Bulwark and
-Thornblade attributes, skills and six reference rules from `scenario.ts`. The mixed inventory is passed to combat as
-individual item stacks, and each item's use is reported separately, including zero. Existing automation only requests
-`minor_healing_potion`; the R1 reference rules do not use carried sap tonics or healing potions, so the corresponding
-no-tonic and no-healing rows are controlled checks for this automation setup, not evidence that those supplies improve
-outcomes. Manual Warden rows add the existing attentive guard/cleanse script. Paired seeds keep each cohort comparison
-on the same deterministic combat draws.
+Thornblade attributes and separate six-rule policies for Region 2 cohorts in `region2.ts`. The mixed inventory is passed
+to combat as individual item stacks, and each item's use is reported separately, including zero. Common fights can
+use minor and full healing potions; boss policies can use minor and full healing potions, sap tonics against harmful
+effects, and (for Bulwark) Mend. Thornblade's `second_wind` is used by the attentive script as a cleanse input. The
+no-tonic and no-healing rows are controlled supply checks for these R2 policies, not evidence
+that the supplies improve outcomes beyond the measured cohorts. Paired seeds keep each cohort comparison on the same
+deterministic combat draws.
 
 Region 2 accepts `--runs`, `--seed`, `--sections cells,boss`, `--content`, `--format md|json` and `--out`. Its fixed
 snapshot levels make `--levels`, `--boss-levels`, `--hour-levels`, `--hours`, and `--regen-pct` invalid. Default R1
 scenario behavior and report structure remain unchanged.
 
-All of these live in `src/scenario.ts`, `src/simulate.ts` and `src/policies.ts`.
+The cohort and policy definitions live in `src/scenario.ts` and `src/region2.ts`; shared fight and live-script code is
+in `src/simulate.ts` and `src/policies.ts`.
 
 - **Builds.** Bulwark and Thornblade are taken from design §4.2–§4.3. L1/L3/L5 use the design's attribute spreads;
   L2/L4/L6 continue its +4/level pattern. Stats come from the real `@rpg/rpg-stats` defaults, not the paper formulas
@@ -96,9 +98,11 @@ All of these live in `src/scenario.ts`, `src/simulate.ts` and `src/policies.ts`.
   telegraphed hit resolves. Inputs wait for the hero's next ready tick (A8), and enemies act first on equal initiative.
   It also queues the cleanse skill (Thornblade `second_wind`) while a DoT is on the hero. Limits: one hero only, and
   with several enemies another enemy's ordinary hit can still consume the guard.
-- **Live route.** 36 fights/h, spread uniformly over the lantern ruins, pump station and terraces tables. Groups made
-  only of mites are skipped at no time cost. The player rests 20% of max HP between fights (a short rest at 1%/tick,
-  A9) and has 6 potions per hour. Potions use the same rules as automation.
+- **Legacy hourly live scenario estimate.** The older R1 hourly model assumes 36 fights/hour spread uniformly over the
+  lantern ruins, pump station and terraces tables, skips mite-only groups at no time cost, and gives the player a
+  20%-max-HP rest between fights (short rest at 1%/tick, A9) plus 6 potions/hour. These are scenario estimates, not
+  measured live-runtime rates. The actual live runtime does not implement this free between-fight rest assumption.
+  Item `value` is reported as a notional vendor value; no sell operation makes it realizable gold income.
 - **Idle.** 5 escrowed potions per hour, 15% regen (`--regen-pct`), and an expedition stop at the first death (spec
   idle-simulation §4).
 
