@@ -73,7 +73,7 @@ export interface LiveGame<S> {
   serialize(state: S): JsonValue;
   restore(checkpoint: JsonValue): S;
   /** Client-facing snapshot sent on attach and on resume when missed events are no longer buffered. */
-  view(state: S): JsonValue;
+  view(state: S, viewerActorId?: string): JsonValue;
 }
 
 /** Fencing token of the node that currently owns an instance. */
@@ -142,6 +142,15 @@ export interface InstanceStore {
 export class ActivityConflictError extends Error {
   readonly code = 'activity_conflict';
   constructor(message = 'a participant is not available (activity lock held)') { super(message); this.name = 'ActivityConflictError'; }
+}
+
+/**
+ * A store throws this only when a domain effect rejects the enclosing transaction and guarantees it was rolled back.
+ * The host may safely retain its previous in-memory state and return a rejected command ACK in this case.
+ */
+export class LiveEffectRejectedError extends Error {
+  readonly reason: string;
+  constructor(reason: string) { super(reason); this.reason = reason; this.name = 'LiveEffectRejectedError'; }
 }
 
 export class IncompatibleInstanceError extends Error {

@@ -19,8 +19,9 @@ provisionally and recorded in [open-decisions](../../../../../docs/open-decision
   snapshot under the actor locks before creating the instance (participants CAS `none → live`). Party formation and the
   Sanctuary portal flow are future work.
 
-Version `0.4.0` adds the instance identity, run bag, hero XP and validated start snapshot to checkpoint state. Older
-`0.3.0` checkpoints are intentionally incompatible and are refused during restore; no implicit migration is attempted.
+Version `0.4.0` added the instance identity, run bag, hero XP and validated start snapshot to checkpoint state. Version
+`0.5.0` adds owner corpse snapshots and unique-item bag projection. Older checkpoints are intentionally incompatible and
+are refused during restore; deployments must drain or close active `0.4.0` instances before switching binaries.
 
 ## States and commands
 
@@ -31,9 +32,9 @@ Version `0.4.0` adds the instance identity, run bag, hero XP and validated start
 | Command (`live.command` payload) | Phase | Rules (rejection reasons) |
 |---|---|---|
 | `{ type: 'travel', exitId }` | exploring | Exit of the current location (`unknown_exit`; a locked `secret` exit is also `unknown_exit`), requirement holds for every present participant (`exit_locked`), target not a boss room (`boss_room_requires_confirmation`). Rolls the target's groups on first entry; discovers it per present participant. Checkpoint. |
-| `{ type: 'enterBossRoom', exitId, confirm }` | exploring | Exit must lead to a `boss_room` (`not_a_boss_room`) and be open (`exit_locked`). `confirm: false` → `bossRoomWarning { risk }` event (enemies, heroes' HP, healing consumables, `retreatAllowed: false`, death consequence keys). `confirm: true` only after that warning at the same location (`confirmation_required`); entering starts combat with the boss (pre-encounter checkpoint). |
+| `{ type: 'enterBossRoom', exitId, confirm }` | exploring | Exit must lead to a `boss_room` (`not_a_boss_room`) and be open (`exit_locked`). `confirm: false` → `bossRoomWarning { risk }` event (enemies, heroes' HP, healing consumables, `retreatAllowed: false`, estimated XP and run-bag loss). `confirm: true` only after that warning at the same location (`confirmation_required`); entering starts combat with the boss (pre-encounter checkpoint). |
 | `{ type: 'engage', groupId }` | exploring | Undefeated group of the current location (`unknown_group`), a living hero (`no_living_heroes`). Pre-encounter checkpoint. |
-| `{ type: 'interact', hotspotId }` | exploring | Hotspot of the current location (`unknown_hotspot`). First interaction per instance applies its `effects` (`setFlag`, instance-scoped, #20) and reports `flagsSet` and `revealedExits` (checkpoint); repeats are `repeat: true` and change nothing. |
+| `{ type: 'interact', hotspotId }` | exploring | Hotspot of the current location (`unknown_hotspot`). An owner corpse uses `corpse:<deathId>` only at its exact region/location in a future instance; its fenced effect rechecks owner, current checkpoint location, status and expiry before one-time ledger transfer into this run bag. |
 | `{ type: 'gather', nodeId }` | exploring | Node `<resource>#<ordinal>` of the current location (`unknown_node`), once per instance (`already_gathered`). Rolls its loot table on a stable named `loot` stream, adds drops and gold to the caller's run bag, and checkpoints the bag with its ledger effect. |
 | `{ type: 'useConsumable', itemId }` | both | Item in the hero's snapshot loadout (`no_such_consumable`). Out of combat (#21): healing items only (`no_effect_out_of_combat`), alive (`hero_dead`), below max HP (`full_hp`); checkpoint. In combat: queued for the combat engine. |
 | `{ type: 'returnToSanctuary' }` | exploring | `safe` location, area start location or cleared boss room (`not_safe_location`, #17); `in_combat` in combat. Closes `returned`. |
@@ -46,14 +47,17 @@ Combat ticks every 500 ms through `@rpg/rpg-sim` `step()`; heroes act on their a
 connected. A participant whose grace expired is removed only out of combat.
 
 Events (`live.event` → `event.type`): `traveled`, `discovered`, `combatStarted`, `combat` (engine events),
-`combatEnded` (`victory` | `defeat` | `retreated`), `retreated`, `bossRoomWarning`, `hotspotInteracted`, `gathered`,
-`consumableUsed`, `returned`, `heroLeft`. The snapshot view lists the current location's groups, exits (open/reasons,
-locked secrets hidden), hotspots, resource nodes, flags, `canReturn` and the combat summary.
+`combatEnded` (`victory` | `defeat` | `retreated`), `combatRewards`, `heroDied`, `corpseRecovered`, `retreated`, `bossRoomWarning`, `hotspotInteracted`, `gathered`,
+`consumableUsed`, `returned`, `heroLeft`. `GET /characters/:actorId/live-death` returns the latest owner-only durable death summary, with XP totals, actual causes, corpse state and historical bag contents. The snapshot view lists the current location's groups, exits (open/reasons,
+locked secrets hidden), hotspots, resource nodes, flags, `canReturn` and the combat summary. On attach/resume, corpse
+hotspot metadata is included only for the viewing owner and only when already at its location. Navigation does not yet
+publish a fresh view, so the persistent death endpoint is the recovery-location source until the live navigation UI
+refresh is delivered with #40/#41.
 
 ## Persistence
 
 Checkpoints at location change, encounter start/end, retreat, first hotspot interaction, gathering, consumable use and
-participant change (never per tick). Loot, per-victory XP and actual potion use leave the plugin as `LiveStep.effects`
+participant change (never per tick). Loot, per-victory XP, actual potion use, deaths and corpse recovery leave the plugin as `LiveStep.effects`
 and commit in the same fenced transaction as their checkpoint. XP uses the shared `rpg-stats` curve helpers and a
 durable reward claim; loot uses deterministic keys tied to instance/action identity. Loot stays in
 `run_bag:<instanceId>` until `returnToSanctuary`; only that explicit close hook moves the actual stack, currency and
@@ -62,10 +66,12 @@ and boss defeats still record progress and evaluate conquest in the same checkpo
 discovery waits in the state's outbox until the first durable write. Replaying an effect cannot duplicate rewards,
 progress or the conquest event.
 
-Hooks left for later issues (search the code for the issue numbers):
-
-- **#43** death: `dead` closes as `defeated` with the death location in the final checkpoint; corpses become
-  interactable hotspots in `interact`.
+Actual hero death applies provisional XP loss to authoritative persisted XP and moves that actor's run bag to an owner
+corpse, even if other party members survive. Death/corpse metadata is durable in `rpg_live_deaths`; item holdings remain
+in ledger container `corpse:<deathId>`. A second death invalidates the prior corpse even when it is empty, and sinks its
+holdings through the ledger. Expiry is 24 hours of injected server time; expired holdings are sunk by the next
+actor-locked live start cleanup and cannot be recovered after the deadline. Explicit Sanctuary return secures recovered
+holdings from the new run bag.
 
 ## Wire protocol
 

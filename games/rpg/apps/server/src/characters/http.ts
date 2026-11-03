@@ -5,6 +5,10 @@ import { z } from 'zod';
 import { createCharacterService } from './service.ts';
 import { inventorySnapshot, merchantCatalog } from '../inventory/service.ts';
 import { executeCharacterCommand, parseGameCommand, publicCommandError } from '../character-commands.ts';
+import { characters } from './schema.ts';
+import { liveDeaths } from '../live/death-schema.ts';
+import { and, desc, eq } from 'drizzle-orm';
+import { parseLiveDeathResponse } from '@rpg/protocol';
 
 const ActorParamsSchema = z.strictObject({ actorId: z.uuid().transform((id) => id.toLowerCase()) });
 /** Auth is the engine's real bearer/session boundary; character IDs/account ownership never come from request claims. */
@@ -37,6 +41,21 @@ export const characterModule: ServerModule = {
       // One immutable view across actor, character, holdings and recorded progress, even during concurrent rewards.
       return context.database.db.transaction(tx => inventorySnapshot(tx, accountId, actorId, context.content),
         { isolationLevel: 'repeatable read', accessMode: 'read only' });
+    });
+    app.get('/characters/:actorId/live-death', async (request, reply) => {
+      const { accountId } = await requireAccount(request, context);
+      const { actorId } = ActorParamsSchema.parse(request.params);
+      const [owned] = await context.database.db.select({ actorId: characters.actorId }).from(characters)
+        .where(and(eq(characters.actorId, actorId), eq(characters.accountId, accountId)));
+      if (!owned) return reply.code(404).send({ error: 'not_found' });
+      const [row] = await context.database.db.select().from(liveDeaths).where(eq(liveDeaths.actorId, actorId))
+        .orderBy(desc(liveDeaths.occurredAt)).limit(1);
+      if (!row) return parseLiveDeathResponse({ death: null });
+      return parseLiveDeathResponse({ death: { deathId: row.deathId, occurredAt: row.occurredAt.getTime(), areaId: row.areaId, locationId: row.locationId,
+        xpBefore: { level: row.xpBeforeLevel, xpIntoLevel: row.xpBeforeIntoLevel, totalXp: row.xpBeforeTotal }, xpLost: row.xpLost,
+        xpAfter: { level: row.xpAfterLevel, xpIntoLevel: row.xpAfterIntoLevel, totalXp: row.xpAfterTotal }, causes: row.causes,
+        corpse: { id: row.deathId, status: row.status === 'active' && row.expiresAt.getTime() <= context.clock.nowMs() ? 'expired' : row.status,
+          expiresAt: row.expiresAt.getTime(), contents: row.bagSnapshot } } });
     });
     app.get('/merchant', async () => merchantCatalog(context.content));
     app.post('/characters/:actorId/inventory/commands', { bodyLimit: 70 * 1024 }, async (request, reply) => {

@@ -1,6 +1,6 @@
 import { randomInt, randomUUID } from 'node:crypto';
 
-import { IncompatibleInstanceError } from './types.ts';
+import { IncompatibleInstanceError, LiveEffectRejectedError } from './types.ts';
 import type {
   CommandAck, HostMessage, InstanceLease, InstanceRecord, InstanceStore, JsonValue, LiveClock, LiveConnection, LiveGame,
   LiveParticipant, LiveStep, ParticipantStatus, ParticipantView, SubmitResult,
@@ -210,7 +210,7 @@ export class InstanceHost<S> {
         }
       } else {
         connection.push({ type: 'live.snapshot', instanceId, epoch: hosted.epoch, seq: hosted.seq,
-          view: this.#game.view(hosted.state), participants: this.#views(hosted) });
+          view: this.#game.view(hosted.state, actorId), participants: this.#views(hosted) });
       }
       if (changed) this.#emit(hosted, 'host', { type: 'participant', actorId, status: 'connected' });
       return { mode };
@@ -249,10 +249,25 @@ export class InstanceHost<S> {
       if (participant.status !== 'connected') throw new HostError('not_attached');
       if (!await this.#ensureLease(hosted)) throw new HostError('not_hosted');
       const result = this.#game.applyCommand(hosted.state, actorId, command);
-      const ack: CommandAck = 'rejected' in result ? { status: 'rejected', reason: result.rejected } : { status: 'applied' };
-      hosted.commands.set(key, ack);
-      while (hosted.commands.size > this.#commandMemory) hosted.commands.delete(hosted.commands.keys().next().value as string);
-      if (!('rejected' in result)) await this.#apply(hosted, result);
+      if ('rejected' in result) {
+        const ack: CommandAck = { status: 'rejected', reason: result.rejected };
+        this.#remember(hosted.commands, key, ack);
+        return { ack, duplicate: false };
+      }
+      const ack: CommandAck = { status: 'applied' };
+      const commands = new Map(hosted.commands);
+      this.#remember(commands, key, ack);
+      try {
+        const committed = await this.#apply(hosted, result, commands);
+        if (!committed) throw new HostError('not_hosted');
+      } catch (error) {
+        if (error instanceof LiveEffectRejectedError && !hosted.gone) {
+          const rejected: CommandAck = { status: 'rejected', reason: error.reason };
+          this.#remember(hosted.commands, key, rejected);
+          return { ack: rejected, duplicate: false };
+        }
+        throw error;
+      }
       return { ack, duplicate: false };
     });
   }
@@ -375,6 +390,11 @@ export class InstanceHost<S> {
     return payload as unknown as JsonValue;
   }
 
+  #remember(commands: Map<string, CommandAck>, key: string, ack: CommandAck): void {
+    commands.set(key, ack);
+    while (commands.size > this.#commandMemory) commands.delete(commands.keys().next().value as string);
+  }
+
   #emit(hosted: Hosted<S>, source: 'game' | 'host', event: JsonValue): void {
     hosted.seq += 1;
     hosted.buffer.push({ seq: hosted.seq, source, event });
@@ -397,28 +417,54 @@ export class InstanceHost<S> {
     else if (hosted.nextTickAt === null) hosted.nextTickAt = this.#clock.nowMs() + this.#game.tickIntervalMs;
   }
 
-  async #apply(hosted: Hosted<S>, step: LiveStep<S>): Promise<void> {
-    hosted.state = step.state;
-    for (const event of step.events ?? []) this.#emit(hosted, 'game', event);
+  async #apply(hosted: Hosted<S>, step: LiveStep<S>, commands = hosted.commands): Promise<boolean> {
+    const events = (step.events ?? []).map((event) => ({ source: 'game' as const, event }));
+    const seq = hosted.seq + events.length;
     const effects = step.effects ?? [];
-    if (step.close) { await this.#close(hosted, step.close.outcome, step.close.result, effects); return; }
-    if (step.checkpoint || effects.length > 0) await this.#checkpoint(hosted, effects);
-    this.#schedule(hosted);
+    const durable = Boolean(step.close || step.checkpoint || effects.length > 0);
+    let nextLease = hosted.lease;
+    if (durable) {
+      try {
+        if (step.close) {
+          const closed = await this.#store.close(hosted.lease, { outcome: step.close.outcome, result: step.close.result,
+            checkpoint: this.#payload(step.state, seq, commands), ...(effects.length > 0 ? { effects } : {}) }, this.#clock.nowMs());
+          if (!closed) { this.#evict(hosted, 'lease_lost'); return false; }
+        } else {
+          const next = await this.#store.checkpoint(hosted.lease, this.#payload(step.state, seq, commands), this.#clock.nowMs(), effects);
+          if (next === null) { this.#evict(hosted, 'lease_lost'); return false; }
+          nextLease = next;
+        }
+      } catch (error) {
+        if (!(error instanceof LiveEffectRejectedError)) this.#evict(hosted, 'store_error');
+        throw error;
+      }
+    }
+    this.#commitStep(hosted, step.state, seq, events, commands);
+    if (step.close) {
+      this.#broadcast(hosted, { type: 'live.closed', instanceId: hosted.lease.instanceId, outcome: step.close.outcome, result: step.close.result });
+      this.#forget(hosted);
+    } else {
+      hosted.lease = nextLease;
+      this.#schedule(hosted);
+    }
+    return true;
   }
 
-  async #checkpoint(hosted: Hosted<S>, effects: readonly JsonValue[]): Promise<void> {
-    const next = await this.#store.checkpoint(hosted.lease, this.#payload(hosted.state, hosted.seq, hosted.commands), this.#clock.nowMs(),
-      effects);
-    if (next === null) this.#evict(hosted, 'lease_lost');
-    else hosted.lease = next;
-  }
-
-  async #close(hosted: Hosted<S>, outcome: string, result: JsonValue, effects: readonly JsonValue[] = []): Promise<void> {
-    const closed = await this.#store.close(hosted.lease, { outcome, result,
-      checkpoint: this.#payload(hosted.state, hosted.seq, hosted.commands), ...(effects.length > 0 ? { effects } : {}) }, this.#clock.nowMs());
-    if (!closed) { this.#evict(hosted, 'lease_lost'); return; }
-    this.#broadcast(hosted, { type: 'live.closed', instanceId: hosted.lease.instanceId, outcome, result });
-    this.#forget(hosted);
+  #commitStep(hosted: Hosted<S>, state: S, seq: number,
+    events: readonly { source: 'game' | 'host'; event: JsonValue }[], commands: Map<string, CommandAck>): void {
+    const firstSeq = seq - events.length;
+    const committedCommands = [...commands];
+    hosted.state = state;
+    hosted.seq = seq;
+    hosted.commands.clear();
+    for (const [key, ack] of committedCommands) hosted.commands.set(key, ack);
+    events.forEach((entry, index) => {
+      const eventSeq = firstSeq + index + 1;
+      hosted.buffer.push({ seq: eventSeq, source: entry.source, event: entry.event });
+      if (hosted.buffer.length > this.#eventBuffer) hosted.buffer.shift();
+      this.#broadcast(hosted, { type: 'live.event', instanceId: hosted.lease.instanceId, epoch: hosted.epoch,
+        seq: eventSeq, source: entry.source, event: entry.event });
+    });
   }
 
   /** Re-validates ownership once the locally known lease has run out (e.g. after a long pause of this process). */
@@ -442,34 +488,90 @@ export class InstanceHost<S> {
         hosted.nextTickAt += behind * this.#game.tickIntervalMs;
         break;
       }
+      const dueAt = hosted.nextTickAt;
       hosted.nextTickAt += this.#game.tickIntervalMs;
+      try {
+        if (!await this.#apply(hosted, this.#game.tick(hosted.state))) {
+          hosted.nextTickAt = dueAt;
+          return;
+        }
+      } catch (error) {
+        if (error instanceof LiveEffectRejectedError) { hosted.nextTickAt = dueAt; return; }
+        throw error;
+      }
       ran += 1; this.stats.ticks += 1;
-      await this.#apply(hosted, this.#game.tick(hosted.state));
     }
     // 2. Reconnection grace: expired participants leave once the game allows it (not mid-encounter).
     for (const [actorId, participant] of hosted.participants) {
       if (hosted.gone) return;
-      if (participant.status === 'disconnected' && participant.deadline !== null && participant.deadline <= now) {
-        participant.status = 'leaving'; participant.deadline = null;
-        this.#emit(hosted, 'host', { type: 'participant', actorId, status: 'leaving' });
-      }
-      if (participant.status !== 'leaving') continue;
+      const expired = participant.status === 'disconnected' && participant.deadline !== null && participant.deadline <= now;
+      if (!expired && participant.status !== 'leaving') continue;
       const step = this.#game.removeParticipant(hosted.state, actorId);
-      if (step === null) continue;
-      hosted.state = step.state;
-      for (const event of step.events ?? []) this.#emit(hosted, 'game', event);
-      participant.status = 'left'; participant.connection = null;
-      this.#emit(hosted, 'host', { type: 'participant', actorId, status: 'left' });
-      const next = await this.#store.releaseParticipant(hosted.lease, actorId,
-        this.#payload(hosted.state, hosted.seq, hosted.commands), this.#clock.nowMs(), step.close ? [] : step.effects ?? []);
+      if (step === null) {
+        if (expired) {
+          participant.status = 'leaving'; participant.deadline = null;
+          this.#emit(hosted, 'host', { type: 'participant', actorId, status: 'leaving' });
+        }
+        continue;
+      }
+      const events = [
+        ...(expired ? [{ source: 'host' as const, event: { type: 'participant', actorId, status: 'leaving' } as JsonValue }] : []),
+        ...(step.events ?? []).map((event) => ({ source: 'game' as const, event })),
+        { source: 'host' as const, event: { type: 'participant', actorId, status: 'left' } as JsonValue },
+      ];
+      const seq = hosted.seq + events.length;
+      if (step.close) {
+        let closed: boolean;
+        try {
+          closed = await this.#store.close(hosted.lease, { outcome: step.close.outcome, result: step.close.result,
+            checkpoint: this.#payload(step.state, seq, hosted.commands), ...(step.effects?.length ? { effects: step.effects } : {}) },
+          this.#clock.nowMs());
+        } catch (error) {
+          if (error instanceof LiveEffectRejectedError) continue;
+          this.#evict(hosted, 'store_error');
+          throw error;
+        }
+        if (!closed) { this.#evict(hosted, 'lease_lost'); return; }
+        participant.status = 'left'; participant.deadline = null; participant.connection = null;
+        this.#commitStep(hosted, step.state, seq, events, hosted.commands);
+        this.#broadcast(hosted, { type: 'live.closed', instanceId: hosted.lease.instanceId,
+          outcome: step.close.outcome, result: step.close.result });
+        this.#forget(hosted);
+        return;
+      }
+      let next: InstanceLease | null;
+      try {
+        next = await this.#store.releaseParticipant(hosted.lease, actorId,
+          this.#payload(step.state, seq, hosted.commands), this.#clock.nowMs(), step.effects ?? []);
+      } catch (error) {
+        if (error instanceof LiveEffectRejectedError) continue;
+        this.#evict(hosted, 'store_error');
+        throw error;
+      }
       if (next === null) { this.#evict(hosted, 'lease_lost'); return; }
       hosted.lease = next;
-      if (step.close) { await this.#close(hosted, step.close.outcome, step.close.result, step.effects ?? []); return; }
+      participant.status = 'left'; participant.deadline = null; participant.connection = null;
+      this.#commitStep(hosted, step.state, seq, events, hosted.commands);
       this.#schedule(hosted);
     }
     if (!hosted.gone && [...hosted.participants.values()].every((participant) => participant.status === 'left')) {
       await this.#close(hosted, 'abandoned', null);
     }
+  }
+
+  async #close(hosted: Hosted<S>, outcome: string, result: JsonValue, effects: readonly JsonValue[] = []): Promise<boolean> {
+    try {
+      const closed = await this.#store.close(hosted.lease, { outcome, result,
+        checkpoint: this.#payload(hosted.state, hosted.seq, hosted.commands), ...(effects.length > 0 ? { effects } : {}) }, this.#clock.nowMs());
+      if (!closed) { this.#evict(hosted, 'lease_lost'); return false; }
+    } catch (error) {
+      if (error instanceof LiveEffectRejectedError) return false;
+      this.#evict(hosted, 'store_error');
+      throw error;
+    }
+    this.#broadcast(hosted, { type: 'live.closed', instanceId: hosted.lease.instanceId, outcome, result });
+    this.#forget(hosted);
+    return true;
   }
 
   #evict(hosted: Hosted<S>, reason: string): void {

@@ -74,6 +74,13 @@ describe('RPG live plugin: combat', () => {
     const { last } = fight(init(), WARDENS.id);
     expect(last.state.phase).toBe('dead');
     expect(last.close?.outcome).toBe('defeated');
+    const deaths = last.effects?.filter((effect) => (effect as { type?: string }).type === 'heroDied') as
+      { actorId: string; areaId: string; locationId: string; causes: { damage: number }[] }[] | undefined;
+    expect(deaths).toHaveLength(1);
+    expect(deaths?.[0]).toMatchObject({ actorId: HERO, areaId: 'area:test_grove', locationId: GLADE });
+    expect(deaths?.[0]?.causes.length).toBeGreaterThanOrEqual(1);
+    expect(deaths?.[0]?.causes.length).toBeLessThanOrEqual(3);
+    expect(deaths?.[0]?.causes.every(cause => cause.damage > 0)).toBe(true);
     expect(game.applyCommand(last.state, HERO, { type: 'returnToSanctuary' })).toEqual({ rejected: 'instance_closing' });
   });
 
@@ -106,6 +113,18 @@ describe('RPG live plugin: combat', () => {
 });
 
 describe('RPG live plugin: exploration (#38)', () => {
+  it('shows only the viewing actor their corpse hotspot at its exact location', () => {
+    const state = init();
+    const hero = state.heroes.find(candidate => candidate.actorId === HERO);
+    if (!hero) throw new Error('test hero is missing');
+    hero.corpses.push({ id: '33333333-3333-4333-8333-333333333333', areaId: state.area,
+      locationId: state.location, expiresAt: 12345, stacks: [], gold: 0, uniques: [] });
+    const ownerView = game.view(state, HERO) as { hotspots: { id: string }[] };
+    const otherView = game.view(state, '00000000-0000-4000-8000-000000000002') as { hotspots: { id: string }[] };
+    expect(ownerView.hotspots.map(h => h.id)).toContain('corpse:33333333-3333-4333-8333-333333333333');
+    expect(otherView.hotspots.map(h => h.id)).not.toContain('corpse:33333333-3333-4333-8333-333333333333');
+  });
+
   it('rolls enemy groups deterministically per instance seed and location, independent of the route taken', () => {
     const viaCauseway = run(region1(7), travel(EXIT('portal_clearing', 'overgrown_causeway')), travel(EXIT('overgrown_causeway', 'tangle_orchard')));
     const viaWell = run(region1(7), travel(EXIT('portal_clearing', 'overgrown_causeway')), travel(EXIT('overgrown_causeway', 'old_well')),
@@ -210,7 +229,8 @@ describe('RPG live plugin: exploration (#38)', () => {
     expect(warned.events).toEqual([{ type: 'bossRoomWarning', exitId, risk: {
       locationId: R1('seed_vault_heart'), enemies: [{ enemy: 'enemy:hollow_matriarch', rank: 'boss', level: 6 }],
       heroes: [{ actorId: HERO, hp: expect.any(Number), maxHp: expect.any(Number), healingConsumables: 0 }],
-      retreatAllowed: false, onDeath: ['live.death.run_bag_to_corpse', 'live.death.xp_penalty'] } }]);
+      retreatAllowed: false, onDeath: ['live.death.run_bag_to_corpse', 'live.death.xp_penalty'],
+      deathConsequences: [{ actorId: HERO, xpBeforeTotal: 0, xpLost: 0, runBag: { items: [], gold: 0, uniques: [] } }] } }]);
     const entered = ok(game.applyCommand(warned.state, HERO, { type: 'enterBossRoom', exitId, confirm: true }));
     expect(entered.checkpoint).toBe(true);
     expect(entered.state).toMatchObject({ phase: 'combat', location: R1('seed_vault_heart'), combatGroup: `${R1('seed_vault_heart')}/0` });

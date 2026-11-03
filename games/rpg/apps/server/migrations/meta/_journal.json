@@ -43,6 +43,13 @@
       "when": 1793660364249,
       "tag": "0005_region_conquest_events",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793670000000,
+      "tag": "0006_live_deaths",
+      "breakpoints": true
     }
   ]
 }

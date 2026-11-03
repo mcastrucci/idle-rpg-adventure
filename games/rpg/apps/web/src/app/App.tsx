@@ -52,7 +52,7 @@ export function App({ services }: { services: AppServices }) {
             <button type="button" className="button" onClick={retry}>Try again</button>
           </div>
         )}
-        {state.phase === 'ready' && <Screen tab={tab} character={character} canCommand={canCommand} run={runCharacterCommand}
+        {state.phase === 'ready' && <Screen tab={tab} character={character} canCommand={canCommand} run={runCharacterCommand} live={live}
           subroute={subroute} api={services.api} runExpedition={runExpeditionCommand} refreshCharacter={refreshCharacter} />}
       </main>
       <TabBar active={tab} onSelect={selectTab} />
@@ -60,20 +60,21 @@ export function App({ services }: { services: AppServices }) {
   );
 }
 
-function Screen({ tab, subroute, character, canCommand, run, api, runExpedition, refreshCharacter }: {
+function Screen({ tab, subroute, character, canCommand, run, api, live, runExpedition, refreshCharacter }: {
   tab: TabId;
   subroute: string | null;
   character: Parameters<typeof CharacterScreen>[0]['character'];
   canCommand: boolean;
   run: Parameters<typeof CharacterScreen>[0]['runCharacterCommand'];
   api: ApiClient;
+  live: AppServices['live'];
   runExpedition: <T,>(request: CommandRequest<T>) => Promise<T>;
   refreshCharacter: () => Promise<void>;
 }) {
   switch (tab) {
     case 'character':
       if (subroute === 'rules' && character) return <RulesScreen character={character} canCommand={canCommand} runCharacterCommand={run} />;
-      return <CharacterScreen character={character} canCommand={canCommand} runCharacterCommand={run} />;
+      return <CharacterScreen character={character} canCommand={canCommand} runCharacterCommand={run} api={api} live={live} />;
     case 'inventory':
       return <InventoryScreen character={character} canCommand={canCommand} api={api} runCommand={runExpedition} refreshCharacter={refreshCharacter} />;
     case 'world':

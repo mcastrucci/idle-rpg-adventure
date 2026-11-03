@@ -33,22 +33,26 @@ Granted only at settlement ([idle-simulation.md §6](idle-simulation.md#6-settle
 
 | Penalty | Live | Idle |
 |---|---|---|
-| XP | Provisional: lose 10% of the XP required for next level; may drop a level, never below level 1 | On a natural failed completion, add XP earned during the expedition first, then lose 10% of the XP required for the hero's next level. The penalty is floored and XP never falls below zero. |
-| Run bag / expedition loot | Provisional: moved to corpse | On a natural failed completion, lose `floor(qty × 5000 / 10000)` of each positive gold/item grant in the bag; the odd unit is kept. |
+| XP | Provisional POC implementation: lose `floor(10% × xpToNext[current persisted level])` from authoritative total XP at actual hero death; may delevel and never below level 1 / zero total XP | On a natural failed completion, add XP earned during the expedition first, then lose 10% of the XP required for the hero's next level. The penalty is floored and XP never falls below zero. |
+| Run bag / expedition loot | Provisional POC implementation: actual instance-scoped ledger holdings move to corpse | On a natural failed completion, lose `floor(qty × 5000 / 10000)` of each positive gold/item grant in the bag; the odd unit is kept. |
 | Inventory | Provisional: carried consumables used are gone; rest kept | Used escrowed consumables are consumed; unused escrow is returned. A cancellation before actual end settles only revealed segments and applies no death penalty. A cancel at or after actual end is settled as a natural completion, so a revealed fatal segment still incurs the death penalties. |
 | Equipped gear | Provisional: kept in POC (durability/loss deferred) | Kept |
 | Storage | Provisional: never affected | Never affected |
 
 The idle values and rules above describe the current solo POC implementation; they are not validated balance targets.
-The Live column remains provisional and is not implemented. The UI must show these consequences before risky actions
-(boss room, high-risk expedition). Live corpse and death recovery behavior remains provisional.
+Live death penalties and corpse recovery are implemented provisionally for the POC and remain unvalidated balance
+targets. The pre-boss warning must show the current estimated XP loss and unsecured run-bag contents before confirmation.
 
 ## 5. Corpses (live)
 
-- On death in live, a corpse is created at the death location with the run bag contents.
-- Corpse persists **24 h** real time *(provisional)*; only the owner can recover it by reaching the location in a new
-  instance and interacting with it.
-- Only one active corpse per character: a new death expires the previous one (contents lost).
+- On actual hero death in live, an owner-only corpse is created at the death location with that hero's actual instance-
+  scoped ledger holdings, preserving unique item UUIDs. The server also records XP before/after, penalty, and up to three
+  actual damage causes (with an explicit unknown-cause fallback).
+- Corpse persists **24 h** injected wall-clock time *(provisional)*; only the owner can recover it by reaching the same
+  region and location in a new instance and interacting. Recovery moves ledger contents once into the new unsecured
+  run bag; only explicit Sanctuary return secures them.
+- Only one active corpse per character: a new death invalidates the previous one, including an empty corpse, and sinks
+  its remaining holdings through the ledger.
 - Corpses are spawned into the owner's future instances of that region (they are not part of instance state).
 - Idle-death recovery activity: not in POC (concept §9.2).
 

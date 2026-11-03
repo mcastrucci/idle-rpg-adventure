@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import { createLiveHostModule, getHoldings, itemInstances, actors, lockActors } from '@engine/server-kit';
-import type { ActorTransaction, Database, LiveHostHandle, LiveHostModuleOptions, LoadedContent } from '@engine/server-kit';
-import type { CreateInstanceInput } from '@engine/live-kernel';
+import type { ActorTransaction, Clock, Database, LiveHostHandle, LiveHostModuleOptions, LoadedContent } from '@engine/server-kit';
+import { ActivityConflictError } from '@engine/live-kernel';
+import type { CreateInstanceInput, JsonValue } from '@engine/live-kernel';
 import type { ConsumableStack } from '@rpg/rpg-sim';
 import { InstanceHost } from '@engine/live-kernel';
 import { ItemSchema } from '@rpg/rpg-schema';
@@ -11,15 +12,18 @@ import type { Item } from '@rpg/rpg-schema';
 import { characters } from '../characters/schema.ts';
 import { BASIC_ATTACK } from '../characters/validation.ts';
 import { readRpgEvalContext } from '../expeditions/progress.ts';
-import { rpgLiveStoreHooks } from './effects.ts';
+import { expireRpgCorpse, rpgLiveStoreHooks } from './effects.ts';
+import { liveDeaths } from './death-schema.ts';
 import { createRpgLiveGame } from './game.ts';
 import type { RpgLiveGroup, RpgLiveHeroSetup, RpgLiveSetup, RpgLiveState } from './game.ts';
 
 export * from './game.ts';
 export * from './effects.ts';
+export * from './death-schema.ts';
 
 export type RpgLiveHost = LiveHostHandle<RpgLiveState> & { content(): LoadedContent };
 const hostContent = new WeakMap<object, LoadedContent>();
+const hostClocks = new WeakMap<object, Clock>();
 
 /**
  * RPG composition of the engine live host (role `live`). The store's `onEffects` hook records the plugin's durable
@@ -27,8 +31,9 @@ const hostContent = new WeakMap<object, LoadedContent>();
  */
 export function createRpgLiveHost(options: Omit<LiveHostModuleOptions<RpgLiveState>, 'game'> = {}): RpgLiveHost {
   let content: LoadedContent | undefined;
+  let clock: Clock | undefined;
   const live = createLiveHostModule({ ...options, hooks: rpgLiveStoreHooks(options.hooks, validateRpgLiveCreate),
-    game: (context) => { content = context.content; return createRpgLiveGame(context.content); } });
+    game: (context) => { content = context.content; clock = context.clock; return createRpgLiveGame(context.content); } });
   const getHost = live.host.bind(live);
   return Object.assign(live, { content: () => {
     if (!content) throw new Error('live host module has not been registered');
@@ -36,6 +41,7 @@ export function createRpgLiveHost(options: Omit<LiveHostModuleOptions<RpgLiveSta
   }, host: () => {
     const instanceHost = getHost();
     if (content) hostContent.set(instanceHost, content);
+    if (clock) hostClocks.set(instanceHost, clock);
     return instanceHost;
   } });
 }
@@ -50,6 +56,8 @@ export interface StartRpgLiveInput {
   readonly groups?: readonly RpgLiveGroup[];
   /** Consumable loadout per actor; quantities are validated against inventory while start is committed. */
   readonly consumables?: Readonly<Record<string, readonly ConsumableStack[]>>;
+  /** Server-owned seam for tests; production uses the clock injected into the live module. */
+  readonly clock?: Clock;
 }
 
 /**
@@ -63,12 +71,20 @@ export async function startRpgLiveInstance(host: RpgLiveHost | InstanceHost<RpgL
   const instanceHost = host instanceof InstanceHost ? host : host.host();
   const content = host instanceof InstanceHost ? hostContent.get(host) : host.content();
   if (!content) throw new Error('live host content unavailable; get the host from createRpgLiveHost after registration');
+  const clock = input.clock ?? hostClocks.get(instanceHost);
+  if (!clock) throw new Error('live start needs the server-injected clock');
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    const nowMs = clock.nowMs();
     const prepared = await database.db.transaction(async (tx) => {
-      await lockActors(tx, ids);
+      const locked = await lockActors(tx, ids);
+      if (locked.some(actor => actor.activityState !== 'none' || actor.activityId !== null)) throw new ActivityConflictError();
+      for (const actorId of ids) {
+        const corpora = await tx.select().from(liveDeaths).where(and(eq(liveDeaths.actorId, actorId), eq(liveDeaths.status, 'active')));
+        for (const corpse of corpora.filter(row => row.expiresAt.getTime() <= nowMs)) await expireRpgCorpse(tx, actorId, corpse.deathId);
+      }
       const rows = await tx.select().from(characters).where(inArray(characters.actorId, ids));
       if (rows.length !== ids.length) throw new RangeError('unknown character');
-      const heroes = await Promise.all(rows.map((row) => readHeroSetup(tx, row.actorId, input.consumables?.[row.actorId] ?? [], content)));
+      const heroes = await Promise.all(rows.map((row) => readHeroSetup(tx, row.actorId, input.consumables?.[row.actorId] ?? [], content, nowMs)));
       return { rows, heroes };
     });
     const setup: RpgLiveSetup = { ...(input.area === undefined ? {} : { area: input.area }),
@@ -92,7 +108,7 @@ function stable(value: unknown): string {
   return `{${Object.keys(value as object).sort().map((key) => `${JSON.stringify(key)}:${stable((value as Record<string, unknown>)[key])}`).join(',')}}`;
 }
 
-async function authoritativeStartSnapshot(tx: ActorTransaction, actorId: string) {
+async function authoritativeStartSnapshot(tx: ActorTransaction, actorId: string, nowMs: number) {
   const [actor] = await tx.select({ version: actors.version }).from(actors).where(eq(actors.actorId, actorId));
   const [character] = await tx.select().from(characters).where(eq(characters.actorId, actorId));
   if (!actor || !character) throw new RangeError('unknown character');
@@ -101,6 +117,16 @@ async function authoritativeStartSnapshot(tx: ActorTransaction, actorId: string)
   const progress = await readRpgEvalContext(tx, actorId, character.level, holdings);
   const world = { discovered: [...progress.actor.discovered.values()].flatMap((set) => [...set]).sort(),
     objectives: [...progress.actor.objectives].sort(), completedAreas: [...progress.actor.completedAreas].sort() };
+  const corpseRows = await tx.select().from(liveDeaths).where(and(eq(liveDeaths.actorId, actorId), eq(liveDeaths.status, 'active')));
+  const corpses = corpseRows.filter(row => row.expiresAt.getTime() > nowMs).map(row => {
+    const contents = holdings.filter(holding => holding.container === `corpse:${row.deathId}`);
+    return { id: row.deathId, areaId: row.areaId, locationId: row.locationId, expiresAt: row.expiresAt.getTime(),
+      stacks: contents.flatMap(holding => holding.asset.kind === 'stack' ? [{ item: holding.asset.item, qty: holding.qty }] : []),
+      gold: contents.reduce((sum, holding) => sum + (holding.asset.kind === 'currency' && holding.asset.currency === 'gold' ? holding.qty : 0), 0),
+      uniques: contents.flatMap(holding => holding.asset.kind === 'unique' && holding.itemId ? [{ itemId: holding.itemId,
+        definition: holding.definition ?? '', slot: holding.slot ?? null, rolls: (holding.rolls ?? {}) as JsonValue }] : []),
+    };
+  });
   const fingerprint = createHash('sha256').update(stable({ version: actor.version, character: {
     level: character.level, xp: character.xp, attributes: character.attributes, skillLoadout: character.skillLoadout,
     automationRules: character.automationRules,
@@ -108,12 +134,12 @@ async function authoritativeStartSnapshot(tx: ActorTransaction, actorId: string)
     itemId: holding.itemId, definition: holding.definition, slot: holding.slot, rolls: holding.rolls }))
     .sort((a, b) => stable(a).localeCompare(stable(b))),
   equipmentRows: equipmentRows.map((row) => ({ id: row.id, definition: row.definition, slot: row.slot, rolls: row.rolls })).sort((a, b) => a.id.localeCompare(b.id)),
-  world })).digest('hex');
-  return { character, holdings, equipmentRows, world, fingerprint };
+  world, corpses })).digest('hex');
+  return { character, holdings, equipmentRows, world, corpses, fingerprint };
 }
 
-async function readHeroSetup(tx: ActorTransaction, actorId: string, requested: readonly ConsumableStack[], content: LoadedContent): Promise<RpgLiveHeroSetup> {
-  const snapshot = await authoritativeStartSnapshot(tx, actorId);
+async function readHeroSetup(tx: ActorTransaction, actorId: string, requested: readonly ConsumableStack[], content: LoadedContent, nowMs: number): Promise<RpgLiveHeroSetup> {
+  const snapshot = await authoritativeStartSnapshot(tx, actorId, nowMs);
   const character = snapshot.character;
   const definitions = new Map<string, Item>((content.collections['items'] ?? []).map((raw) => {
     const item = ItemSchema.parse(raw);
@@ -143,7 +169,8 @@ async function readHeroSetup(tx: ActorTransaction, actorId: string, requested: r
     return { item: stack.item, qty: stack.qty };
   });
   return { actorId, build: { level: character.level, attributes: character.attributes, equipment }, skills: [BASIC_ATTACK, ...character.skillLoadout],
-    rules: character.automationRules, consumables: carried, world: snapshot.world, snapshotHash: snapshot.fingerprint, xp: character.xp };
+    rules: character.automationRules, consumables: carried, world: snapshot.world, corpses: snapshot.corpses,
+    snapshotHash: snapshot.fingerprint, xp: character.xp };
 }
 
 async function validateRpgLiveCreate(tx: ActorTransaction, input: CreateInstanceInput): Promise<void> {
@@ -153,7 +180,7 @@ async function validateRpgLiveCreate(tx: ActorTransaction, input: CreateInstance
   if (!Array.isArray(heroes) || heroes.length !== input.participants.length) throw new StaleRpgLiveStartError('stale_start_snapshot');
   for (const hero of heroes) {
     if (!hero || typeof hero.actorId !== 'string' || typeof hero.snapshotHash !== 'string') throw new StaleRpgLiveStartError('stale_start_snapshot');
-    const current = await authoritativeStartSnapshot(tx, hero.actorId);
+    const current = await authoritativeStartSnapshot(tx, hero.actorId, input.nowMs);
     if (current.fingerprint !== hero.snapshotHash) throw new StaleRpgLiveStartError('stale_start_snapshot');
     const available = new Map(current.holdings.filter((holding) => holding.container === 'inventory' && holding.asset.kind === 'stack')
       .map((holding) => [holding.asset.kind === 'stack' ? holding.asset.item : '', holding.qty]));

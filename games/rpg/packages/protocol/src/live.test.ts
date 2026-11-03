@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLiveClientRequest, parseLiveServerFrame } from './live.ts';
+import { parseLiveClientRequest, parseLiveDeathResponse, parseLiveServerFrame } from './live.ts';
 
 const actorId = '11111111-1111-4111-8111-111111111111';
 const instanceId = '22222222-2222-4222-8222-222222222222';
@@ -23,12 +23,32 @@ describe('live wire protocol', () => {
       view: { phase: 'exploring', heroes: [], runBag: [{ actorId, items: [{ item: 'item:herb', qty: 2 }], gold: 3 }] },
       participants: [{ actorId, status: 'connected' }] };
     expect(parseLiveServerFrame(snapshot)).toMatchObject({ type: 'live.snapshot', epoch: 2, seq: 8 });
+    expect(parseLiveServerFrame({ ...snapshot, view: { phase: 'exploring', heroes: [], runBag: [{ actorId, items: [], gold: 0,
+      uniques: [{ itemId: actorId, definition: 'iron_sabre', slot: null, rolls: {} }] }] } })).toMatchObject({ type: 'live.snapshot' });
+    // This is the exact victory event emitted by createRpgLiveGame; dropping it would create a public sequence gap.
     expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 9, source: 'game',
+      event: { type: 'combatRewards', groupId: 'slimes', rewards: [{ actorId, xp: 8, drops: [], gold: 0 }] } })).toMatchObject({ type: 'live.event' });
+    expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 10, source: 'game',
       event: { type: 'gathered', nodeId: 'node:one', drops: [{ item: 'item:herb', qty: 2 }], gold: 3 } })).toMatchObject({ type: 'live.event' });
+    expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 11, source: 'game',
+      event: { type: 'corpseRecovered', actorId, repeat: false } })).toMatchObject({ type: 'live.event' });
+    expect(() => parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 12, source: 'game',
+      event: { type: 'corpseRecovered', actorId, corpseId: instanceId, repeat: false } })).toThrow();
     expect(parseLiveServerFrame({ type: 'live.ack', instanceId, commandId: actorId, status: 'applied', duplicate: true }))
       .toMatchObject({ status: 'applied', duplicate: true });
     expect(() => parseLiveServerFrame({ ...snapshot, view: { phase: 'exploring', state: { checkpoint: {} } } })).toThrow();
     expect(() => parseLiveServerFrame({ ...snapshot, view: { phase: 'exploring', newPrivateView: [] } })).toThrow();
     expect(() => parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 9, source: 'game', event: { type: 'x', stateAfter: {} } })).toThrow();
+  });
+
+  it('validates owner death summary DTO including exact unique corpse identities', () => {
+    const response = parseLiveDeathResponse({ death: { deathId: instanceId, occurredAt: 1000, areaId: 'region_1', locationId: 'glade',
+      xpBefore: { level: 2, xpIntoLevel: 5, totalXp: 105 }, xpLost: 10, xpAfter: { level: 1, xpIntoLevel: 95, totalXp: 95 },
+      causes: [{ sourceId: 'warden', label: 'skill:slash', damage: 20 }], corpse: { id: instanceId, status: 'active', expiresAt: 86_401_000,
+        contents: { stacks: [{ item: 'healing_draught', qty: 1 }], gold: 3,
+          uniques: [{ itemId: actorId, definition: 'iron_sabre', slot: null, rolls: {} }] } } } });
+    expect(response.death?.corpse.contents.uniques[0]?.itemId).toBe(actorId);
+    expect(parseLiveDeathResponse({ death: null })).toEqual({ death: null });
+    expect(() => parseLiveDeathResponse({ death: { corpse: { status: 'unknown' } } })).toThrow();
   });
 });

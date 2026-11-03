@@ -5,12 +5,15 @@ import type { FormEvent } from 'react';
 import { CommandUnconfirmedError, createCharacterCommand } from '../api/commands.ts';
 import type { CommandRequest } from '../api/commands.ts';
 import type { CharacterDto } from '../api/types.ts';
+import type { ApiClient } from '../api/http.ts';
+import type { LiveConnection } from '../app/services.ts';
 import { describeError } from '../app/useGameSession.ts';
 import { levelProgress } from '../character/progression.ts';
 import { describeRule } from '../rules/describe.ts';
 import { AttributesPanel } from './character/AttributesPanel.tsx';
 import './character/character.css';
 import { LoadoutEditor } from './character/LoadoutEditor.tsx';
+import { DeathPanel } from './character/DeathPanel.tsx';
 
 interface Props {
   readonly character: CharacterDto | null;
@@ -18,15 +21,18 @@ interface Props {
   readonly runCharacterCommand: (request: CommandRequest<CharacterDto>) => Promise<void>;
   /** Injected in tests for a predictable command_id. */
   readonly newCommandId?: () => string;
+  readonly api?: ApiClient;
+  readonly live?: LiveConnection;
 }
 
-export function CharacterScreen({ character, canCommand, runCharacterCommand, newCommandId }: Props) {
+export function CharacterScreen({ character, canCommand, runCharacterCommand, newCommandId, api, live }: Props) {
   if (!character) return <CreateCharacter canCommand={canCommand} run={runCharacterCommand} />;
   const inSanctuary = character.activityState === 'none';
   return (
     <section className="screen character" aria-labelledby="character-title">
       <h1 id="character-title" className="screen__title">{character.name}</h1>
       <LevelSummary character={character} />
+      {api && <DeathPanel actorId={character.actorId} api={api} live={live} />}
       <p className={`character-activity${inSanctuary ? '' : ' character-activity--busy'}`}>
         {inSanctuary
           ? 'In the Sanctuary: attributes, loadout and rules can be changed.'

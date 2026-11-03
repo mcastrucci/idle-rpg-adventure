@@ -4,7 +4,8 @@ import type { ApiClient } from '../api/http.ts';
 import type { LiveClient } from '../live/client.ts';
 import type { LiveState } from '../live/state.ts';
 
-export type LiveConnection = Pick<LiveClient, 'state' | 'subscribe' | 'start' | 'stop' | 'online' | 'offline' | 'waitUntilOpen'>;
+export type LiveConnection = Pick<LiveClient, 'state' | 'subscribe' | 'start' | 'stop' | 'online' | 'offline' | 'waitUntilOpen'> &
+  Partial<Pick<LiveClient, 'subscribeFrames'>>;
 
 /** Everything the UI talks to, injected so tests can supply fakes. */
 export interface AppServices {
