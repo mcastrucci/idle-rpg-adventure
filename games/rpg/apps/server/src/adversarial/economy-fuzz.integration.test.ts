@@ -1,0 +1,579 @@
+/**
+ * Spike 3 (#13): seeded, concurrent fuzzing of the player-facing economy paths against real PostgreSQL.
+ *
+ * Operations go through the same public HTTP routes players use (inventory commands, expedition start/cancel/read,
+ * live start) with real `command_id`s, plus the settlement job handler and the live host for closing instances. After
+ * every round (and at the end) a REPEATABLE READ audit asserts the ledger invariants, activity-lock consistency and
+ * at-most-once settlement. Business rejections (busy, insufficient funds, idempotency conflict, start gates) are
+ * expected; any 5xx, unexpected status/error code or invariant violation fails the test.
+ *
+ * Reproduce a run with `ECONOMY_FUZZ_SEED=<printed seed>`. The sequence of generated operations is a pure function of
+ * the seed (given the same database state); the interleaving of concurrent requests is up to PostgreSQL and the Node
+ * scheduler, so a failing seed is a strong lead, not a guaranteed byte-for-byte replay. `ECONOMY_FUZZ_ROUNDS` and
+ * `ECONOMY_FUZZ_OPS` scale the run.
+ */
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { compileContentDirectory } from '@engine/content-compiler';
+import type { LiveConnection } from '@engine/live-kernel';
+import { applyLedgerDeltas, AuthService, checkLedgerInvariants, createDatabase, itemInstances, ManualClock, parseServerConfig } from '@engine/server-kit';
+import type { Database, ServerConfig } from '@engine/server-kit';
+import plugin from '@rpg/content-plugin';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { createCharacterService } from '../characters/service.ts';
+import { createRpgDatabase, createRpgServer, createRpgLiveHost } from '../index.ts';
+import type { RpgLiveHost } from '../index.ts';
+import { recordAreaCompletion } from '../expeditions/progress.ts';
+import { expeditions } from '../expeditions/schema.ts';
+import { createExpeditionService } from '../expeditions/service.ts';
+
+const adminUrl = process.env['TEST_DATABASE_URL'];
+if (process.env['CI'] && !adminUrl) throw new Error('CI must supply TEST_DATABASE_URL for the real PostgreSQL economy fuzz test');
+
+const REGION = 'area:region_1';
+const HUNT = 'idle:region_1.hunt';
+const POTION = 'item:minor_healing_potion';
+const SAP = 'item:sap_tonic';
+const SWORD = 'item:rusty_sword';
+const START_AT = 1_800_000_000_000;
+const MINUTE = 60_000;
+const OFFERS = [
+  { id: 'offer:minor_healing_potion', item: POTION, price: 12 },
+  { id: 'offer:sap_tonic', item: SAP, price: 18 },
+  { id: 'offer:healing_potion', item: 'item:healing_potion', price: 40 },
+] as const;
+const STARTING_GOLD = 160;
+const STARTING_POTIONS = 3;
+const BASE_PLAYERS = 6;
+/** Commands are retained for 24 simulated hours; only replay inside that window (older ids are a 410 tombstone case). */
+const COMMAND_REPLAY_WINDOW_MS = 20 * 60 * MINUTE;
+
+function intFromEnv(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) throw new RangeError(`${name} must be an integer in [${min}, ${max}]`);
+  return value;
+}
+const SEED = intFromEnv('ECONOMY_FUZZ_SEED', randomInt(1, 0xffff_ffff), 1, 0xffff_ffff);
+const ROUNDS = intFromEnv('ECONOMY_FUZZ_ROUNDS', 30, 1, 500);
+const OPS_PER_ROUND = intFromEnv('ECONOMY_FUZZ_OPS', 20, 1, 200);
+
+/** mulberry32: tiny, fast, 32-bit deterministic generator; test infrastructure only (not simulator code). */
+class Prng {
+  #state: number;
+  constructor(seed: number) { this.#state = seed >>> 0; }
+  u32(): number {
+    this.#state = (this.#state + 0x6d2b79f5) >>> 0;
+    let t = this.#state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return (t ^ (t >>> 14)) >>> 0;
+  }
+  int(maxExclusive: number): number { return this.u32() % maxExclusive; }
+  chance(percent: number): boolean { return this.int(100) < percent; }
+  pick<T>(items: readonly T[]): T {
+    const item = items[this.int(items.length)];
+    if (item === undefined) throw new RangeError('cannot pick from an empty list');
+    return item;
+  }
+}
+
+interface Player {
+  readonly label: string;
+  readonly accountId: string;
+  readonly sessionToken: string;
+  readonly actorId: string;
+  readonly swords: readonly string[];
+  readonly model: { spentGold: number; bought: Map<string, number>; starts: number };
+}
+interface Reply { readonly status: number; readonly body: unknown }
+interface Applied { readonly atMs: number; readonly player: Player; readonly url: string; readonly envelope: unknown; readonly reply: Reply;
+  readonly variant: (() => unknown) | null }
+
+const errorOf = (body: unknown): string | undefined =>
+  body !== null && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : undefined;
+
+describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreSQL (spike 3, #13)', () => {
+  let admin: Database;
+  let database: Database;
+  let config: ServerConfig;
+  let app: Awaited<ReturnType<typeof createRpgServer>>;
+  let worker: Awaited<ReturnType<typeof createRpgServer>> | undefined;
+  let live: RpgLiveHost;
+  let directory: string;
+  let auth: AuthService;
+  let content: Extract<ReturnType<typeof compileContentDirectory>, { ok: true }>['bundle'];
+  const databaseName = `economy_fuzz_${randomUUID().replaceAll('-', '')}`;
+  const clock = new ManualClock(START_AT);
+  const rng = new Prng(SEED);
+  const seedRng = new Prng(SEED ^ 0x9e37_79b9);
+  const players: Player[] = [];
+  const applied: Applied[] = [];
+  const violations: string[] = [];
+  const stats = new Map<string, number>();
+  let round = 0;
+
+  beforeAll(async () => {
+    directory = await mkdtemp(join(tmpdir(), 'economy-fuzz-'));
+    const compiled = compileContentDirectory(fileURLToPath(new URL('../../../../content', import.meta.url)), plugin);
+    if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
+    content = compiled.bundle;
+    const path = join(directory, 'bundle.json');
+    await writeFile(path, JSON.stringify(content));
+    const base = parseServerConfig({ DATABASE_URL: adminUrl, CONTENT_BUNDLE_PATH: path, LOG_LEVEL: 'silent' });
+    admin = createDatabase(base);
+    await admin.pool.query(`CREATE DATABASE "${databaseName}"`);
+    const url = new URL(base.databaseUrl); url.pathname = `/${databaseName}`;
+    config = { ...base, databaseUrl: url.toString(), roles: ['api', 'live'] };
+    database = createRpgDatabase(config);
+    await database.migrate();
+    // The manual clock runs for many simulated hours; keep guest sessions valid for the whole run.
+    auth = new AuthService(database, clock, { sessionTtlMs: 30 * 24 * 60 * MINUTE });
+    live = createRpgLiveHost({ autoStart: false, nodeId: 'economy-fuzz', leaseMs: 30_000, graceMs: 60_000 });
+    app = await createRpgServer(config, { clock, live, seedSource: () => seedRng.u32() });
+    // The real PostgreSQL-backed settlement worker races the lazy reads and the explicit job-handler calls below.
+    worker = await createRpgServer({ ...config, roles: ['worker'] }, { clock });
+  }, 60_000);
+
+  afterAll(async () => {
+    await worker?.close();
+    await app?.close();
+    await database?.close();
+    if (admin) {
+      try { await admin.pool.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`); }
+      finally { await admin.close(); }
+    }
+    if (directory) await rm(directory, { recursive: true, force: true });
+  });
+
+  // ---- helpers ---------------------------------------------------------------------------------------------------
+  const where = () => `[seed=${SEED} round=${round}]`;
+  const bump = (key: string) => stats.set(key, (stats.get(key) ?? 0) + 1);
+  const violate = (message: string) => { violations.push(`${where()} ${message}`); };
+  const bearer = (player: Pick<Player, 'sessionToken'>) => ({ authorization: `Bearer ${player.sessionToken}` });
+  const envelope = (operation: string, payload: Record<string, unknown>, commandId: string = randomUUID()) =>
+    ({ command_id: commandId, operation, payload });
+
+  async function createPlayer(label: string, options: { gold: number; potions: number; swords: number }): Promise<Player> {
+    const session = await auth.guest(randomBytes(32).toString('base64url'));
+    const hero = await database.db.transaction(tx => createCharacterService(tx, content as never).create(session.accountId, { name: 'Fuzz hero' }));
+    const deltas = [] as { actorId: string; asset: { kind: 'currency'; currency: 'gold' } | { kind: 'stack'; item: string } | { kind: 'unique_mint'; item: string }; qty: number }[];
+    if (options.gold) deltas.push({ actorId: hero.actorId, asset: { kind: 'currency', currency: 'gold' }, qty: options.gold });
+    if (options.potions) deltas.push({ actorId: hero.actorId, asset: { kind: 'stack', item: POTION }, qty: options.potions });
+    if (options.swords) deltas.push({ actorId: hero.actorId, asset: { kind: 'unique_mint', item: SWORD }, qty: options.swords });
+    if (deltas.length) await database.db.transaction(tx => applyLedgerDeltas(tx, { type: 'test_fixture', id: `${hero.actorId}:fuzz` }, deltas));
+    await database.db.transaction(tx => recordAreaCompletion(tx, clock, hero.actorId, REGION));
+    const swords = (await database.db.select().from(itemInstances).where(eq(itemInstances.actorId, hero.actorId))).map(row => row.id).sort();
+    const player: Player = { label, accountId: session.accountId, sessionToken: session.sessionToken, actorId: hero.actorId, swords,
+      model: { spentGold: 0, bought: new Map(), starts: 0 } };
+    players.push(player);
+    return player;
+  }
+
+  async function post(player: Player, url: string, payload: unknown): Promise<Reply> {
+    const response = await app.inject({ method: 'POST', url, headers: bearer(player), payload: payload as never });
+    return { status: response.statusCode, body: response.body.length ? response.json() : null };
+  }
+  async function getJson(player: Player, url: string): Promise<Reply> {
+    const response = await app.inject({ method: 'GET', url, headers: bearer(player) });
+    return { status: response.statusCode, body: response.body.length ? response.json() : null };
+  }
+
+  /** Classifies one reply: only the listed statuses/error codes are acceptable; anything else is recorded as a failure. */
+  function expectReply(name: string, reply: Reply, allowed: { ok: readonly number[]; rejected?: readonly string[]; gate?: boolean }): boolean {
+    const error = errorOf(reply.body);
+    if (allowed.ok.includes(reply.status)) { bump(`${name}:${reply.status}`); return true; }
+    const business = reply.status === 409 && error !== undefined && (allowed.rejected ?? []).includes(error);
+    const gate = allowed.gate === true && reply.status === 400 && error !== undefined && (error.startsWith('start.') || error === 'invalid_live_start');
+    if (business || gate) { bump(`${name}:${reply.status}:${error}`); return false; }
+    violate(`${name}: unexpected ${reply.status} ${JSON.stringify(reply.body)}`);
+    return false;
+  }
+
+  async function runningExpeditionOf(actorId: string) {
+    const [row] = await database.db.select().from(expeditions).where(and(eq(expeditions.actorId, actorId), eq(expeditions.status, 'running')));
+    return row;
+  }
+  async function actorState(actorId: string) {
+    const { rows } = await database.pool.query<{ activity_state: string; activity_id: string | null }>(
+      'SELECT activity_state, activity_id FROM actors WHERE actor_id = $1', [actorId]);
+    return rows[0];
+  }
+
+  // ---- operations (each closure is one concurrent request; model updates happen only on a first-time success) ------
+  const INVENTORY = (p: Player) => `/characters/${p.actorId}/inventory/commands`;
+  function remember(player: Player, url: string, env: { command_id: string }, reply: Reply, variant: (() => unknown) | null) {
+    applied.push({ atMs: clock.nowMs(), player, url, envelope: env, reply, variant });
+    if (applied.length > 400) applied.shift();
+  }
+  const REJECTED = ['busy', 'insufficient_funds', 'item_not_owned', 'activity_conflict'] as const;
+
+  const operations = {
+    async buy(player: Player) {
+      const offer = rng.pick(OFFERS); const quantity = 1 + rng.int(3);
+      const env = envelope('inventory.buy', { actorId: player.actorId, offerId: offer.id, quantity });
+      const reply = await post(player, INVENTORY(player), env);
+      if (expectReply('buy', reply, { ok: [200], rejected: REJECTED })) {
+        player.model.spentGold += offer.price * quantity;
+        player.model.bought.set(offer.item, (player.model.bought.get(offer.item) ?? 0) + quantity);
+        remember(player, INVENTORY(player), env, reply, () => envelope('inventory.buy', { actorId: player.actorId, offerId: offer.id, quantity: quantity + 1 }, env.command_id));
+      }
+    },
+    async moveStack(player: Player) {
+      const item = rng.pick([POTION, SAP]); const quantity = 1 + rng.int(2);
+      const [from, to] = rng.chance(50) ? ['inventory', 'storage'] : ['storage', 'inventory'];
+      const env = envelope('inventory.move', { actorId: player.actorId, item, quantity, from, to });
+      const reply = await post(player, INVENTORY(player), env);
+      if (expectReply('moveStack', reply, { ok: [200], rejected: REJECTED })) {
+        remember(player, INVENTORY(player), env, reply, () => envelope('inventory.move', { actorId: player.actorId, item, quantity: quantity + 1, from, to }, env.command_id));
+      }
+    },
+    async equip(player: Player) {
+      const itemId = rng.pick(player.swords);
+      const env = envelope('inventory.equip', { actorId: player.actorId, itemId, slot: 'weapon' });
+      const reply = await post(player, INVENTORY(player), env);
+      if (expectReply('equip', reply, { ok: [200], rejected: REJECTED })) {
+        remember(player, INVENTORY(player), env, reply, () => envelope('inventory.equip', { actorId: player.actorId, itemId, slot: 'chest' }, env.command_id));
+      }
+    },
+    async unequip(player: Player) {
+      const env = envelope('inventory.unequip', { actorId: player.actorId, itemId: rng.pick(player.swords) });
+      const reply = await post(player, INVENTORY(player), env);
+      if (expectReply('unequip', reply, { ok: [200], rejected: REJECTED })) remember(player, INVENTORY(player), env, reply, null);
+    },
+    async moveUnique(player: Player) {
+      const itemId = rng.pick(player.swords);
+      const [from, to] = rng.chance(50) ? ['inventory', 'storage'] : ['storage', 'inventory'];
+      const env = envelope('inventory.move', { actorId: player.actorId, itemId, from, to });
+      const reply = await post(player, INVENTORY(player), env);
+      if (expectReply('moveUnique', reply, { ok: [200], rejected: REJECTED })) {
+        remember(player, INVENTORY(player), env, reply, () => envelope('inventory.move', { actorId: player.actorId, itemId, from: to, to: from }, env.command_id));
+      }
+    },
+    async startExpedition(player: Player, forcedPotions?: number) {
+      const durationMin = rng.pick([15, 30, 60]); const potions = forcedPotions ?? rng.int(3);
+      const consumables = potions ? [{ item: POTION, qty: potions }] : [];
+      const env = envelope('expedition.start', { actorId: player.actorId,
+        request: { areaId: REGION, activityId: HUNT, durationMin, paceBp: 10_000 }, config: { consumables, retreat: { belowHpBp: 0, onlyWhenNoHealing: false } } });
+      const reply = await post(player, '/expeditions', env);
+      if (expectReply('startExpedition', reply, { ok: [201], rejected: REJECTED, gate: true })) {
+        player.model.starts += 1;
+        remember(player, '/expeditions', env, reply, () => envelope('expedition.start', { actorId: player.actorId,
+          request: { areaId: REGION, activityId: HUNT, durationMin: durationMin === 15 ? 30 : 15, paceBp: 10_000 }, config: { consumables, retreat: { belowHpBp: 0, onlyWhenNoHealing: false } } }, env.command_id));
+      }
+      return reply;
+    },
+    async cancel(player: Player) {
+      const running = await runningExpeditionOf(player.actorId);
+      if (!running) { bump('cancel:skipped'); return; }
+      const env = envelope('expedition.cancel', { expeditionId: running.id });
+      const url = `/expeditions/${running.id}/cancel`;
+      const reply = await post(player, url, env);
+      if (expectReply('cancel', reply, { ok: [200], rejected: REJECTED })) remember(player, url, env, reply, null);
+    },
+    async read(player: Player) {
+      const running = await runningExpeditionOf(player.actorId);
+      const reply = running && rng.chance(60) ? await getJson(player, `/expeditions/${running.id}`) : await getJson(player, `/characters/${player.actorId}/expeditions`);
+      expectReply('read', reply, { ok: [200] });
+    },
+    async startLive(player: Player, forcedSupplies?: number) {
+      const supplies = forcedSupplies ?? rng.int(2);
+      const env = { commandId: randomUUID(), actorId: player.actorId, areaId: REGION, supplies: supplies ? [{ item: POTION, qty: supplies }] : [] };
+      const reply = await post(player, '/live/start', env);
+      expectReply('startLive', reply, { ok: [200], rejected: REJECTED, gate: true });
+      return reply;
+    },
+    async replaySame() {
+      const replayable = applied.filter(entry => clock.nowMs() - entry.atMs < COMMAND_REPLAY_WINDOW_MS);
+      const original = replayable.length ? rng.pick(replayable) : undefined;
+      if (!original) { bump('replaySame:skipped'); return; }
+      const reply = await post(original.player, original.url, original.envelope);
+      if (reply.status !== original.reply.status || JSON.stringify(reply.body) !== JSON.stringify(original.reply.body)) {
+        violate(`replaySame: replay of ${(original.envelope as { command_id: string }).command_id} returned ${reply.status} ${JSON.stringify(reply.body)}, expected ${original.reply.status} ${JSON.stringify(original.reply.body)}`);
+      } else bump('replaySame:identical');
+    },
+    async replayDifferent() {
+      const candidates = applied.filter(entry => entry.variant !== null && clock.nowMs() - entry.atMs < COMMAND_REPLAY_WINDOW_MS);
+      const original = candidates.length ? rng.pick(candidates) : undefined;
+      if (!original?.variant) { bump('replayDifferent:skipped'); return; }
+      const reply = await post(original.player, original.url, original.variant());
+      if (reply.status === 409 && errorOf(reply.body) === 'command_id_conflict') bump('replayDifferent:conflict');
+      else violate(`replayDifferent: same command_id with another payload returned ${reply.status} ${JSON.stringify(reply.body)}`);
+    },
+  } as const;
+  type OperationName = keyof typeof operations;
+  const MIX: readonly (readonly [OperationName, number])[] = [
+    ['buy', 16], ['moveStack', 12], ['equip', 8], ['unequip', 6], ['moveUnique', 8], ['startExpedition', 14], ['cancel', 8], ['read', 8],
+    ['startLive', 7], ['replaySame', 8], ['replayDifferent', 5],
+  ];
+  function pickOperation(): OperationName {
+    let roll = rng.int(MIX.reduce((sum, [, weight]) => sum + weight, 0));
+    for (const [name, weight] of MIX) { if (roll < weight) return name; roll -= weight; }
+    throw new Error('unreachable operation mix');
+  }
+
+  // ---- scenarios ---------------------------------------------------------------------------------------------------
+  /** Fresh actor with exactly one potion: every consumer of it races; at most one may win and the unit is never duplicated. */
+  async function lastPotionRace() {
+    const racer = await createPlayer(`racer-r${round}`, { gold: 0, potions: 1, swords: 0 });
+    // Kick-off order decides who reaches the row lock first, so shuffle it to let every kind of consumer win over a run.
+    const consumers: { kind: 'expedition' | 'live' | 'move'; ok: number; run: () => Promise<Reply> }[] = [
+      { kind: 'expedition', ok: 201, run: () => operations.startExpedition(racer, 1) },
+      { kind: 'expedition', ok: 201, run: () => operations.startExpedition(racer, 1) },
+      { kind: 'live', ok: 200, run: () => operations.startLive(racer, 1) },
+      { kind: 'move', ok: 200, run: () => post(racer, INVENTORY(racer), envelope('inventory.move', { actorId: racer.actorId, item: POTION, quantity: 1, from: 'inventory', to: 'storage' })) },
+    ];
+    for (let index = consumers.length - 1; index > 0; index--) {
+      const other = rng.int(index + 1);
+      [consumers[index], consumers[other]] = [consumers[other] as (typeof consumers)[number], consumers[index] as (typeof consumers)[number]];
+    }
+    const results = await Promise.all(consumers.map(consumer => consumer.run()));
+    const winners = consumers.filter((consumer, index) => results[index]?.status === consumer.ok);
+    if (winners.length !== 1) violate(`last potion race: expected exactly one winner, got ${winners.length}: ${JSON.stringify(results.map(r => [r.status, errorOf(r.body)]))}`);
+    const { rows } = await database.pool.query<{ total: string }>(
+      `SELECT COALESCE(SUM(qty),0)::text AS total FROM asset_balances WHERE actor_id = $1 AND asset_kind = 'stack' AND asset_ref = $2`, [racer.actorId, POTION]);
+    if (rows[0]?.total !== '1') violate(`last potion race: ${rows[0]?.total} potion units exist across containers, expected 1`);
+    bump('lastPotionRace');
+    for (const winner of winners) bump(`lastPotionRace:${winner.kind}Won`);
+  }
+
+  /** While a character is live every mutation is refused with a business error; then the instance is closed (replayed once). */
+  async function liveCloseout() {
+    const { rows } = await database.pool.query<{ actor_id: string; activity_id: string }>(
+      `SELECT actor_id, activity_id FROM actors WHERE activity_state = 'live'`);
+    await Promise.all(rows.map(async ({ actor_id: actorId, activity_id: instanceId }) => {
+      const player = players.find(candidate => candidate.actorId === actorId);
+      if (!player) { violate(`live actor ${actorId} is not a known fuzz player`); return; }
+      const attempts = await Promise.all([
+        post(player, INVENTORY(player), envelope('inventory.buy', { actorId, offerId: OFFERS[0].id, quantity: 1 })),
+        post(player, INVENTORY(player), envelope('inventory.move', { actorId, item: POTION, quantity: 1, from: 'inventory', to: 'storage' })),
+        post(player, INVENTORY(player), envelope('inventory.equip', { actorId, itemId: player.swords[0] ?? randomUUID(), slot: 'weapon' })),
+        post(player, '/expeditions', envelope('expedition.start', { actorId, request: { areaId: REGION, activityId: HUNT, durationMin: 15, paceBp: 10_000 },
+          config: { consumables: [], retreat: { belowHpBp: 0, onlyWhenNoHealing: false } } })),
+        post(player, '/live/start', { commandId: randomUUID(), actorId, areaId: REGION, supplies: [] }),
+      ]);
+      for (const attempt of attempts) {
+        const error = errorOf(attempt.body);
+        if (attempt.status !== 409 || (error !== 'busy' && error !== 'activity_conflict')) violate(`mutation while live returned ${attempt.status} ${JSON.stringify(attempt.body)}`);
+        else bump('whileLive:refused');
+      }
+      const connection: LiveConnection = { id: randomUUID(), push: () => {} };
+      await live.host().attach(instanceId, actorId, player.accountId, connection);
+      const commandId = randomUUID();
+      // Two submissions of one live command id race: exactly one applies; the other is a duplicate ack or finds the closed instance gone.
+      const closes = await Promise.allSettled([1, 2].map(() => live.host().submit(instanceId, actorId, player.accountId, commandId, { type: 'returnToSanctuary' })));
+      const fulfilled = closes.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+      const refused = closes.flatMap(result => result.status === 'rejected' ? [result.reason as { message?: string }] : []);
+      const appliedOnce = fulfilled.filter(value => value.ack.status === 'applied' && !value.duplicate).length === 1;
+      if (!appliedOnce || refused.some(reason => reason.message !== 'not_hosted')) violate(`live close replay: ${JSON.stringify(fulfilled)} / ${JSON.stringify(refused.map(r => r.message))}`);
+      const state = await actorState(actorId);
+      if (state?.activity_state !== 'none') violate(`actor ${actorId} still ${state?.activity_state} after its live instance closed`);
+      bump('live:closed');
+    }));
+  }
+
+  /** Moves the clock to (or just past) an expedition's end and races lazy reads, job handlers, cancels and a replayed cancel. */
+  async function settlementRace(): Promise<void> {
+    const running = await database.db.select().from(expeditions).where(eq(expeditions.status, 'running'));
+    const target = running.length ? rng.pick(running) : undefined;
+    if (!target) return;
+    clock.set(Math.max(clock.nowMs(), target.endsAtMs + rng.pick([0, 0, 1, 90_000])));
+    const due = running.filter(row => row.endsAtMs <= clock.nowMs());
+    await Promise.all(due.flatMap(row => {
+      const player = players.find(candidate => candidate.actorId === row.actorId);
+      if (!player) return [];
+      const cancelId = randomUUID();
+      const cancelEnvelope = envelope('expedition.cancel', { expeditionId: row.id }, cancelId);
+      const job = () => database.db.transaction(tx => createExpeditionService(tx, clock, content as never).settleJob(row.id, row.revision));
+      return [
+        getJson(player, `/expeditions/${row.id}`).then(reply => { expectReply('settle.lazyRead', reply, { ok: [200] }); }),
+        getJson(player, `/characters/${row.actorId}/expeditions`).then(reply => { expectReply('settle.list', reply, { ok: [200] }); }),
+        job().then(() => { bump('settle.job'); }, (error: unknown) => { violate(`settleJob threw ${String(error)}`); }),
+        job().then(() => { bump('settle.job'); }, (error: unknown) => { violate(`settleJob threw ${String(error)}`); }),
+        Promise.all([post(player, `/expeditions/${row.id}/cancel`, cancelEnvelope), post(player, `/expeditions/${row.id}/cancel`, cancelEnvelope)])
+          .then(([a, b]) => {
+            expectReply('settle.cancel', a, { ok: [200] }); expectReply('settle.cancel', b, { ok: [200] });
+            if (JSON.stringify(a.body) !== JSON.stringify(b.body)) violate(`concurrent replay of one cancel command_id returned different bodies for ${row.id}`);
+          }),
+      ];
+    }));
+    bump(`settleRace:due=${Math.min(due.length, 3)}`);
+  }
+
+  // ---- audit --------------------------------------------------------------------------------------------------------
+  async function audit(label: string): Promise<void> {
+    const issues = await database.db.transaction(async tx => {
+      const found: string[] = [];
+      const runningIds = (await tx.select({ id: expeditions.id }).from(expeditions).where(eq(expeditions.status, 'running'))).map(row => row.id);
+      for (const issue of await checkLedgerInvariants(tx, [], runningIds)) found.push(`ledger invariant: ${issue}`);
+      const q = async <T extends Record<string, unknown>>(query: ReturnType<typeof sql>) => (await tx.execute(query)).rows as unknown as T[];
+
+      const negatives = await q<{ n: number }>(sql`SELECT count(*)::int AS n FROM asset_balances WHERE qty < 0`);
+      if (negatives[0]?.n) found.push(`${negatives[0].n} negative balances`);
+
+      // activity lock consistency, both directions
+      const expeditionMismatch = await q<{ actor_id: string }>(sql`
+        SELECT a.actor_id FROM actors a WHERE a.activity_state = 'expedition'
+          AND (SELECT count(*) FROM rpg_expeditions e WHERE e.id = a.activity_id AND e.actor_id = a.actor_id AND e.status = 'running') <> 1
+        UNION ALL
+        SELECT e.actor_id FROM rpg_expeditions e JOIN actors a ON a.actor_id = e.actor_id
+          WHERE e.status = 'running' AND (a.activity_state <> 'expedition' OR a.activity_id <> e.id)
+        UNION ALL
+        SELECT e.actor_id FROM rpg_expeditions e WHERE e.status = 'running' GROUP BY e.actor_id HAVING count(*) > 1`);
+      for (const row of expeditionMismatch) found.push(`actor ${row.actor_id}: activity state disagrees with running expeditions`);
+      const liveMismatch = await q<{ actor_id: string }>(sql`
+        SELECT a.actor_id FROM actors a WHERE a.activity_state = 'live'
+          AND (SELECT count(*) FROM live_instances l WHERE l.instance_id = a.activity_id AND l.status = 'active'
+               AND l.participants @> jsonb_build_array(jsonb_build_object('actorId', a.actor_id::text))) <> 1
+        UNION ALL
+        SELECT a.actor_id FROM actors a JOIN live_instances l ON l.status = 'active'
+          AND l.participants @> jsonb_build_array(jsonb_build_object('actorId', a.actor_id::text))
+          WHERE a.activity_state <> 'live' OR a.activity_id <> l.instance_id`);
+      for (const row of liveMismatch) found.push(`actor ${row.actor_id}: activity state disagrees with active live instances`);
+
+      // at-most-once settlement; terminal expeditions have exactly one, running ones none
+      const duplicates = await q<{ id: string; n: number }>(sql`
+        SELECT split_part(source_id, ':', 1) AS id, count(*)::int AS n FROM ledger_batches
+          WHERE source_type = 'expedition_settlement' GROUP BY 1 HAVING count(*) > 1`);
+      for (const row of duplicates) found.push(`expedition ${row.id} settled ${row.n} times`);
+      const settlementCounts = await q<{ id: string; status: string; n: number }>(sql`
+        SELECT e.id, e.status, (SELECT count(*)::int FROM ledger_batches b WHERE b.source_type = 'expedition_settlement'
+          AND split_part(b.source_id, ':', 1) = e.id::text) AS n FROM rpg_expeditions e`);
+      for (const row of settlementCounts) {
+        if ((row.status === 'running' && row.n !== 0) || (row.status !== 'running' && row.n !== 1)) found.push(`expedition ${row.id} (${row.status}) has ${row.n} settlement batches`);
+      }
+      const startBatches = await q<{ id: string }>(sql`
+        SELECT e.id FROM rpg_expeditions e WHERE (SELECT count(*) FROM ledger_batches b WHERE b.source_type = 'expedition_start' AND b.source_id = e.id::text || ':start') <> 1`);
+      for (const row of startBatches) found.push(`expedition ${row.id} has no single start escrow batch`);
+
+      // model accounting: each first-time successful command applied exactly once, rejected/replayed ones never
+      for (const player of players) {
+        const spent = await q<{ spent: string }>(sql`
+          SELECT COALESCE(sum(qty), 0)::text AS spent FROM ledger_entries WHERE actor_id = ${player.actorId}::uuid AND source_type = 'rpg_command'
+            AND asset_kind = 'currency' AND asset_ref = 'gold' AND from_container = 'inventory' AND to_container IS NULL`);
+        if (Number(spent[0]?.spent) !== player.model.spentGold) found.push(`${player.label}: ledger spent ${spent[0]?.spent} gold, model says ${player.model.spentGold}`);
+        for (const offer of OFFERS) {
+          const got = await q<{ qty: string }>(sql`
+            SELECT COALESCE(sum(qty), 0)::text AS qty FROM ledger_entries WHERE actor_id = ${player.actorId}::uuid AND source_type = 'rpg_command'
+              AND asset_kind = 'stack' AND asset_ref = ${offer.item} AND from_container IS NULL AND to_container = 'inventory'`);
+          if (Number(got[0]?.qty) !== (player.model.bought.get(offer.item) ?? 0)) found.push(`${player.label}: ledger granted ${got[0]?.qty} ${offer.item}, model says ${player.model.bought.get(offer.item) ?? 0}`);
+        }
+        const started = await q<{ n: number }>(sql`SELECT count(*)::int AS n FROM rpg_expeditions WHERE actor_id = ${player.actorId}::uuid`);
+        if (started[0]?.n !== player.model.starts) found.push(`${player.label}: ${started[0]?.n} expeditions persisted, model says ${player.model.starts}`);
+      }
+      return found;
+    }, { isolationLevel: 'repeatable read' });
+    for (const issue of issues) violate(`${label}: ${issue}`);
+  }
+
+  async function endRound(label: string) {
+    expect(violations, `economy fuzz violations (replay with ECONOMY_FUZZ_SEED=${SEED}) after ${label}`).toEqual([]);
+  }
+
+  // ---- the test -----------------------------------------------------------------------------------------------------
+  it(`holds every economy invariant over ${ROUNDS} rounds x ${OPS_PER_ROUND} concurrent operations`, async () => {
+    console.info(`economy fuzz: seed=${SEED} rounds=${ROUNDS} opsPerRound=${OPS_PER_ROUND} (reproduce with ECONOMY_FUZZ_SEED=${SEED})`);
+    for (let index = 0; index < BASE_PLAYERS; index++) {
+      await createPlayer(`p${index}`, { gold: STARTING_GOLD, potions: STARTING_POTIONS, swords: 2 });
+    }
+    const started = Date.now();
+    for (round = 1; round <= ROUNDS; round++) {
+      const batch: Promise<unknown>[] = [lastPotionRace()];
+      for (let index = 0; index < OPS_PER_ROUND; index++) {
+        const player = rng.pick(players.slice(0, BASE_PLAYERS));
+        batch.push(operations[pickOperation()](player).catch((error: unknown) => { violate(`operation threw ${String(error)}`); }));
+      }
+      await Promise.all(batch);
+      await audit('after concurrent batch');
+      await liveCloseout();
+      if (rng.chance(50)) await settlementRace();
+      clock.advance(rng.int(15 * MINUTE));
+      await audit('after settlement race');
+      await endRound(`round ${round}`);
+    }
+
+    // Drain: let every expedition end, settle all of them concurrently through every path, then expect a quiet system.
+    round = ROUNDS + 1;
+    const remaining = await database.db.select().from(expeditions).where(eq(expeditions.status, 'running'));
+    clock.set(Math.max(clock.nowMs(), ...remaining.map(row => row.endsAtMs)) + MINUTE);
+    await Promise.all(remaining.flatMap(row => {
+      const player = players.find(candidate => candidate.actorId === row.actorId);
+      if (!player) return [];
+      const job = () => database.db.transaction(tx => createExpeditionService(tx, clock, content as never).settleJob(row.id, row.revision)).catch((error: unknown) => { violate(`settleJob threw ${String(error)}`); });
+      return [getJson(player, `/expeditions/${row.id}`).then(reply => { expectReply('drain.lazyRead', reply, { ok: [200] }); }), job(), job()];
+    }));
+    await liveCloseout();
+    await audit('final');
+    await endRound('final drain');
+
+    const ids = players.map(player => player.actorId);
+    const still = await database.db.select().from(expeditions).where(and(inArray(expeditions.actorId, ids), eq(expeditions.status, 'running')));
+    expect(still).toEqual([]);
+    const { rows: busy } = await database.pool.query(`SELECT actor_id FROM actors WHERE activity_state <> 'none'`);
+    expect(busy).toEqual([]);
+    expect(await database.db.transaction(tx => checkLedgerInvariants(tx, [], []))).toEqual([]);
+
+    const statuses = await database.pool.query<{ status: string; outcome: string | null; n: number }>(
+      'SELECT status, outcome, count(*)::int AS n FROM rpg_expeditions GROUP BY 1, 2 ORDER BY 1, 2');
+    const jobs = await database.pool.query<{ state: string; n: number }>(
+      `SELECT state, count(*)::int AS n FROM pgboss.job WHERE name = 'rpg.expedition.settle' GROUP BY 1 ORDER BY 1`);
+    for (const row of statuses.rows) stats.set(`expeditions:${row.status}:${row.outcome ?? 'none'}`, row.n);
+    for (const row of jobs.rows) stats.set(`pgbossSettleJobs:${row.state}`, row.n);
+    const summary = [...stats.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, count]) => `${key}=${count}`).join(' ');
+    console.info(`economy fuzz summary: seed=${SEED} players=${players.length} elapsedMs=${Date.now() - started} ${summary}`);
+
+    // The scenarios must actually have exercised the paths they claim to (guards against a vacuous run).
+    const count = (key: string) => stats.get(key) ?? 0;
+    expect(count('lastPotionRace')).toBe(ROUNDS);
+    expect(count('buy:200')).toBeGreaterThan(0);
+    expect(count('startExpedition:201')).toBeGreaterThan(0);
+    expect(count('replaySame:identical')).toBeGreaterThan(0);
+  }, 90_000);
+
+  it('audit self-check: the invariants fail on corrupted balances, orphaned activity locks and double settlement', async () => {
+    round = 0;
+    violations.length = 0;
+    const victim = await createPlayer('self-check', { gold: 50, potions: 0, swords: 0 });
+    const started = await operations.startExpedition(victim, 0);
+    expect(started.status).toBe(201);
+    const { id } = started.body as { id: string };
+    const row = await database.db.select().from(expeditions).where(eq(expeditions.id, id));
+    clock.set(Math.max(clock.nowMs(), row[0]?.endsAtMs ?? 0));
+    expect((await getJson(victim, `/expeditions/${id}`)).status).toBe(200);
+    await audit('self-check baseline');
+    expect(violations).toEqual([]);
+
+    async function expectDetected(label: string, fragment: string, tamper: string, restore: string, params: unknown[]) {
+      await database.pool.query(tamper, params);
+      try { await audit(label); }
+      finally {
+        // Ledger tables are append-only (triggers), so the restore of an inserted row bypasses them on a dedicated session.
+        const client = await database.pool.connect();
+        try {
+          await client.query("SET session_replication_role = 'replica'");
+          await client.query(restore, params);
+        } finally { await client.query('RESET session_replication_role'); client.release(); }
+      }
+      expect(violations.some(message => message.includes(fragment)), `${label} not detected: ${JSON.stringify(violations)}`).toBe(true);
+      violations.length = 0;
+    }
+    await expectDetected('inflated balance', 'ledger invariant',
+      `UPDATE asset_balances SET qty = qty + 1 WHERE actor_id = $1 AND asset_ref = 'gold'`,
+      `UPDATE asset_balances SET qty = qty - 1 WHERE actor_id = $1 AND asset_ref = 'gold'`, [victim.actorId]);
+    await expectDetected('orphan activity lock', 'activity state disagrees',
+      `UPDATE actors SET activity_state = 'expedition', activity_id = gen_random_uuid() WHERE actor_id = $1`,
+      `UPDATE actors SET activity_state = 'none', activity_id = NULL WHERE actor_id = $1`, [victim.actorId]);
+    await expectDetected('double settlement', 'settled 2 times',
+      `INSERT INTO ledger_batches (source_type, source_id, fingerprint, entry_count) VALUES ('expedition_settlement', $1 || ':7', repeat('a', 64), 0)`,
+      `DELETE FROM ledger_batches WHERE source_type = 'expedition_settlement' AND source_id = $1 || ':7'`, [id]);
+    await audit('self-check restored');
+    expect(violations).toEqual([]);
+  }, 30_000);
+});
