@@ -315,7 +315,8 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
       }));
       expect(invalid.statusCode).toBe(400);
     }
-    await database.db.transaction(tx => transitionActivity(tx, owner.character.actorId, { state: 'none', activityId: null }, { state: 'live', activityId: 'test_live' }));
+    const activityId = randomUUID();
+    await database.db.transaction(tx => transitionActivity(tx, owner.character.actorId, { state: 'none', activityId: null }, { state: 'live', activityId }));
     const activeBefore = (await inventory(owner.session, owner.character.actorId)).json<InventorySnapshotDto>();
     const active = await command(owner.session, owner.character.actorId, envelope('sellMaterial', {
       actorId: owner.character.actorId, item: 'item:amber_resin', quantity: 1,
@@ -324,7 +325,7 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
     const after = (await inventory(owner.session, owner.character.actorId)).json<InventorySnapshotDto>();
     expect(after.actorVersion).toBe(activeBefore.actorVersion);
     expect(after.holdings).toEqual(activeBefore.holdings);
-    await database.db.transaction(tx => transitionActivity(tx, owner.character.actorId, { state: 'live', activityId: 'test_live' }, { state: 'none', activityId: null }));
+    await database.db.transaction(tx => transitionActivity(tx, owner.character.actorId, { state: 'live', activityId }, { state: 'none', activityId: null }));
     expect(await database.db.transaction(tx => checkLedgerInvariants(tx, [owner.character.actorId]))).toEqual([]);
   });
 
