@@ -282,6 +282,17 @@ Region 1 world), `region-1.e2e.test.ts` (compiled bundle, 15/30/60/180 min, reve
 `RPG_IDLE_BENCH=1`): a 180-minute Region 1 hunt (90 encounters, level-4 reference builds, all completed) precomputes in
 p50 ≈ 17–23 ms, p95 ≈ 25–37 ms (60 runs per build); `estimate` with 200 runs takes ≈ 3.7–4.8 s.
 
+Spike 1 close-out (#11; same container, 4 vCPU Intel Xeon @ 2.3 GHz, Node 22.23.4 and 24.22.1, two runs each, shared
+hardware so expect ±1.5x): the 90-segment precompute is p95 ≈ 12–19 ms on both Node versions (Node 24 within about 10 %
+of Node 22) and a raw 200-run estimate takes ≈ 2.2–3.0 s (the server mitigation is #53 / PR #92).
+`expedition/determinism.test.ts` (normal suite) runs an idle hunt and a combat case 1,000 times each from rebuilt inputs
+and requires every hash to equal the golden one (≈ 2.2 s per Node version). `expedition/memory.bench.test.ts` (opt-in,
+`NODE_OPTIONS=--expose-gc RPG_MEMORY_BENCH=1 pnpm exec vitest run --project @rpg/rpg-sim expedition/memory.bench
+--silent=false`) compares `step` (copies state per tick) with `runToEnd` over a 10,000-tick fight: ≈ 4x the allocation
+and ≈ 16x the time (≈ 330 ms vs ≈ 20 ms), only minor GCs apart from at most one major, peak heap ≈ 40 MB on Node 22; a
+200-run estimate peaks at ≈ 60 MB (Node 22) to ≈ 125 MB (Node 24) with ≈ 65-100 ms of total GC pause. Details: the
+[spike 1 report](../../../../docs/spikes/spike-1-sim.md).
+
 **Findings for the kernel / server** (from #76) — all **resolved in kernel 0.3 (#77)**, adopted by `rpg-idle@2.0.0`:
 - *`canStart` did not receive the request's `activityId`, so the config carried `activity`.* → `areaId`/`activityId`
   are kernel-owned and passed to `canStart`, `budget`, `simulate` and `estimate`; `activity` was dropped from the
