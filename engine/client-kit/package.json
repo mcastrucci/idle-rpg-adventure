@@ -18,5 +18,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "pixi.js": "8.22.0"
   }
 }
