@@ -131,7 +131,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     content = compiled.bundle;
     const path = join(directory, 'bundle.json');
     await writeFile(path, JSON.stringify(content));
-    const base = parseServerConfig({ DATABASE_URL: adminUrl, CONTENT_BUNDLE_PATH: path, LOG_LEVEL: 'silent' });
+    const base = parseServerConfig({ DATABASE_URL: adminUrl, CONTENT_BUNDLE_PATH: path, LOG_LEVEL: 'error' });
     admin = createDatabase(base);
     await admin.pool.query(`CREATE DATABASE "${databaseName}"`);
     const url = new URL(base.databaseUrl); url.pathname = `/${databaseName}`;
@@ -182,14 +182,56 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     return player;
   }
 
-  async function post(player: Player, url: string, payload: unknown): Promise<Reply> {
-    const response = await app.inject({ method: 'POST', url, headers: bearer(player), payload: payload as never });
-    return { status: response.statusCode, body: response.body.length ? response.json() : null };
+  /**
+   * Environmental failures that say nothing about the economy: PostgreSQL out of connection slots (53300, e.g. several
+   * `pnpm check` runs sharing one server), a client/statement timeout, or a dropped connection. Issue #135: under load
+   * `settleJob` once threw "sorry, too many clients already" and was reported as an invariant violation.
+   */
+  const INFRASTRUCTURE_PATTERN = /too many clients|remaining connection slots|timeout exceeded when trying to connect|Connection terminated|query read timeout|statement timeout|canceling statement|ECONNRESET|ECONNREFUSED|57P01/i;
+  const isInfrastructureError = (error: unknown): boolean => {
+    const code = (error as { code?: unknown } | null)?.code;
+    return code === '53300' || code === '57014' || code === '57P01' || code === '08006' || code === '08003' || code === '08001' ||
+      INFRASTRUCTURE_PATTERN.test(String((error as { message?: unknown } | null)?.message ?? error));
+  };
+  const INFRA_ATTEMPTS = 6;
+  const backoff = (attempt: number) => new Promise<void>(resolve => { setTimeout(resolve, 100 * attempt * attempt); });
+
+  /**
+   * Direct service calls (settlement job handlers) are idempotent and retried by the real job queue, so an infrastructure
+   * failure is retried here too. A genuine failure, or an infrastructure failure that outlasts the retries, is reported;
+   * the latter under its own `INFRASTRUCTURE` label so nobody mistakes it for a ledger breach.
+   */
+  async function directCall<T>(name: string, run: () => Promise<T>): Promise<T | undefined> {
+    for (let attempt = 1; ; attempt++) {
+      try { return await run(); }
+      catch (error) {
+        if (!isInfrastructureError(error)) { violate(`${name} threw ${String(error)}`); return undefined; }
+        bump(`infraRetry:${name}`);
+        if (attempt >= INFRA_ATTEMPTS) { violate(`INFRASTRUCTURE (not an economy invariant breach): ${name} failed ${attempt} times: ${String(error)}`); return undefined; }
+        await backoff(attempt);
+      }
+    }
   }
-  async function getJson(player: Player, url: string): Promise<Reply> {
-    const response = await app.inject({ method: 'GET', url, headers: bearer(player) });
-    return { status: response.statusCode, body: response.body.length ? response.json() : null };
+
+  /**
+   * An opaque 500 `internal_error` may be the same environmental failure (the server hides the cause; its `error` log line
+   * carries the SQLSTATE), including a connection lost after COMMIT. The command contract makes retrying the same
+   * `command_id` safe either way: it applies once or replays the stored response. A persistent 500 is still reported.
+   */
+  async function withRetry(send: () => Promise<Reply>): Promise<Reply> {
+    let reply = await send();
+    for (let attempt = 1; reply.status === 500 && errorOf(reply.body) === 'internal_error' && attempt < INFRA_ATTEMPTS; attempt++) {
+      bump('infraRetry:http500');
+      await backoff(attempt);
+      reply = await send();
+    }
+    return reply;
   }
+  const toReply = (response: { statusCode: number; body: string; json: () => unknown }): Reply => ({ status: response.statusCode, body: response.body.length ? response.json() : null });
+  const post = (player: Player, url: string, payload: unknown): Promise<Reply> =>
+    withRetry(async () => toReply(await app.inject({ method: 'POST', url, headers: bearer(player), payload: payload as never })));
+  const getJson = (player: Player, url: string): Promise<Reply> =>
+    withRetry(async () => toReply(await app.inject({ method: 'GET', url, headers: bearer(player) })));
 
   /** Classifies one reply: only the listed statuses/error codes are acceptable; anything else is recorded as a failure. */
   function expectReply(name: string, reply: Reply, allowed: { ok: readonly number[]; rejected?: readonly string[]; gate?: boolean; badRequest?: readonly string[] }): boolean {
@@ -414,12 +456,12 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
       if (!player) return [];
       const cancelId = randomUUID();
       const cancelEnvelope = envelope('expedition.cancel', { expeditionId: row.id }, cancelId);
-      const job = () => database.db.transaction(tx => createExpeditionService(tx, clock, content as never).settleJob(row.id, row.revision));
+      const job = () => directCall('settleJob', () => database.db.transaction(tx => createExpeditionService(tx, clock, content as never).settleJob(row.id, row.revision)));
       return [
         getJson(player, `/expeditions/${row.id}`).then(reply => { expectReply('settle.lazyRead', reply, { ok: [200] }); }),
         getJson(player, `/characters/${row.actorId}/expeditions`).then(reply => { expectReply('settle.list', reply, { ok: [200] }); }),
-        job().then(() => { bump('settle.job'); }, (error: unknown) => { violate(`settleJob threw ${String(error)}`); }),
-        job().then(() => { bump('settle.job'); }, (error: unknown) => { violate(`settleJob threw ${String(error)}`); }),
+        job().then(() => { bump('settle.job'); }),
+        job().then(() => { bump('settle.job'); }),
         Promise.all([post(player, `/expeditions/${row.id}/cancel`, cancelEnvelope), post(player, `/expeditions/${row.id}/cancel`, cancelEnvelope)])
           .then(([a, b]) => {
             expectReply('settle.cancel', a, { ok: [200] }); expectReply('settle.cancel', b, { ok: [200] });
@@ -562,7 +604,9 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
       const batch: Promise<unknown>[] = [lastPotionRace()];
       for (let index = 0; index < OPS_PER_ROUND; index++) {
         const player = rng.pick(players.slice(0, BASE_PLAYERS));
-        batch.push(operations[pickOperation()](player).catch((error: unknown) => { violate(`operation threw ${String(error)}`); }));
+        batch.push(operations[pickOperation()](player).catch((error: unknown) => {
+          violate(`${isInfrastructureError(error) ? 'INFRASTRUCTURE (not an economy invariant breach): ' : ''}operation threw ${String(error)}`);
+        }));
       }
       await Promise.all(batch);
       await audit('after concurrent batch');
@@ -580,7 +624,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     await Promise.all(remaining.flatMap(row => {
       const player = players.find(candidate => candidate.actorId === row.actorId);
       if (!player) return [];
-      const job = () => database.db.transaction(tx => createExpeditionService(tx, clock, content as never).settleJob(row.id, row.revision)).catch((error: unknown) => { violate(`settleJob threw ${String(error)}`); });
+      const job = () => directCall('settleJob', () => database.db.transaction(tx => createExpeditionService(tx, clock, content as never).settleJob(row.id, row.revision)));
       return [getJson(player, `/expeditions/${row.id}`).then(reply => { expectReply('drain.lazyRead', reply, { ok: [200] }); }), job(), job()];
     }));
     await liveCloseout();
@@ -610,6 +654,35 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     expect(count('startExpedition:201')).toBeGreaterThan(0);
     expect(count('replaySame:identical')).toBeGreaterThan(0);
   }, FUZZ_TIMEOUT_MS);
+
+  it('classifies environmental failures apart from invariant violations and retries idempotent job calls (#135)', async () => {
+    round = 0;
+    violations.length = 0;
+    const exhausted = () => Object.assign(new Error('sorry, too many clients already'), { code: '53300' });
+    expect(isInfrastructureError(exhausted())).toBe(true);
+    expect(isInfrastructureError(new Error('timeout exceeded when trying to connect'))).toBe(true);
+    expect(isInfrastructureError(new Error('duplicate key value violates unique constraint'))).toBe(false);
+    let calls = 0;
+    // Two exhausted-slot failures, then success: retried silently, no violation.
+    await expect(directCall('selfCheckJob', async () => {
+      if (++calls < 3) throw exhausted();
+      return 'done';
+    })).resolves.toBe('done');
+    expect(violations).toEqual([]);
+    // A real failure is never retried and is reported as a normal violation.
+    calls = 0;
+    await directCall('selfCheckJob', async () => { calls++; throw new Error('settlement mismatch'); });
+    expect(calls).toBe(1);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('selfCheckJob threw');
+    expect(violations[0]).not.toContain('INFRASTRUCTURE');
+    // An outage that outlasts the retries is reported, under its own label.
+    violations.length = 0;
+    await directCall('selfCheckJob', async () => { throw exhausted(); });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('INFRASTRUCTURE (not an economy invariant breach)');
+    violations.length = 0;
+  }, 30_000);
 
   it('audit self-check: the invariants fail on corrupted balances, orphaned activity locks and double settlement', async () => {
     round = 0;
