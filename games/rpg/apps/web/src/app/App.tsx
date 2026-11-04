@@ -1,5 +1,8 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
+import { probeDebugClock } from '../debug/api.ts';
+import type { DebugClockDto } from '../debug/api.ts';
+import { DebugPanel } from '../debug/DebugPanel.tsx';
 import { codeText, t, useLocale } from '../i18n/index.ts';
 import { CharacterScreen } from '../screens/CharacterScreen.tsx';
 import { ExpeditionScreen } from '../screens/ExpeditionScreen.tsx';
@@ -33,6 +36,21 @@ export function App({ services }: { services: AppServices }) {
   const [tab, selectTab] = useHashTab();
   const { state, retry, runCharacterCommand, runExpeditionCommand, refreshCharacter, dismissExpeditionNotice } = useGameSession(services);
   const subroute = useHashSubroute();
+  const [debugClock, setDebugClock] = useState<DebugClockDto | null>(null);
+  const [debugOpen, setDebugOpen] = useState(false);
+  // Bumped after a debug action so the inventory and world views reload what the server now says.
+  const [debugRevision, setDebugRevision] = useState(0);
+  const phase = state.phase;
+  const { api } = services;
+
+  // Staging tools exist only when the server registers `/debug/*`; any non-200 outcome keeps the panel hidden.
+  useEffect(() => {
+    if (phase !== 'ready') { setDebugClock(null); setDebugOpen(false); return; }
+    let cancelled = false;
+    void probeDebugClock(api).then((clock) => { if (!cancelled) setDebugClock(clock); });
+    return () => { cancelled = true; };
+  }, [phase, api]);
+  const debugChanged = useCallback(() => { setDebugRevision((value) => value + 1); void refreshCharacter().catch(() => undefined); }, [refreshCharacter]);
 
   useEffect(() => {
     const online = () => live.online();
@@ -65,18 +83,25 @@ export function App({ services }: { services: AppServices }) {
         )}
         {state.phase === 'ready' && <>
           <Screen tab={tab} character={character} canCommand={canCommand} run={runCharacterCommand} live={live}
-            subroute={subroute} api={services.api} runExpedition={runExpeditionCommand} refreshCharacter={refreshCharacter} />
+            subroute={subroute} api={services.api} runExpedition={runExpeditionCommand} refreshCharacter={refreshCharacter}
+            debugRevision={debugRevision} />
           <WorldTab visible={tab === 'world'} subroute={subroute} character={character} canCommand={canCommand} api={services.api}
-            live={live} refreshCharacter={refreshCharacter} />
+            live={live} refreshCharacter={refreshCharacter} debugRevision={debugRevision} />
         </>}
       </main>
+      {debugClock && <div className="debug-bar">
+        <button type="button" className="debug-bar__button" aria-haspopup="dialog" onClick={() => setDebugOpen(true)}>{t('ui.debug.open')}</button>
+      </div>}
+      {debugClock && debugOpen && <DebugPanel character={character} api={services.api} clock={debugClock}
+        onClose={() => setDebugOpen(false)} onChanged={debugChanged} />}
       <TabBar active={tab} onSelect={selectTab} />
     </div>
   );
 }
 
-function Screen({ tab, subroute, character, canCommand, run, api, live, runExpedition, refreshCharacter }: {
+function Screen({ tab, subroute, character, canCommand, run, api, live, runExpedition, refreshCharacter, debugRevision }: {
   tab: TabId;
+  debugRevision: number;
   subroute: string | null;
   character: Parameters<typeof CharacterScreen>[0]['character'];
   canCommand: boolean;
@@ -91,7 +116,7 @@ function Screen({ tab, subroute, character, canCommand, run, api, live, runExped
       if (subroute === 'rules' && character) return <RulesScreen character={character} canCommand={canCommand} runCharacterCommand={run} />;
       return <CharacterScreen character={character} canCommand={canCommand} runCharacterCommand={run} api={api} live={live} />;
     case 'inventory':
-      return <InventoryScreen character={character} canCommand={canCommand} api={api} runCommand={runExpedition} refreshCharacter={refreshCharacter} />;
+      return <InventoryScreen key={debugRevision} character={character} canCommand={canCommand} api={api} runCommand={runExpedition} refreshCharacter={refreshCharacter} />;
     case 'world':
       return null;
     case 'expeditions':
@@ -101,7 +126,8 @@ function Screen({ tab, subroute, character, canCommand, run, api, live, runExped
 }
 
 /** Keep the live session mounted while navigating between the map and adventure subroutes or other tabs. */
-function WorldTab({ visible, subroute, character, canCommand, api, live, refreshCharacter }: {
+function WorldTab({ visible, subroute, character, canCommand, api, live, refreshCharacter, debugRevision }: {
+  debugRevision: number;
   visible: boolean;
   subroute: string | null;
   character: Parameters<typeof CharacterScreen>[0]['character'];
@@ -118,7 +144,7 @@ function WorldTab({ visible, subroute, character, canCommand, api, live, refresh
     <div hidden={inLive} inert={inLive}>
       <WorldMapScreen actorId={character.actorId} characterLevel={character.level} api={api} active={visible && !inLive}
         liveActive={character.activityState === 'live'} idleActive={character.activityState === 'expedition'}
-        refreshKey={`${inLive ? 'live' : 'map'}:${character.activityState}:${character.level}`}
+        refreshKey={`${inLive ? 'live' : 'map'}:${character.activityState}:${character.level}:${debugRevision}`}
         onEnterLive={(areaId) => { window.location.hash = `#/world/live/${encodeURIComponent(areaId)}`; }}
         onStartIdle={(areaId) => { window.location.hash = `#/expeditions/${encodeURIComponent(areaId)}`; }} />
     </div>

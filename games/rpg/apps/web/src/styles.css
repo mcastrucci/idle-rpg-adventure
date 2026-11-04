@@ -312,3 +312,29 @@ h1, h2, p, dl, ol { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   html, body, * { scroll-behavior: auto; }
 }
+
+/* Staging-only debug panel (#132): dashed amber chrome keeps it visually distinct from player UI. */
+.debug-bar {
+  position: fixed; z-index: 20; left: 0; right: 0; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 8px);
+  max-width: var(--max-w); margin: 0 auto; padding: 0 16px; display: flex; justify-content: flex-end; pointer-events: none;
+}
+.debug-bar__button {
+  pointer-events: auto; min-height: 44px; min-width: 44px; padding: 0 14px; border-radius: 999px; font: inherit; font-size: 0.85rem; font-weight: 700;
+  border: 2px dashed var(--warn); background: #3a2a1d; color: #ffe3c7;
+}
+.debug-panel {
+  position: fixed; z-index: 30; inset: 0; overflow-y: auto; max-width: var(--max-w); margin: 0 auto; padding: 16px;
+  background: var(--bg); border: 2px dashed var(--warn); display: flex; flex-direction: column; gap: 12px;
+}
+.debug-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.debug-panel__title { margin: 0; font-size: 1.2rem; }
+.debug-panel__close { padding: 0 16px; }
+.debug-panel__badge { margin: 0; padding: 6px 10px; border-radius: var(--radius); background: #3a2a1d; color: #ffe3c7; font-size: 0.85rem; font-weight: 700; }
+.debug-panel__warning { margin: 0; padding: 8px 10px; border-radius: var(--radius); border: 1px solid var(--warn); background: #3a2a1d; color: #ffe3c7; font-size: 0.9rem; }
+.debug-panel__result { min-height: 1.4em; overflow-wrap: anywhere; }
+.debug-panel__ok { color: var(--ok); }
+.debug-group { margin: 0; padding: 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; gap: 12px; }
+.debug-group legend { padding: 0 6px; font-weight: 700; color: var(--warn); }
+.debug-group--clock { border-color: var(--warn); }
+.debug-group select.form__input { min-width: 0; width: 100%; }
+.debug-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
