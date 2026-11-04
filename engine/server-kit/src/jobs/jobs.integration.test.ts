@@ -141,7 +141,10 @@ describe.skipIf(!adminUrl)('PostgreSQL jobs against real PostgreSQL', () => {
       parallel: async () => {
         active += 1;
         maxActive = Math.max(maxActive, active);
-        await delay(150);
+        // Hold each handler until a second one runs alongside it (bounded), so the assertion does not depend on how
+        // quickly a slow runner fetches the queued jobs. A worker capped at 1 never overlaps and leaves maxActive at 1.
+        await until(() => maxActive >= 2, 5000).catch(() => undefined);
+        await delay(50);
         completions += 1;
         active -= 1;
       },
