@@ -87,6 +87,15 @@ function measure(lines: readonly string[]): { width: number; height: number } {
   };
 }
 
+function markerIntersectsViewport(node: LabelNode, bounds: LabelBounds): boolean {
+  return node.x + NODE_OBSTACLE_RADIUS > 0 && node.x - NODE_OBSTACLE_RADIUS < bounds.width &&
+    node.y + NODE_OBSTACLE_RADIUS > 0 && node.y - NODE_OBSTACLE_RADIUS < bounds.height;
+}
+
+function hiddenPlacement(id: string): LabelPlacement {
+  return { id, visible: false, lines: [], truncated: false, side: null, box: null, offsetX: 0, baselineY: 0 };
+}
+
 function overlaps(a: LabelBox, b: LabelBox): boolean {
   return a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
 }
@@ -124,6 +133,10 @@ export function placeNodeLabels(nodes: readonly LabelNode[], bounds: LabelBounds
   const result = new Map<string, LabelPlacement>();
 
   for (const node of order) {
+    if (!markerIntersectsViewport(node, bounds)) {
+      result.set(node.id, hiddenPlacement(node.id));
+      continue;
+    }
     const obstacles = nodes.filter((other) => other.id !== node.id).map((other): LabelBox => ({
       left: other.x - NODE_OBSTACLE_RADIUS,
       top: other.y - NODE_OBSTACLE_RADIUS,
@@ -156,16 +169,7 @@ export function placeNodeLabels(nodes: readonly LabelNode[], bounds: LabelBounds
         break search;
       }
     }
-    result.set(node.id, found ?? {
-      id: node.id,
-      visible: false,
-      lines: [],
-      truncated: false,
-      side: null,
-      box: null,
-      offsetX: 0,
-      baselineY: 0,
-    });
+    result.set(node.id, found ?? hiddenPlacement(node.id));
   }
   return result;
 }
