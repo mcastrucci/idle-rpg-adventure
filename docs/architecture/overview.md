@@ -24,7 +24,7 @@ RPG composition; module names map to engine packages (`server-kit`, `economy`, `
 | Language | TypeScript everywhere | Accepted — [ADR-0001](../adr/0001-typescript-monorepo.md) |
 | Monorepo | pnpm workspaces (no Turborepo yet) | Accepted — ADR-0001 |
 | App UI | React + Vite, DOM-based UI | Accepted |
-| Scene / combat viewport | PixiJS v8 in a bounded canvas behind a `SceneRenderer` interface | *Proposed* (decision after real-device results in [#12](https://github.com/mcastrucci/idle-rpg-adventure/issues/12)) — [ADR-0010](../adr/0010-scene-renderer.md) |
+| Scene / combat viewport | PixiJS v8 in a bounded canvas behind a `SceneRenderer` interface | *Accepted (provisional)*, pending low-end device results in [#12](https://github.com/mcastrucci/idle-rpg-adventure/issues/12) — [ADR-0010](../adr/0010-scene-renderer.md) |
 | Server | Fastify (HTTP + WebSocket), single deployable, modular monolith | Accepted — [ADR-0009](../adr/0009-modular-monolith.md) |
 | Live rooms | In-house `InstanceHost` (Colyseus evaluated and rejected) | Accepted — [ADR-0012](../adr/0012-live-instance-hosting.md) |
 | Persistence + jobs | PostgreSQL only (pg-boss or graphile-worker in-process) | Accepted — [ADR-0006](../adr/0006-postgresql-single-source-of-truth.md) |
@@ -33,7 +33,7 @@ RPG composition; module names map to engine packages (`server-kit`, `economy`, `
 | Idle | Precompute at start, progressive reveal, idempotent settlement; 500 ms live tick, encounter-per-segment model (provisional values) | Accepted — [ADR-0005](../adr/0005-idle-precompute-at-start.md), [ADR-0013](../adr/0013-tick-and-idle-encounter-model.md) ([spike 1](../spikes/spike-1-sim.md)) |
 | Economy | Idempotent ledger + character activity lock | Accepted — [ADR-0007](../adr/0007-ledger-and-activity-lock.md) |
 | Content | Canonical JSON + Zod + content compiler with hash; Tiled for scene layout | ADR-0008 Accepted; ADR-0014 *Proposed* (owner decision pending) — [ADR-0008](../adr/0008-declarative-content-pipeline.md), [ADR-0014](../adr/0014-tiled-scene-editor.md) |
-| Mobile distribution | Capacitor | *Proposed* (decision after real-device results in [#12](https://github.com/mcastrucci/idle-rpg-adventure/issues/12)) — [ADR-0011](../adr/0011-capacitor-mobile.md) |
+| Mobile distribution | Capacitor | *Accepted (provisional)*, pending low-end device results in [#12](https://github.com/mcastrucci/idle-rpg-adventure/issues/12) — [ADR-0011](../adr/0011-capacitor-mobile.md) |
 | Hosting | Long-lived container + managed Postgres with direct connections | *Proposed* (provider decision pending, [#32](https://github.com/mcastrucci/idle-rpg-adventure/issues/32)) — [ADR-0016](../adr/0016-hosting.md) |
 
 ## 3. Minimum viable architecture (POC)

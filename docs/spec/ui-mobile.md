@@ -26,9 +26,20 @@
 | **Report** | Totals, loot list, consumables used, notable events, death log if any, "Go again" |
 | **Death screen** | What happened (top 3 causes), what was lost, where the corpse is, CTA |
 
-## 3. Scene art guidelines (pending spike 2 numbers)
+## 3. Scene art guidelines and texture budget (provisional, spike 2)
 
-- Authored in portrait with a safe area; reference size 1536×2048 *(provisional)*; runtime variants at 1×/2× compressed.
+Provisional, measured only on a high-end device so far (#12, ADR-0010). Revisit after low-end runs.
+
+- Authored in portrait with a safe area; reference size 1536×2048 *(provisional)*. No texture side above 2048 px.
+- **Delivery format: WebP.** In the spike, WebP backgrounds were 53–73 KB, against 1.2–1.6 MB as PNG, at the same GPU
+  memory. KTX2/Basis is not measured yet; do not depend on it.
+- **One scene resident.** The current scene plus, at most, the preloaded next one during a transition. Release the
+  previous scene's textures after the transition.
+- **Texture memory per resident scene: ≤ 16 MiB** (the spike scene measured about 12.9 MiB: 2048 px background, 6
+  sprites, particles). Budget about 1–2 MiB per enemy or hero sprite sheet.
+- **Canvas resolution:** DPR capped at 2.
+- **Performance targets:** 60 fps target and a 30 fps floor on the low-end device. A scene transition should take
+  ≤ 1 s, decoding and uploading the next background before the transition starts.
 - Exits and hotspots must be readable at 360 px width; hotspot highlight on long-press/"reveal" button.
 - Enemy sprites authored as separate layers to allow tween-based animation.
 
