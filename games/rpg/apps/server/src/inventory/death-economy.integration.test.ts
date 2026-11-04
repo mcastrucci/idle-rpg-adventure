@@ -278,6 +278,8 @@ describe.skipIf(!adminUrl)('matched-input survival/death economy accounting (rea
       .toMatchObject({ ack: { status: 'applied' }, duplicate: true });
     expect(await balance(fallen.hero.actorId, GLOWCAP, CORPSE(death?.deathId as string))).toBe(0);
     expect(await balance(fallen.hero.actorId, GLOWCAP, RUN_BAG(recoveryInstance))).toBe(fallenGather.qty);
+    expect((await database.db.select().from(liveDeaths).where(eq(liveDeaths.deathId, death?.deathId as string)))[0]?.status)
+      .toBe('recovered');
     await returnFromCauseway(fallen, recoveryInstance);
     await assertSanctuary(fallen);
     expect(await balance(fallen.hero.actorId, GLOWCAP, 'inventory')).toBe(fallenGather.qty);
@@ -301,8 +303,10 @@ describe.skipIf(!adminUrl)('matched-input survival/death economy accounting (rea
       expect(await balance(arm.hero.actorId, 'gold', 'inventory')).toBe(quantity * (glowcapPrice as number));
       expect(await database.db.transaction(tx => checkLedgerInvariants(tx, [arm.hero.actorId]))).toEqual([]);
     }
-    const fallenCharacter = (await database.db.select().from(characters).where(eq(characters.actorId, fallen.hero.actorId)))[0];
-    expect(fallenCharacter?.xp).toBeLessThan(80);
+    const [fallenCharacter] = await database.db.select().from(characters).where(eq(characters.actorId, fallen.hero.actorId));
+    const [survivingCharacter] = await database.db.select().from(characters).where(eq(characters.actorId, survivor.hero.actorId));
+    expect(fallenCharacter).toMatchObject({ level: 1, xp: 72 });
+    expect(survivingCharacter).toMatchObject({ level: 1, xp: 80 });
     fallen.consumed = 1;
     expect(await balance(fallen.hero.actorId, POTION, 'inventory') + fallen.consumed).toBe(2);
     expect(await balance(survivor.hero.actorId, POTION, 'inventory')).toBe(2);
