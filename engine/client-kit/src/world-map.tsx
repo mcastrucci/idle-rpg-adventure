@@ -4,6 +4,8 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from
 import { layoutWorldMap, panMap, visibleWorldMapRoutes, zoomMapAt } from './world-map-layout.ts';
 import type { MapPoint, MapViewport } from './world-map-layout.ts';
 import type { WorldMapView } from './world-map-types.ts';
+import { LABEL_FONT_SIZE, LABEL_LINE_HEIGHT, placeNodeLabels } from './world-map-labels.ts';
+import type { LabelPlacement } from './world-map-labels.ts';
 import './world-map.css';
 
 export interface WorldMapLabels {
@@ -70,6 +72,7 @@ export function WorldMap({
   const [selected, setSelected] = useState<{ kind: 'hub' } | { kind: 'area'; id: string } | null>(null);
   const [viewport, setViewport] = useState<MapViewport>(INITIAL_VIEWPORT);
   const [pixelScale, setPixelScale] = useState(1);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const pointers = useRef(new Map<number, PointPointer>());
   const gesture = useRef<{ kind: 'pan'; pointerId: number; origin: PointPointer; viewport: MapViewport } | null>(null);
@@ -79,16 +82,31 @@ export function WorldMap({
   const selectedArea = selected?.kind === 'area' ? view.areas.find((area) => area.id === selected.id) : undefined;
   const selectedHub = selected?.kind === 'hub' ? view.hub : undefined;
   const inverseScale = 1 / (pixelScale * viewport.scale);
-  const labelSidePreferences = useMemo(() => {
-    const nodes = [
-      { id: view.hub.id, x: layout.hub.x },
+  const selectedId = selected?.kind === 'hub' ? view.hub.id : selected?.kind === 'area' ? selected.id : null;
+  const labelPlacements = useMemo(() => {
+    const priorityOf = (id: string, base: number) => (selectedId === id ? 3000 : focusedId === id ? 2000 : base);
+    const entries = [
+      { id: view.hub.id, label: view.hub.label, point: layout.hub, base: 1000 },
       ...view.areas.flatMap((area) => {
         const point = layout.areas.get(area.id);
-        return point ? [{ id: area.id, x: point.x }] : [];
+        return point ? [{ id: area.id, label: area.label, point, base: 0 }] : [];
       }),
-    ].sort((left, right) => (viewport.x + left.x * viewport.scale) - (viewport.x + right.x * viewport.scale));
-    return new Map(nodes.map((node, index) => [node.id, index % 2 === 0]));
-  }, [layout, view, viewport]);
+    ].map((entry) => ({
+      ...entry,
+      x: (viewport.x + entry.point.x * viewport.scale) * pixelScale,
+      y: (viewport.y + entry.point.y * viewport.scale) * pixelScale,
+    }));
+    const ranked = [...entries].sort((left, right) => left.x - right.x);
+    const preferBelow = new Map(ranked.map((entry, index) => [entry.id, index % 2 === 0]));
+    return placeNodeLabels(entries.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      x: entry.x,
+      y: entry.y,
+      priority: priorityOf(entry.id, entry.base),
+      preferBelow: preferBelow.get(entry.id) ?? true,
+    })), { width: layout.width * pixelScale, height: layout.height * pixelScale });
+  }, [layout, view, viewport, pixelScale, selectedId, focusedId]);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -254,6 +272,8 @@ export function WorldMap({
               aria-label={view.hub.label}
               aria-pressed={selected?.kind === 'hub'}
               onClick={selectHub}
+              onFocus={() => setFocusedId(view.hub.id)}
+              onBlur={() => setFocusedId((current) => (current === view.hub.id ? null : current))}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
@@ -266,7 +286,7 @@ export function WorldMap({
                 <circle className="world-map__node-halo" style={{ fill: `url(#${instanceId}-glow)` }} cx="0" cy="0" r={32 * inverseScale} />
                 <circle className="world-map__hub-core" cx="0" cy="0" r={12 * inverseScale} />
                 <path className="world-map__hub-mark" d={`M 0 ${-5 * inverseScale} l ${5 * inverseScale} ${5 * inverseScale} ${-5 * inverseScale} ${5 * inverseScale} ${-5 * inverseScale} ${-5 * inverseScale} z`} />
-                <NodeLabel label={view.hub.label} inverseScale={inverseScale} point={layout.hub} pixelScale={pixelScale} viewport={viewport} mapSize={layout} preferBelow={labelSidePreferences.get(view.hub.id) ?? true} />
+                <NodeLabel placement={labelPlacements.get(view.hub.id)} inverseScale={inverseScale} />
               </g>
             </g>
             {view.areas.map((area) => {
@@ -289,6 +309,8 @@ export function WorldMap({
                   aria-label={ariaLabel}
                   aria-pressed={selected?.kind === 'area' && selected.id === area.id}
                   onClick={() => selectArea(area.id)}
+                  onFocus={() => setFocusedId(area.id)}
+                  onBlur={() => setFocusedId((current) => (current === area.id ? null : current))}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
@@ -302,7 +324,7 @@ export function WorldMap({
                     <circle className="world-map__area-core" cx="0" cy="0" r={11 * inverseScale} />
                     {locked ? <path className="world-map__lock" d={lockPath(inverseScale)} aria-hidden="true" /> : <circle className="world-map__area-dot" cx="0" cy="0" r={2.4 * inverseScale} />}
                     {area.completion && <circle className="world-map__completion-ring" cx="0" cy="0" r={19 * inverseScale} transform="rotate(-90 0 0)" strokeDasharray={completionDash(area.completion.complete, area.completion.required, inverseScale)} />}
-                    <NodeLabel label={area.label} inverseScale={inverseScale} point={point} pixelScale={pixelScale} viewport={viewport} mapSize={layout} preferBelow={labelSidePreferences.get(area.id) ?? true} />
+                    <NodeLabel placement={labelPlacements.get(area.id)} inverseScale={inverseScale} />
                     {area.idleAvailable && <text className="world-map__badge" x={16 * inverseScale} y={-12 * inverseScale} textAnchor="middle" aria-hidden="true" style={{ fontSize: `${16 * inverseScale}px` }}>✦</text>}
                   </g>
                 </g>
@@ -376,67 +398,26 @@ function lockPath(inverseScale: number): string {
 }
 
 function NodeLabel({
-  label,
+  placement,
   inverseScale,
-  point,
-  pixelScale,
-  viewport,
-  mapSize,
-  preferBelow,
 }: {
-  label: string;
+  placement: LabelPlacement | undefined;
   inverseScale: number;
-  point: MapPoint;
-  pixelScale: number;
-  viewport: MapViewport;
-  mapSize: { width: number; height: number };
-  preferBelow: boolean;
 }) {
-  const lines = wrapLabel(label, 14);
-  const screenX = (viewport.x + point.x * viewport.scale) * pixelScale;
-  const screenY = (viewport.y + point.y * viewport.scale) * pixelScale;
-  const availableWidth = mapSize.width * pixelScale;
-  const availableHeight = mapSize.height * pixelScale;
-  const widthEstimate = Math.min(124, Math.max(...lines.map((line) => line.length * 7)));
-  const anchor = screenX < widthEstimate / 2 + 10 ? 'start' : screenX > availableWidth - widthEstimate / 2 - 10 ? 'end' : 'middle';
-  const x = anchor === 'start' ? 11 * inverseScale : anchor === 'end' ? -11 * inverseScale : 0;
-  const canPlaceBelow = screenY < availableHeight - (lines.length * 15 + 24);
-  const canPlaceAbove = screenY > lines.length * 15 + 24;
-  const below = preferBelow ? canPlaceBelow || !canPlaceAbove : !canPlaceAbove && canPlaceBelow;
-  const y = (below ? 29 : -20) * inverseScale;
+  if (!placement?.visible) return null;
+  const x = placement.offsetX * inverseScale;
   return (
     <text
       className="world-map__node-label"
       x={x}
-      y={y}
-      textAnchor={anchor}
-      style={{ fontSize: `${13 * inverseScale}px`, strokeWidth: `${2.5 * inverseScale}px` }}
+      y={placement.baselineY * inverseScale}
+      textAnchor="middle"
+      style={{ fontSize: `${LABEL_FONT_SIZE * inverseScale}px`, strokeWidth: `${2.5 * inverseScale}px` }}
       aria-hidden="true"
     >
-      {lines.map((line, index) => <tspan key={`${index}-${line}`} x={x} dy={index === 0 ? 0 : 15 * inverseScale}>{line}</tspan>)}
+      {placement.lines.map((line, index) => <tspan key={`${index}-${line}`} x={x} dy={index === 0 ? 0 : LABEL_LINE_HEIGHT * inverseScale}>{line}</tspan>)}
     </text>
   );
-}
-
-function wrapLabel(label: string, maxChars: number): string[] {
-  const words = label.trim().split(/\s+/).flatMap((word) => {
-    if (word.length <= maxChars) return [word];
-    const chunks: string[] = [];
-    for (let index = 0; index < word.length; index += maxChars) chunks.push(word.slice(index, index + maxChars));
-    return chunks;
-  });
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    if (current && current.length + word.length + 1 > maxChars) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = current ? `${current} ${word}` : word;
-    }
-  }
-  if (current) lines.push(current);
-  return lines.length > 0 ? lines : [''];
 }
 
 function distance(left: PointPointer, right: PointPointer): number {

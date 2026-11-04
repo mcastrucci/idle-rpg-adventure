@@ -148,4 +148,38 @@ describe('WorldMap', () => {
     fireEvent.pointerUp(svg, { pointerId: 2, pointerType: 'touch', clientX: 90, clientY: 110 });
     fireEvent.pointerUp(svg, { pointerId: 3, pointerType: 'touch', clientX: 240, clientY: 110 });
   });
+
+  it('does not render overlapping labels for close nodes, keeps accessible names and hit areas', () => {
+    setMapBounds();
+    const close: WorldMapView = {
+      hub: { id: 'hub', label: 'Sanctuary', position: { x: 440, y: 300 } },
+      areas: [
+        { id: 'a', label: 'Test Grove', visibility: 'known', position: { x: 620, y: 300 }, lockedReasons: [], actions: { enter: true, startIdle: false } },
+        { id: 'b', label: 'The Verdant Hollow', visibility: 'known', position: { x: 530, y: 330 }, lockedReasons: [], actions: { enter: true, startIdle: false } },
+      ],
+      routes: [],
+    };
+    const { container } = render(<WorldMap view={close} labels={labels} />);
+    const names = ['Sanctuary', 'Test Grove', 'The Verdant Hollow'];
+    for (const name of names) {
+      const node = screen.getByRole('button', { name });
+      expect(Number(node.querySelector('.world-map__hit-area')?.getAttribute('r')) * (360 / 1000)).toBeCloseTo(22);
+    }
+    const k = 1000 / 360;
+    const rects = [...container.querySelectorAll('.world-map__node-label')].map((text) => {
+      const transform = text.parentElement?.getAttribute('transform') ?? '';
+      const [nx = 0, ny = 0] = (/translate\(([-\d.]+) ([-\d.]+)\)/.exec(transform) ?? []).slice(1).map(Number);
+      const lines = [...text.querySelectorAll('tspan')];
+      const width = Math.max(...lines.map((line) => (line.textContent ?? '').length)) * 7 * k;
+      const cx = nx + Number(text.getAttribute('x'));
+      const top = ny + Number(text.getAttribute('y')) - 13 * k;
+      return { left: cx - width / 2, right: cx + width / 2, top, bottom: top + lines.length * 15 * k };
+    });
+    expect(rects.length).toBeGreaterThan(0);
+    for (const [index, a] of rects.entries()) {
+      for (const b of rects.slice(index + 1)) {
+        expect(a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom).toBe(false);
+      }
+    }
+  });
 });
