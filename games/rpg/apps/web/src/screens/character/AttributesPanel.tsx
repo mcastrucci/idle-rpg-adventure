@@ -100,7 +100,7 @@ export function AttributesPanel({ character, canCommand, runCharacterCommand, ne
       <section className="character-section" aria-labelledby="derived-title">
         <h2 id="derived-title" className="screen__subtitle">Derived stats</h2>
         <p className="muted character-note">
-          Level {character.level}, without gear (equipment arrives with the inventory). Provisional formulas.
+          Level {character.level}, without gear; see the stat summary below for gear and totals. Provisional formulas.
         </p>
         <dl className="derived-stats">
           {rows.map((row) => {

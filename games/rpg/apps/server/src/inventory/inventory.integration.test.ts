@@ -20,6 +20,8 @@ import { validateRpgBundle } from '../content.ts';
 import { expeditions } from '../expeditions/schema.ts';
 import { characters } from '../characters/schema.ts';
 import { recordAreaCompletion } from '../expeditions/progress.ts';
+import { DEFAULT_STAT_FORMULAS, deriveStats, flattenStats } from '@rpg/rpg-stats';
+import { snapshotRpgActor } from '../expeditions/service.ts';
 import { STARTER_KIT_ITEMS, createInventoryService } from './service.ts';
 
 const adminUrl = process.env['TEST_DATABASE_URL'];
@@ -425,6 +427,36 @@ describe.skipIf(!adminUrl)('authenticated inventory and merchant against real Po
     const { session, character } = await fixture();
     expect((await inventory(session, character.actorId)).json()).toMatchObject({ actorId: character.actorId, holdings: [],
       actorVersion: 0, activityState: 'none', level: 1, completedAreas: [], catalog: { contentHash: content.contentHash } });
+  });
+
+  it('projects a stat summary equal to the combat snapshot stats, with per-item contributions', async () => {
+    const { session, character } = await fixture();
+    await database.db.update(characters).set({ level: 3, attributes: { STR: 7, AGI: 6, INT: 5, VIT: 8, SPI: 5 } })
+      .where(eq(characters.actorId, character.actorId));
+    expect((await inventory(session, character.actorId)).json<InventorySnapshotDto>().statSummary?.items).toEqual([]);
+    expect((await command(session, character.actorId, envelope('claimStarterKit', { actorId: character.actorId }))).statusCode).toBe(200);
+    const kit = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    const slots = { 'item:rusty_sword': 'weapon', 'item:padded_vest': 'chest', 'item:wooden_buckler': 'offhand' } as const;
+    for (const [definition, slot] of Object.entries(slots)) {
+      const holding = kit.holdings.find(row => row.definition === definition);
+      if (!holding?.itemId) throw new Error(`starter kit is missing ${definition}`);
+      expect((await command(session, character.actorId, envelope('equip', { actorId: character.actorId, itemId: holding.itemId, slot }))).statusCode).toBe(200);
+    }
+    const snapshot = (await inventory(session, character.actorId)).json<InventorySnapshotDto>();
+    const summary = snapshot.statSummary;
+    if (!summary) throw new Error('stat summary is missing');
+    const [row] = await database.db.select().from(characters).where(eq(characters.actorId, character.actorId));
+    const holdings = await database.db.transaction(tx => getHoldings(tx, character.actorId));
+    const combat = snapshotRpgActor(row as never, holdings, content as never).build;
+    const derived = flattenStats(deriveStats(combat, DEFAULT_STAT_FORMULAS));
+    expect(summary.items.map(item => item.definition)).toEqual(['item:rusty_sword', 'item:wooden_buckler', 'item:padded_vest']);
+    expect(summary.items.map(item => item.slot)).toEqual(['weapon', 'offhand', 'chest']);
+    for (const stat of summary.rows) {
+      expect(stat.total, stat.key).toBe(derived[stat.key]);
+      expect(stat.base + stat.equipment).toBe(stat.total);
+      expect(stat.contributions.reduce((sum, entry) => sum + entry.value, 0)).toBe(stat.equipment);
+    }
+    expect(summary.rows.some(stat => stat.equipment !== 0 && stat.contributions.length > 0)).toBe(true);
   });
 
   it('returns only persisted completion records for merchant gating', async () => {

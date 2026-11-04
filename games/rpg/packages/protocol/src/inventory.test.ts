@@ -27,6 +27,21 @@ describe('inventory protocol DTOs', () => {
     expect(() => parseInventorySnapshotDto({ ...snapshot, starterKit: { claimed: false, items: [4] } })).toThrow('invalid starter kit state');
   });
 
+  it('accepts an optional additive stat summary and rejects malformed ones', () => {
+    const itemId = 'c20ce3a7-cf7a-44bc-8d82-6a4370c3a02c';
+    const summary = { level: 1, items: [{ itemId, definition: 'item:rusty_sword', nameKey: 'item.rusty_sword', slot: 'weapon' }],
+      rows: [{ key: 'physicalPower', base: 2, equipment: 3, total: 5, contributions: [{ itemId, value: 3 }] },
+        { key: 'actionIntervalTicks', base: 10, equipment: -1, total: 9, contributions: [] }] };
+    expect(parseInventorySnapshotDto(snapshot).statSummary).toBeUndefined();
+    const parsed = parseInventorySnapshotDto({ ...snapshot, statSummary: summary }).statSummary;
+    expect(parsed?.rows[0]).toEqual(summary.rows[0]);
+    expect(Object.isFrozen(parsed)).toBe(true);
+    expect(() => parseInventorySnapshotDto({ ...snapshot, statSummary: { ...summary, extra: 1 } })).toThrow();
+    expect(() => parseInventorySnapshotDto({ ...snapshot, statSummary: { ...summary, rows: [{ ...summary.rows[0], key: 'bogus' }] } })).toThrow('invalid stat summary row');
+    expect(() => parseInventorySnapshotDto({ ...snapshot, statSummary: { ...summary, rows: [{ ...summary.rows[0], contributions: [{ itemId: 'other', value: 1 }] }] } }))
+      .toThrow('invalid stat summary contribution');
+  });
+
   it('rejects unknown or secret catalog fields', () => {
     const unsafe = structuredClone(snapshot) as { catalog: { items: Record<string, unknown>[]; contentHash: string } };
     const firstItem = unsafe.catalog.items[0];

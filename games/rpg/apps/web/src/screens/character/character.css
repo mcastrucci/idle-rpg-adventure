@@ -59,6 +59,21 @@
 
 .savebar.savebar--inline { position: static; box-shadow: none; }
 
+/* Stat summary (#126): a four-column table that fits 360px; breakdown rows wrap instead of scrolling. */
+.stat-summary { width: 100%; table-layout: fixed; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.stat-summary th, .stat-summary td { padding: 6px 4px; text-align: right; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.stat-summary thead th { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+.stat-summary th:first-child, .stat-summary td:first-child { text-align: left; width: 42%; }
+.stat-summary tbody th { font-weight: 500; }
+.stat-summary__total { font-weight: 700; }
+.stat-summary__toggle {
+  display: inline-flex; gap: 4px; align-items: center; min-height: 44px; padding: 0; border: 0; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.stat-summary__detail td { text-align: left; background: var(--surface); }
+.stat-summary__detail ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.stat-summary__detail li { display: flex; justify-content: space-between; gap: 8px; }
+
 @media (prefers-reduced-motion: no-preference) {
   .xp-bar__fill, .header__bar-fill { transition: width 300ms ease; }
 }
