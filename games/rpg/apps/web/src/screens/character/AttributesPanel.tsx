@@ -2,9 +2,10 @@ import { statDelta } from '@rpg/rpg-stats';
 import { useState } from 'react';
 
 import { configureCharacterCommand } from '../../api/commands.ts';
+import { t } from '../../i18n/index.ts';
 import type { CharacterDto } from '../../api/types.ts';
 import {
-  adjustAllocation, allocatePayload, ATTRIBUTE_HINTS, ATTRIBUTE_ORDER, NO_ALLOCATION, pointsSpent, withAllocation,
+  adjustAllocation, allocatePayload, attributeHint, attributeName, ATTRIBUTE_ORDER, NO_ALLOCATION, pointsSpent, withAllocation,
 } from '../../character/attributes.ts';
 import type { AttributeValues } from '../../character/attributes.ts';
 import { derivedStats, formatDelta, statRows } from '../../character/stats.ts';
@@ -55,25 +56,27 @@ export function AttributesPanel({ character, canCommand, runCharacterCommand, ne
     <>
       <section className="character-section" aria-labelledby="attributes-title">
         <h2 id="attributes-title" className="screen__subtitle">
-          Attributes{character.unspentPoints > 0 ? ` · ${remaining} of ${character.unspentPoints} points to spend` : ''}
+          {character.unspentPoints > 0
+            ? t('ui.attributes.title_points', { remaining, total: character.unspentPoints })
+            : t('ui.attributes.title')}
         </h2>
-        {character.unspentPoints === 0 && <p className="muted character-note">No unspent points. Points are earned by levelling up.</p>}
+        {character.unspentPoints === 0 && <p className="muted character-note">{t('ui.attributes.no_points')}</p>}
         <ul className="attribute-list">
           {ATTRIBUTE_ORDER.map((key) => {
             const added = allocation[key];
             return (
-              <li key={key} className="attribute" aria-label={`${key} ${character.attributes[key] + added}`}>
-                <span className="attribute__key">{key}</span>
+              <li key={key} className="attribute" aria-label={`${attributeName(key)} ${character.attributes[key] + added}`}>
+                <span className="attribute__key">{attributeName(key)}</span>
                 <span className="attribute__value">
                   {character.attributes[key] + added}
                   {added > 0 && <span className="delta delta--up"> +{added}</span>}
                 </span>
-                <span className="attribute__hint muted">{ATTRIBUTE_HINTS[key]}</span>
+                <span className="attribute__hint muted">{attributeHint(key)}</span>
                 {canAllocate && (
                   <span className="attribute__steppers">
-                    <button type="button" className="icon-button" aria-label={`Remove a point from ${key}`}
+                    <button type="button" className="icon-button" aria-label={t('ui.attributes.remove_point', { attribute: attributeName(key) })}
                       disabled={action.locked || added === 0} onClick={() => adjust(key, -1)}>−</button>
-                    <button type="button" className="icon-button" aria-label={`Add a point to ${key}`}
+                    <button type="button" className="icon-button" aria-label={t('ui.attributes.add_point', { attribute: attributeName(key) })}
                       disabled={action.locked || remaining === 0} onClick={() => adjust(key, 1)}>+</button>
                   </span>
                 )}
@@ -84,13 +87,13 @@ export function AttributesPanel({ character, canCommand, runCharacterCommand, ne
         {canAllocate && (
           <div className="savebar savebar--inline">
             {action.error && <p className="form__error" role="alert">{action.error}</p>}
-            {!canCommand && <p className="savebar__status">Waiting for the connection…</p>}
+            {!canCommand && <p className="savebar__status">{t('ui.common.waiting_connection')}</p>}
             <div className="savebar__actions">
               <button type="button" className="button button--secondary" disabled={action.locked || spent === 0}
-                onClick={() => setAllocation(NO_ALLOCATION)}>Reset</button>
+                onClick={() => setAllocation(NO_ALLOCATION)}>{t('ui.common.reset')}</button>
               <button type="button" className="button" disabled={!canCommand || action.pending || (!action.unconfirmed && spent === 0)}
                 onClick={() => void spend()}>
-                {action.pending ? 'Saving…' : action.unconfirmed ? 'Retry' : `Spend ${spent} ${spent === 1 ? 'point' : 'points'}`}
+                {action.pending ? t('ui.common.saving') : action.unconfirmed ? t('ui.common.retry') : t('ui.attributes.spend', { count: spent })}
               </button>
             </div>
           </div>
@@ -98,9 +101,9 @@ export function AttributesPanel({ character, canCommand, runCharacterCommand, ne
       </section>
 
       <section className="character-section" aria-labelledby="derived-title">
-        <h2 id="derived-title" className="screen__subtitle">Derived stats</h2>
+        <h2 id="derived-title" className="screen__subtitle">{t('ui.attributes.derived_title')}</h2>
         <p className="muted character-note">
-          Level {character.level}, without gear; see the stat summary below for gear and totals. Provisional formulas.
+          {t('ui.attributes.derived_note', { level: character.level })}
         </p>
         <dl className="derived-stats">
           {rows.map((row) => {

@@ -7,16 +7,16 @@ import { RunBagPanel } from './RunBagPanel.tsx';
 const FIRST = '11111111-1111-4111-8111-111111111111';
 const SECOND = '22222222-2222-4222-8222-222222222222';
 const holdings: InventoryHoldingDto[] = [
-  { asset: { kind: 'stack', item: 'item:test_grove.herb' }, container: `run_bag:${FIRST}`, qty: 3,
-    definition: 'item:test_grove.herb' },
+  { asset: { kind: 'stack', item: 'Test Grove.Herb' }, container: `run_bag:${FIRST}`, qty: 3,
+    definition: 'Test Grove.Herb' },
   { asset: { kind: 'unique', itemId: '33333333-3333-4333-8333-333333333333' }, container: `run_bag:${FIRST}`, qty: 1,
-    itemId: '33333333-3333-4333-8333-333333333333', definition: 'item:rusty_sword' },
+    itemId: '33333333-3333-4333-8333-333333333333', definition: 'Rusty Sword' },
   { asset: { kind: 'currency', currency: 'gold' }, container: `run_bag:${FIRST}`, qty: 12 },
-  { asset: { kind: 'stack', item: 'item:test_grove.herb' }, container: `run_bag:${SECOND}`, qty: 2,
-    definition: 'item:test_grove.herb' },
+  { asset: { kind: 'stack', item: 'Test Grove.Herb' }, container: `run_bag:${SECOND}`, qty: 2,
+    definition: 'Test Grove.Herb' },
   { asset: { kind: 'currency', currency: 'gold' }, container: `run_bag:${SECOND}`, qty: 5 },
-  { asset: { kind: 'stack', item: 'item:test_grove.herb' }, container: 'inventory', qty: 99,
-    definition: 'item:test_grove.herb' },
+  { asset: { kind: 'stack', item: 'Test Grove.Herb' }, container: 'inventory', qty: 99,
+    definition: 'Test Grove.Herb' },
 ];
 
 afterEach(() => cleanup());
@@ -28,15 +28,15 @@ describe('RunBagPanel', () => {
     const first = screen.getByRole('article', { name: `Run bag ${FIRST}` });
     expect(within(first).getByText('4 items')).toBeDefined();
     expect(within(first).getByText('12 gold')).toBeDefined();
-    expect(within(first).getByText('item:test_grove.herb')).toBeDefined();
-    expect(within(first).getByText('item:rusty_sword')).toBeDefined();
+    expect(within(first).getByText('Test Grove.Herb')).toBeDefined();
+    expect(within(first).getByText('Rusty Sword')).toBeDefined();
     expect(within(first).getByText('×3')).toBeDefined();
 
     const second = screen.getByRole('article', { name: `Run bag ${SECOND}` });
     expect(within(second).getByText('2 items')).toBeDefined();
     expect(within(second).getByText('5 gold')).toBeDefined();
-    expect(within(second).getAllByText('item:test_grove.herb')).toHaveLength(1);
-    expect(screen.getAllByText('item:test_grove.herb')).toHaveLength(2);
+    expect(within(second).getAllByText('Test Grove.Herb')).toHaveLength(1);
+    expect(screen.getAllByText('Test Grove.Herb')).toHaveLength(2);
     expect(screen.queryByText('99 items')).toBeNull();
   });
 

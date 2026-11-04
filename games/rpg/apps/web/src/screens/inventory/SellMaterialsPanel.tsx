@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import type { InventorySnapshotDto, MerchantCatalogDto } from '@rpg/protocol';
 
+import { itemDisplayName } from '../../content/labels.ts';
+import { t } from '../../i18n/index.ts';
+
 type SellOffer = NonNullable<MerchantCatalogDto['sellOffers']>[number];
 
 interface Props {
@@ -28,30 +31,30 @@ export function SellMaterialsPanel({ snapshot, offers, enabled, locked, busy, se
     const maximum = Math.min(holding.qty, MAX_SALE_QUANTITY, Math.floor(MAX_DB_INT / offer.unitPrice.amount));
     const rawQuantity = quantities[itemId] ?? '1';
     const quantity = Number(rawQuantity);
-    const name = itemName(definition.nameKey, definition.id);
+    const name = itemDisplayName(definition.nameKey, definition.id);
     const total = quantity * offer.unitPrice.amount;
     const valid = Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= maximum && Number.isSafeInteger(total) && total > 0 && total <= MAX_DB_INT;
     return [{ item: itemId, name, stock: holding.qty, maximum, quantity, rawQuantity, total, valid, offer }];
   }) ?? [];
 
   return <section className="sell-materials" aria-labelledby="sell-materials-title">
-    <h2 id="sell-materials-title">Sell materials</h2>
-    <p className="muted">Server catalog prices are paid for materials held in your inventory.</p>
-    {rows.length === 0 ? <p className="muted">No eligible materials are available to sell.</p> : <div className="merchant-list">
+    <h2 id="sell-materials-title">{t('ui.sell.title')}</h2>
+    <p className="muted">{t('ui.sell.intro')}</p>
+    {rows.length === 0 ? <p className="muted">{t('ui.sell.empty')}</p> : <div className="merchant-list">
       {rows.map(({ item, name, stock, maximum, quantity, rawQuantity, total, valid, offer }) => {
-        const actionLabel = valid ? `Sell ${quantity} ${name} for ${total} gold` : `Sell ${name}`;
+        const actionLabel = valid ? t('ui.sell.action_total', { quantity, name, total }) : t('ui.sell.action', { name });
         return <article className="merchant-offer" key={item}>
-          <div><h3>{name}</h3><p className="muted">Owned: {stock}</p></div>
-          <p className="merchant-offer__price">{offer.unitPrice.amount} gold each</p>
-          <label className="form__label" htmlFor={`sell-qty-${safeId(item)}`}>Quantity to sell</label>
-          <input id={`sell-qty-${safeId(item)}`} aria-label={`Quantity to sell for ${name}`} className="form__input"
+          <div><h3>{name}</h3><p className="muted">{t('ui.sell.owned', { stock })}</p></div>
+          <p className="merchant-offer__price">{t('ui.sell.each', { amount: offer.unitPrice.amount })}</p>
+          <label className="form__label" htmlFor={`sell-qty-${safeId(item)}`}>{t('ui.sell.quantity')}</label>
+          <input id={`sell-qty-${safeId(item)}`} aria-label={t('ui.sell.quantity_for', { name })} className="form__input"
             type="number" inputMode="numeric" min="1" max={maximum} step="1" value={rawQuantity} aria-invalid={!valid || undefined}
             disabled={locked} onChange={(event) => {
               setQuantities((current) => ({ ...current, [item]: event.target.value }));
             }} />
           <button type="button" className="button" aria-label={actionLabel}
             disabled={!enabled || locked || !valid} onClick={() => sell(item, quantity)}>
-            {busy ? 'Selling…' : actionLabel}
+            {busy ? t('ui.sell.selling') : actionLabel}
           </button>
         </article>;
       })}
@@ -59,8 +62,4 @@ export function SellMaterialsPanel({ snapshot, offers, enabled, locked, busy, se
   </section>;
 }
 
-function itemName(nameKey: string | undefined, id: string): string {
-  const candidate = nameKey?.split('.').filter((part) => part && part !== 'item' && part !== 'name').at(-1);
-  return (candidate || id).replace(/^item:/, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toLocaleUpperCase());
-}
 function safeId(value: string): string { return value.replace(/[^a-zA-Z0-9_-]/g, '-'); }

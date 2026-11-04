@@ -102,8 +102,8 @@ describe('Expedition setup screen', () => {
     const latestServer = { ...running, state: 'completed' as const, endsAtMs: Date.now(), outcome: 'completed' };
     const { requests } = setup({ history: [latestServer] });
     const card = await screen.findByRole('region', { name: 'Go again' });
-    await within(card).findByText(/Hunt · Region 1/);
-    expect(card.textContent).toContain('Hunt · Region 1 · 1 h · Minor Healing Potion ×1');
+    await within(card).findByText(/Hunt · The Verdant Hollow/);
+    expect(card.textContent).toContain('Hunt · The Verdant Hollow · 1 h · Minor Healing Potion ×1');
     fireEvent.click(within(card).getByRole('button', { name: 'Go again' }));
     expect(requests).toHaveLength(0);
     expect((screen.getByLabelText('Activity') as HTMLSelectElement).value).toBe('idle:region_1.hunt');
@@ -130,7 +130,7 @@ describe('Expedition setup screen', () => {
     const freshOptions = { ...options, consumables: [{ item: POTION, availableQty: 0 }] };
     const { requests } = setup({ options: freshOptions, history: [{ ...running, state: 'completed', endsAtMs: Date.now(), outcome: 'completed' }] });
     const card = await screen.findByRole('region', { name: 'Go again' });
-    await within(card).findByText(/Hunt · Region 1/);
+    await within(card).findByText(/Hunt · The Verdant Hollow/);
     fireEvent.click(within(card).getByRole('button', { name: 'Go again' }));
     expect((screen.getByLabelText('Consumable (optional)') as HTMLSelectElement).value).toBe('');
     expect(requests).toHaveLength(0);

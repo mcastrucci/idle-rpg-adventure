@@ -1,6 +1,7 @@
 import type { AutomationRule, RuleAction, RuleCondition, TargetSelector } from '@rpg/rpg-schema';
 
 import type { ContentLabels } from '../content/labels.ts';
+import { decimalSeparator, t } from '../i18n/index.ts';
 import { ID_LABELS } from '../content/labels.ts';
 import { CONDITION_KEYS } from './catalog.ts';
 import type { ConditionKey } from './catalog.ts';
@@ -9,40 +10,45 @@ import type { ConditionKey } from './catalog.ts';
 export function formatBp(bp: number): string {
   const whole = Math.trunc(bp / 100);
   const rest = bp % 100;
-  return rest === 0 ? `${whole}%` : `${whole}.${String(rest).padStart(2, '0').replace(/0+$/, '')}%`;
+  return rest === 0 ? `${whole}%` : `${whole}${decimalSeparator()}${String(rest).padStart(2, '0').replace(/0+$/, '')}%`;
 }
 
 type Phrases = { readonly [K in ConditionKey]: (value: NonNullable<RuleCondition[K]>, labels: ContentLabels) => string };
 
 /** Sentence fragments ("If …"). Typed over every condition key, so a new schema condition fails to compile here. */
 const CONDITION_PHRASES: Phrases = {
-  selfHpBelowBp: (bp) => `my HP is below ${formatBp(bp)}`,
-  allyHpBelowBp: (bp) => `an ally's HP is below ${formatBp(bp)}`,
-  selfHasHarmfulEffect: () => 'I have a harmful effect',
-  enemyTelegraphing: () => 'an enemy is winding up an attack',
-  skillReady: (id, labels) => `${labels.skill(id)} is ready`,
-  enemiesAtLeast: (count) => (count === 1 ? 'there is at least 1 enemy' : `there are at least ${count} enemies`),
-  hasConsumable: (id, labels) => `I carry ${labels.item(id)}`,
+  selfHpBelowBp: (bp) => t('ui.rule.phrase.self_hp_below', { bp: formatBp(bp) }),
+  allyHpBelowBp: (bp) => t('ui.rule.phrase.ally_hp_below', { bp: formatBp(bp) }),
+  selfHasHarmfulEffect: () => t('ui.rule.phrase.harmful_effect'),
+  enemyTelegraphing: () => t('ui.rule.phrase.enemy_winding_up'),
+  skillReady: (id, labels) => t('ui.rule.phrase.skill_ready', { skill: labels.skill(id) }),
+  enemiesAtLeast: (count) => t('ui.rule.phrase.enemies_at_least', { count }),
+  hasConsumable: (id, labels) => t('ui.rule.phrase.carry', { item: labels.item(id) }),
 };
 
 /** Short chip labels for the rule cards. */
 const CONDITION_CHIPS: Phrases = {
-  selfHpBelowBp: (bp) => `My HP < ${formatBp(bp)}`,
-  allyHpBelowBp: (bp) => `Ally HP < ${formatBp(bp)}`,
-  selfHasHarmfulEffect: () => 'I am debuffed',
-  enemyTelegraphing: () => 'Enemy winding up',
-  skillReady: (id, labels) => `${labels.skill(id)} ready`,
-  enemiesAtLeast: (count) => `${count}+ ${count === 1 ? 'enemy' : 'enemies'}`,
-  hasConsumable: (id, labels) => `Carrying ${labels.item(id)}`,
+  selfHpBelowBp: (bp) => t('ui.rule.chip.self_hp_below', { bp: formatBp(bp) }),
+  allyHpBelowBp: (bp) => t('ui.rule.chip.ally_hp_below', { bp: formatBp(bp) }),
+  selfHasHarmfulEffect: () => t('ui.rule.chip.debuffed'),
+  enemyTelegraphing: () => t('ui.rule.chip.enemy_winding_up'),
+  skillReady: (id, labels) => t('ui.rule.chip.skill_ready', { skill: labels.skill(id) }),
+  enemiesAtLeast: (count) => t('ui.rule.chip.enemies_at_least', { count }),
+  hasConsumable: (id, labels) => t('ui.rule.chip.carry', { item: labels.item(id) }),
 };
 
-export const TARGET_PHRASES: Readonly<Record<TargetSelector, string>> = {
-  self: 'myself',
-  lowestHpAlly: 'the ally with the lowest HP',
-  lowestHpEnemy: 'the enemy with the lowest HP',
-  highestHpEnemy: 'the enemy with the highest HP',
-  telegraphingEnemy: 'the enemy winding up an attack',
+const TARGET_PHRASE_KEYS: Readonly<Record<TargetSelector, string>> = {
+  self: 'ui.rule.target.self',
+  lowestHpAlly: 'ui.rule.target.lowest_hp_ally',
+  lowestHpEnemy: 'ui.rule.target.lowest_hp_enemy',
+  highestHpEnemy: 'ui.rule.target.highest_hp_enemy',
+  telegraphingEnemy: 'ui.rule.target.winding_up_enemy',
 };
+
+/** Sentence fragment naming a target selector ("the enemy with the lowest HP"). */
+export function targetPhrase(selector: TargetSelector): string {
+  return t(TARGET_PHRASE_KEYS[selector]);
+}
 
 function present(when: RuleCondition): ConditionKey[] {
   return CONDITION_KEYS.filter((key) => when[key] !== undefined);
@@ -61,14 +67,14 @@ export function conditionChips(when: RuleCondition, labels: ContentLabels = ID_L
 }
 
 export function describeAction(action: RuleAction, labels: ContentLabels = ID_LABELS): string {
-  if ('useConsumable' in action) return `use ${labels.item(action.useConsumable)}`;
-  const skill = `use ${labels.skill(action.useSkill)}`;
-  return action.target === undefined ? skill : `${skill} on ${TARGET_PHRASES[action.target]}`;
+  if ('useConsumable' in action) return t('ui.rule.action.use', { name: labels.item(action.useConsumable) });
+  const name = labels.skill(action.useSkill);
+  return action.target === undefined ? t('ui.rule.action.use', { name }) : t('ui.rule.action.use_on', { name, target: targetPhrase(action.target) });
 }
 
 function joinAnd(parts: readonly string[]): string {
   if (parts.length <= 1) return parts.join('');
-  return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
+  return t('ui.rule.and', { list: parts.slice(0, -1).join(', '), last: parts.at(-1) ?? '' });
 }
 
 /**
@@ -78,6 +84,6 @@ function joinAnd(parts: readonly string[]): string {
 export function describeRule(rule: AutomationRule, labels: ContentLabels = ID_LABELS): string {
   const conditions = describeConditions(rule.when, labels);
   const action = describeAction(rule.do, labels);
-  if (conditions.length === 0) return `Always ${action}.`;
-  return `If ${joinAnd(conditions)}, ${action}.`;
+  if (conditions.length === 0) return t('ui.rule.always', { action });
+  return t('ui.rule.if', { conditions: joinAnd(conditions), action });
 }

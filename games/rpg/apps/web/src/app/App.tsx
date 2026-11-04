@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 
+import { codeText, t, useLocale } from '../i18n/index.ts';
 import { CharacterScreen } from '../screens/CharacterScreen.tsx';
 import { ExpeditionScreen } from '../screens/ExpeditionScreen.tsx';
 import { InventoryScreen } from '../screens/InventoryScreen.tsx';
@@ -18,7 +19,15 @@ import type { TabId } from './tabs.ts';
 import { useHashSubroute, useHashTab } from './tabs.ts';
 import { useGameSession } from './useGameSession.ts';
 
+const EXPEDITION_NOTICE_KEYS = {
+  escrow_returned: 'ui.app.expedition_notice_returned',
+  completed: 'ui.app.expedition_notice_completed',
+  cancelled: 'ui.app.expedition_notice_cancelled',
+} as const;
+
 export function App({ services }: { services: AppServices }) {
+  // Subscribing here re-renders the whole tree when the locale changes; text is resolved at render time.
+  useLocale();
   const { live } = services;
   const liveState = useLiveState(live);
   const [tab, selectTab] = useHashTab();
@@ -44,14 +53,14 @@ export function App({ services }: { services: AppServices }) {
       <Header character={character} />
       {state.phase === 'ready' && <ConnectionBanner state={liveState} onRetry={() => live.start()} />}
       {state.phase === 'ready' && state.expeditionNotice && <div className="expedition-toast" role="status" aria-live="polite">
-        <span>{state.expeditionNotice}</span><button type="button" aria-label="Dismiss expedition update" onClick={dismissExpeditionNotice}>Dismiss</button>
+        <span>{t(EXPEDITION_NOTICE_KEYS[state.expeditionNotice])}</span><button type="button" aria-label={t('ui.app.dismiss_notice_label')} onClick={dismissExpeditionNotice}>{t('ui.common.dismiss')}</button>
       </div>}
       <main className="content" id="content">
-        {state.phase === 'loading' && <p className="muted" role="status">Signing in…</p>}
+        {state.phase === 'loading' && <p className="muted" role="status">{t('ui.app.signing_in')}</p>}
         {state.phase === 'error' && (
           <div className="screen" role="alert">
-            <p>Could not reach the server ({state.error}).</p>
-            <button type="button" className="button" onClick={retry}>Try again</button>
+            <p>{t('ui.app.server_unreachable', { error: codeText(state.error) })}</p>
+            <button type="button" className="button" onClick={retry}>{t('ui.common.try_again')}</button>
           </div>
         )}
         {state.phase === 'ready' && <>
@@ -104,7 +113,7 @@ function WorldTab({ visible, subroute, character, canCommand, api, live, refresh
   const route = subroute?.split('/') ?? [];
   const inLive = route[0] === 'live';
   const liveAreaId = inLive ? decodeRoutePart(route[1] ?? null) : undefined;
-  if (!character) return <div hidden={!visible} inert={!visible}><PlaceholderScreen title="World map">Create your character before exploring Sanctuary’s portals.</PlaceholderScreen></div>;
+  if (!character) return <div hidden={!visible} inert={!visible}><PlaceholderScreen title={t('ui.tabs.world')}>{t('ui.world.need_character')}</PlaceholderScreen></div>;
   return <div className="world-tab" hidden={!visible} inert={!visible}>
     <div hidden={inLive} inert={inLive}>
       <WorldMapScreen actorId={character.actorId} characterLevel={character.level} api={api} active={visible && !inLive}

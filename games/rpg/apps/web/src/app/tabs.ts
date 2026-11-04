@@ -2,10 +2,10 @@ import { useCallback, useSyncExternalStore } from 'react';
 
 /** Sanctuary hub tabs (docs/spec/ui-mobile.md §2). Social arrives in phase 2. */
 export const TABS = [
-  { id: 'character', label: 'Character' },
-  { id: 'inventory', label: 'Inventory' },
-  { id: 'world', label: 'World map' },
-  { id: 'expeditions', label: 'Expeditions' },
+  { id: 'character', labelKey: 'ui.tabs.character' },
+  { id: 'inventory', labelKey: 'ui.tabs.inventory' },
+  { id: 'world', labelKey: 'ui.tabs.world' },
+  { id: 'expeditions', labelKey: 'ui.tabs.expeditions' },
 ] as const;
 
 export type TabId = typeof TABS[number]['id'];

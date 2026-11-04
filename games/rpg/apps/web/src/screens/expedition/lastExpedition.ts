@@ -1,6 +1,8 @@
 import type { ExpeditionEstimateRequest, ExpeditionOptionsDto } from '@rpg/protocol';
 import { parseExpeditionEstimateRequest } from '@rpg/protocol';
 
+import { t } from '../../i18n/index.ts';
+
 /**
  * "Repeat last expedition" (ui-mobile §1: ≤ 3 taps). The last *started* request and configuration are a per-device
  * convenience kept in localStorage per character; the server still validates every start. Storage may be missing or
@@ -29,12 +31,12 @@ function safeStorage(): Storage | undefined {
 export function lastExpeditionProblem(last: LastExpedition, options: ExpeditionOptionsDto): string | null {
   const area = options.areas.find((candidate) => candidate.areaId === last.request.areaId);
   const activity = area?.activities.find((candidate) => candidate.activityId === last.request.activityId);
-  if (!activity?.available) return 'That activity is no longer available.';
-  if (!options.durationsMin.includes(last.request.durationMin)) return 'That duration is no longer offered.';
-  if (last.request.paceBp < options.paceBp.min || last.request.paceBp > options.paceBp.max) return 'That pace is no longer offered.';
+  if (!activity?.available) return t('ui.expedition.problem_activity');
+  if (!options.durationsMin.includes(last.request.durationMin)) return t('ui.expedition.problem_duration');
+  if (last.request.paceBp < options.paceBp.min || last.request.paceBp > options.paceBp.max) return t('ui.expedition.problem_pace');
   for (const consumable of last.config.consumables) {
     const available = options.consumables.find((item) => item.item === consumable.item)?.availableQty ?? 0;
-    if (available < consumable.qty) return 'Not enough consumables in your inventory for the same loadout.';
+    if (available < consumable.qty) return t('ui.expedition.problem_consumables');
   }
   return null;
 }

@@ -1,3 +1,4 @@
+import { codeText, t } from '../i18n/index.ts';
 import type { LiveState } from '../live/state.ts';
 
 export function connectionMessage(state: LiveState): string | null {
@@ -6,16 +7,16 @@ export function connectionMessage(state: LiveState): string | null {
     case 'idle':
       return null;
     case 'connecting':
-      return state.attempt === 0 ? 'Connecting…' : `Reconnecting… (attempt ${state.attempt + 1})`;
+      return state.attempt === 0 ? t('ui.connection.connecting') : t('ui.connection.reconnecting', { attempt: state.attempt + 1 });
     case 'reconnecting': {
       const seconds = Math.ceil((state.retryInMs ?? 0) / 1000);
-      if (state.lastCloseCode === 4409) return `This account is connected elsewhere. Retrying in ${seconds}s…`;
-      return `Connection lost. Reconnecting in ${seconds}s…`;
+      if (state.lastCloseCode === 4409) return t('ui.connection.elsewhere', { seconds });
+      return t('ui.connection.lost', { seconds });
     }
     case 'failed':
-      return `Disconnected (${state.error ?? 'error'}).`;
+      return t('ui.connection.failed', { error: state.error === null ? t('ui.connection.generic_error') : codeText(state.error) });
     case 'stopped':
-      return 'Disconnected.';
+      return t('ui.connection.stopped');
   }
 }
 
@@ -27,7 +28,7 @@ export function ConnectionBanner({ state, onRetry }: { state: LiveState; onRetry
     <div className={`banner banner--${state.status}`} role="status" aria-live="polite">
       <span>{message}</span>
       {(state.status === 'failed' || state.status === 'stopped') && (
-        <button type="button" className="banner__action" onClick={onRetry}>Retry</button>
+        <button type="button" className="banner__action" onClick={onRetry}>{t('ui.common.retry')}</button>
       )}
     </div>
   );
