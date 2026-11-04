@@ -31,9 +31,10 @@ export const XpCurveDocumentSchema = z
   .strictObject({
     id: z.string().regex(/^progression:[a-z0-9_.]+$/, 'must be a namespaced ID like "progression:name"'),
     xpToNext: z.array(z.int().positive()).min(1),
+    tailGrowthBp: z.int(),
   })
   .superRefine((doc, ctx) => {
-    const result = XpCurveSchema.safeParse({ xpToNext: doc.xpToNext });
+    const result = XpCurveSchema.safeParse({ xpToNext: doc.xpToNext, tailGrowthBp: doc.tailGrowthBp });
     if (result.success) return;
     for (const issue of result.error.issues) ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message });
   });

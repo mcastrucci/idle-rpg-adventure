@@ -1,4 +1,4 @@
-import type { ExpeditionResultReportDto } from '@rpg/protocol';
+import type { ExpeditionReportCodeDto, ExpeditionResultReportDto } from '@rpg/protocol';
 
 type Row = { readonly actorId: string; readonly status: 'running' | 'completed' | 'cancelled'; readonly startsAtMs: number; readonly endsAtMs: number; readonly settledAt: Date | null; readonly outcome: 'completed' | 'retreated' | 'failed' | null };
 type AnyRecord = Record<string, unknown>;
@@ -7,6 +7,8 @@ const safeInt = (value: unknown): value is number => Number.isSafeInteger(value)
 // Keep projections within the public protocol's signed 32-bit integer bound.
 const MAX_REPORT_INT = 2_147_483_647;
 const nonnegative = (value: unknown): number | null => safeInt(value) && value <= MAX_REPORT_INT ? value : null;
+// XP is open-ended (#129): its report fields are bounded by the safe-integer range only, not by the 32-bit gold/loot bound.
+const nonnegativeXp = (value: unknown): number | null => safeInt(value) ? value : null;
 const stringMap = (value: unknown): Record<string, number> | null => {
   if (!isRecord(value)) return null;
   const result: Record<string, number> = {};
@@ -80,37 +82,47 @@ function safeCause(value: unknown): SafeDeathCause | null {
   if (typeof value['crit'] === 'boolean') cause['crit'] = value['crit'];
   return cause as unknown as SafeDeathCause;
 }
-function suggestionsFor(causes: readonly SafeDeathCause[]): string[] {
+type CodeEntry = ExpeditionReportCodeDto;
+// Each entry pairs the stable i18n code with its legacy English text; the text stays until clients render from codes.
+const SUGGESTIONS: readonly { readonly cause: readonly string[]; readonly code: string; readonly text: string }[] = [
+  { cause: ['idle.death.no_consumables'], code: 'idle.suggestion.bring_healing', text: 'Consider bringing healing consumables.' },
+  { cause: ['idle.death.out_of_consumables'], code: 'idle.suggestion.bring_more_healing', text: 'Consider bringing more healing consumables.' },
+  { cause: ['idle.death.outnumbered'], code: 'idle.suggestion.review_risk_retreat', text: 'Review the expedition risk and retreat settings.' },
+  { cause: ['idle.death.started_wounded'], code: 'idle.suggestion.restore_health', text: 'Restore health before starting another expedition.' },
+  { cause: ['idle.death.stunned'], code: 'idle.suggestion.review_stuns', text: 'Review options for handling enemy stuns.' },
+  { cause: ['idle.death.damage_taken', 'idle.death.biggest_hit'], code: 'idle.suggestion.review_defenses', text: 'Review defenses against the recorded enemy attacks.' },
+];
+function suggestionsFor(causes: readonly SafeDeathCause[]): { texts: string[]; codes: CodeEntry[] } {
   const keys = new Set(causes.map(cause => cause['key']));
-  const suggestions: string[] = [];
-  if (keys.has('idle.death.no_consumables')) suggestions.push('Consider bringing healing consumables.');
-  if (keys.has('idle.death.out_of_consumables')) suggestions.push('Consider bringing more healing consumables.');
-  if (keys.has('idle.death.outnumbered')) suggestions.push('Review the expedition risk and retreat settings.');
-  if (keys.has('idle.death.started_wounded')) suggestions.push('Restore health before starting another expedition.');
-  if (keys.has('idle.death.stunned')) suggestions.push('Review options for handling enemy stuns.');
-  if (keys.has('idle.death.damage_taken') || keys.has('idle.death.biggest_hit')) suggestions.push('Review defenses against the recorded enemy attacks.');
-  return suggestions;
+  const hits = SUGGESTIONS.filter(entry => entry.cause.some(key => keys.has(key)));
+  return { texts: hits.map(entry => entry.text), codes: hits.map(entry => ({ code: entry.code })) };
 }
-function eventLabels(segments: readonly unknown[]): string[] {
+function eventEntries(segments: readonly unknown[]): { labels: string[]; codes: CodeEntry[] } {
   const labels: string[] = [];
+  const codes: CodeEntry[] = [];
+  const push = (label: string, code: string, params?: Record<string, string | number>) => {
+    labels.push(label);
+    codes.push(params ? { code, params } : { code });
+  };
   for (const segment of segments.slice(0, 500)) {
     if (!isRecord(segment) || !Array.isArray(segment['events'])) continue;
     for (const event of segment['events']) {
       if (!isRecord(event)) continue;
       const item = typeof event['item'] === 'string' ? event['item'].slice(0, 120) : '';
       const enemy = typeof event['enemy'] === 'string' ? event['enemy'].slice(0, 120) : '';
+      const qty = event['qty'];
       switch (event['type']) {
-        case 'kill': if (enemy) labels.push(`Defeated ${enemy}.`); break;
-        case 'consumable': if (item && safeInt(event['qty'])) labels.push(`Used ${event['qty']} ${item}.`); break;
-        case 'loot': if (item && safeInt(event['qty'])) labels.push(`Found ${event['qty']} ${item}.`); break;
-        case 'gold': if (safeInt(event['qty'])) labels.push(`Found ${event['qty']} gold.`); break;
-        case 'death': labels.push('A character died in combat.'); break;
-        case 'retreat': labels.push('The party retreated.'); break;
+        case 'kill': if (enemy) push(`Defeated ${enemy}.`, 'idle.event.kill', { enemy }); break;
+        case 'consumable': if (item && safeInt(qty)) push(`Used ${qty} ${item}.`, 'idle.event.consumable', { item, qty }); break;
+        case 'loot': if (item && safeInt(qty)) push(`Found ${qty} ${item}.`, 'idle.event.loot', { item, qty }); break;
+        case 'gold': if (safeInt(qty)) push(`Found ${qty} gold.`, 'idle.event.gold', { qty }); break;
+        case 'death': push('A character died in combat.', 'idle.event.death'); break;
+        case 'retreat': push('The party retreated.', 'idle.event.retreat'); break;
       }
-      if (labels.length >= 50) return labels.slice(0, 50);
+      if (labels.length >= 50) return { labels: labels.slice(0, 50), codes: codes.slice(0, 50) };
     }
   }
-  return labels;
+  return { labels, codes };
 }
 
 /** Creates a presentation projection from a persisted terminal report only; never simulates, reads balances, or mutates rows. */
@@ -129,10 +141,10 @@ export function projectExpeditionResultReport(row: Row, terminalReport: unknown)
   const xpRows = rows(report?.['xp']);
   const xpRow = xpRows?.find(value => isRecord(value) && value['actorId'] === row.actorId);
   const xp = isRecord(xpRow) ? xpRow : null;
-  const earnedXp = nonnegative(xp?.['xpEarned']);
-  const actualPenalty = nonnegative(xp?.['xpPenaltyLost']);
-  const xpAfter = nonnegative(xp?.['xpAfter']);
-  const xpBefore = nonnegative(xp?.['xpBefore']);
+  const earnedXp = nonnegativeXp(xp?.['xpEarned']);
+  const actualPenalty = nonnegativeXp(xp?.['xpPenaltyLost']);
+  const xpAfter = nonnegativeXp(xp?.['xpAfter']);
+  const xpBefore = nonnegativeXp(xp?.['xpBefore']);
   const xpNet = earnedXp === null || actualPenalty === null ? null : earnedXp - actualPenalty;
   const summaryKills = stringMap(summary?.['kills']);
   const killTotal = summaryKills ? Object.values(summaryKills).reduce((sum, count) => sum + count, 0) : null;
@@ -172,7 +184,9 @@ export function projectExpeditionResultReport(row: Row, terminalReport: unknown)
   const parsedCauses = Array.isArray(rawCauses) && rawCauses.length <= 20 ? rawCauses.map(safeCause) : null;
   const causes = parsedCauses && parsedCauses.every((cause): cause is SafeDeathCause => cause !== null) &&
     (deathLog?.['actorId'] === undefined || deathLog['actorId'] === row.actorId) ? parsedCauses : null;
-  const death = deathLog && causes ? { causes, suggestions: suggestionsFor(causes) } : null;
+  const advice = causes ? suggestionsFor(causes) : null;
+  const death = deathLog && causes && advice ? { causes, suggestions: advice.texts, suggestionCodes: advice.codes } : null;
+  const eventList = supported && !recovered && segments ? eventEntries(segments) : null;
   const hpRows = rows(summary?.['hp']);
   const hpRow = hpRows?.find(value => isRecord(value) && value['actorId'] === row.actorId);
   const hp = isRecord(hpRow) ? nonnegative(hpRow['end']) : null;
@@ -191,7 +205,8 @@ export function projectExpeditionResultReport(row: Row, terminalReport: unknown)
     gold: { earned: unknown || recovered ? null : goldEarned, lost: unknown || recovered ? null : goldLost, secured: unknown || recovered ? null : goldSecured },
     loot: unknown || recovered ? null : loot,
     consumables: unknown ? null : consumables,
-    events: unknown || recovered || !segments ? null : eventLabels(segments),
+    events: eventList ? eventList.labels : null,
+    eventCodes: eventList ? eventList.codes : null,
     finalState: { hp: unknown || recovered ? null : hp, maxHp: unknown || recovered ? null : maxHp, xpTotal: unknown || recovered ? null : xpAfter },
     death: unknown || recovered ? null : death,
   };

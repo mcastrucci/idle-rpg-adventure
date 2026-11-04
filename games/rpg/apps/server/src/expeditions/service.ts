@@ -13,17 +13,19 @@ import { validateWorld } from '@engine/world';
 import type { AreaId, World } from '@engine/world';
 import { createRpgActivityRegistry, rpgIdleContentFromBundle } from '@rpg/rpg-sim';
 import type { RpgActorSnapshot, RpgIdleConfig, RpgIdleEvent, RpgIdleReport, RpgIdleState } from '@rpg/rpg-sim';
-import { XpCurveSchema, createRpgPredicateRegistry } from '@rpg/rpg-schema';
+import { createRpgPredicateRegistry } from '@rpg/rpg-schema';
 import type { XpCurve } from '@rpg/rpg-schema';
-import { applyXpLoss, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
+import { totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
 import { parseExpeditionDto, parseExpeditionOptionsDto } from '@rpg/protocol';
 
+import { rpgXpCurve } from '../content.ts';
 import { characters } from '../characters/schema.ts';
 import { RPG_GAME_ID } from '../characters/service.ts';
 import { equippedGear } from '../characters/stat-summary.ts';
 import { BASIC_ATTACK } from '../characters/validation.ts';
 import type { CharacterAttributes } from '../characters/validation.ts';
 import { expeditions } from './schema.ts';
+import type { ExpeditionSnapshot } from './schema.ts';
 import { projectExpeditionResultReport } from './report.ts';
 import { findSettlementPolicy, settlementSimulator, supportedSettlementPolicies } from './policy.ts';
 import type { SettlementPolicy } from './policy.ts';
@@ -48,9 +50,11 @@ function simulators(content: LoadedContent): ActivityRegistry {
   return createRpgActivityRegistry(content);
 }
 function xpCurve(content: LoadedContent): XpCurve {
-  const row = content.collections['progression']?.find(value => (value as { id?: unknown }).id === 'progression:xp_curve');
-  if (!row) throw new Error('RPG XP curve is missing');
-  return XpCurveSchema.parse({ xpToNext: (row as { xpToNext: unknown }).xpToNext });
+  return rpgXpCurve(content.collections);
+}
+/** The persisted start snapshot: participants plus the XP curve (table and tail) settlement will use (#129). */
+function startSnapshot(participant: RpgActorSnapshot, curve: XpCurve): ExpeditionSnapshot {
+  return { participants: [participant] as unknown as readonly Record<string, unknown>[], xpCurve: curve.xpToNext, xpTailGrowthBp: curve.tailGrowthBp };
 }
 function timelineOf(row: typeof expeditions.$inferSelect): ExpeditionTimeline {
   const json = inflateSync(Buffer.from(row.timelineCompressed, 'base64')).toString('utf8');
@@ -279,7 +283,7 @@ export function createExpeditionService(tx: ActorTransaction, clock: Clock, cont
         plannedEndsAtMs: placed.plannedEndsAtMs, endsAtMs: placed.endsAtMs, durationMin: payload.request.durationMin,
         paceBp: payload.request.paceBp, seed: String(seed), revision: 0, kernelVersion: KERNEL_VERSION,
         simulatorId: simulator.id, simulatorVersion: simulator.version, contentHash: content.contentHash,
-        budget: gate.budget, config: gate.config as unknown as Record<string, unknown>, snapshot: { participants: [snapshot] as unknown as readonly Record<string, unknown>[], xpCurve: xpCurve(content).xpToNext },
+        budget: gate.budget, config: gate.config as unknown as Record<string, unknown>, snapshot: startSnapshot(snapshot, xpCurve(content)),
         escrow: gate.escrow as unknown as readonly Record<string, unknown>[], timelineCompressed: compressed,
         timelineHash: hash, createdAt: new Date(nowMs) }).returning();
       if (!row) throw new Error('expedition insert returned no row');
@@ -388,7 +392,7 @@ export function createExpeditionService(tx: ActorTransaction, clock: Clock, cont
       await applyLedgerDeltas(tx, { type: 'expedition_settlement', id: `${id}:${row.revision}` }, settlement.settlement.deltas,
         { activity: ESCROW_ACTIVITY(id) });
       const progress = policy.progress(timeline, settlement.resolution.cutoff, settlement.resolution.reason);
-      const curve = XpCurveSchema.parse({ xpToNext: row.snapshot.xpCurve });
+      const curve = policy.xp.curve(row.snapshot);
       const [character] = await tx.select().from(characters).where(eq(characters.actorId, row.actorId)).for('update');
       if (!character) throw new ExpeditionError('not_found', 404);
       const actorProgress = progress.actors.find(value => value.actorId === row.actorId);
@@ -396,11 +400,14 @@ export function createExpeditionService(tx: ActorTransaction, clock: Clock, cont
       let xpAfter = xpBefore;
       let xpEarned = 0;
       let xpPenaltyApplied = false;
+      let xpPenaltyBp = 0;
       if (actorProgress) {
         xpEarned = actorProgress.xpEarned;
         xpAfter = xpBefore + xpEarned;
         if (progress.applyDeathPenalty && actorProgress.died) {
-          xpAfter = applyXpLoss(xpAfter, progress.deathXpLossBp, curve).totalXp;
+          const loss = policy.xp.deathLoss(xpAfter, curve, progress);
+          xpAfter = loss.totalXp;
+          xpPenaltyBp = loss.lossBp;
           xpPenaltyApplied = true;
         }
         const next = xpProgress(xpAfter, curve);
@@ -411,7 +418,7 @@ export function createExpeditionService(tx: ActorTransaction, clock: Clock, cont
       const terminalReport = { version: 1, kind: 'settled', summary: policy.simulator.summarize(timeline, settlement.resolution.cutoff),
         segments: finalSegments, revealedDeltas: finalDeltas,
         settledDeltas: settlement.settlement.deltas, xp: [{ actorId: row.actorId, xpBefore, xpEarned,
-          xpPenaltyApplied, xpPenaltyBp: xpPenaltyApplied ? progress.deathXpLossBp : 0,
+          xpPenaltyApplied, xpPenaltyBp,
           xpPenaltyLost: xpBefore + xpEarned - xpAfter, xpAfter }],
         reason: settlement.resolution.reason, cutoff: settlement.resolution.cutoff,
         outcome: settlement.resolution.reason === 'completed' ? timeline.outcome : 'cancelled',

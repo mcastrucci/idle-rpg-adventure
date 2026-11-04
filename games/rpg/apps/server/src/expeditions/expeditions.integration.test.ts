@@ -15,7 +15,7 @@ import { checkStart, defaultSettle, placeSegments, settleAt, timelineHash } from
 import type { PlacedTimeline, Timeline } from '@engine/expedition-kernel';
 import { applyBagLoss, createRpgActivityRegistry, DEFAULT_RPG_IDLE_TUNING, mergeDeltas, rpgIdleContentFromBundle, rpgProgress } from '@rpg/rpg-sim';
 import { createRpgPredicateRegistry, XpCurveSchema } from '@rpg/rpg-schema';
-import { applyXpLoss, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
+import { applyDeathXpLoss, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
 import { inflateSync } from 'node:zlib';
 import { and, eq } from 'drizzle-orm';
 import plugin from '@rpg/content-plugin';
@@ -79,7 +79,8 @@ interface ExpeditionDto {
     loot: readonly { item: string; earned: number; lost: number; secured: number }[] | null;
     consumables: readonly { item: string; used: number | null; returned: number | null }[] | null;
     events: readonly string[] | null; finalState: { hp: number | null; maxHp: number | null; xpTotal: number | null };
-    death: { causes: readonly { key: string }[]; suggestions: readonly string[] } | null;
+    death: { causes: readonly { key: string }[]; suggestions: readonly string[]; suggestionCodes?: readonly { code: string }[] } | null;
+    eventCodes?: readonly { code: string; params?: Record<string, string | number> }[] | null;
   };
   [key: string]: unknown;
 }
@@ -461,15 +462,20 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
       const timeline = JSON.parse(inflateSync(Buffer.from(finalRow.timelineCompressed, 'base64')).toString('utf8'));
       const progress = rpgProgress(timeline, finalRow.settledCutoff as number, 'completed');
       expect(progress).toMatchObject({ died: true, applyDeathPenalty: true });
-      const xpCurve = XpCurveSchema.parse({ xpToNext: finalRow.snapshot.xpCurve });
+      const xpCurve = XpCurveSchema.parse({ xpToNext: finalRow.snapshot.xpCurve, tailGrowthBp: finalRow.snapshot.xpTailGrowthBp });
       const gained = progress.actors.find(row => row.actorId === character.actorId)?.xpEarned ?? 0;
       const earnedTotalXp = totalXpFromLevelProgress(beforeCharacter.level, beforeCharacter.xp, xpCurve) + gained;
-      const totalXp = applyXpLoss(earnedTotalXp, progress.deathXpLossBp, xpCurve).totalXp;
+      const totalXp = applyDeathXpLoss(earnedTotalXp, xpCurve).totalXp;
       expect(totalXp).toBeLessThan(earnedTotalXp);
       expect(completed.report?.xp).toEqual({ earned: gained, penaltyLost: earnedTotalXp - totalXp, net: gained - (earnedTotalXp - totalXp),
         beforeTotal: totalXpFromLevelProgress(beforeCharacter.level, beforeCharacter.xp, xpCurve), afterTotal: totalXp });
       expect(completed.report?.finalState.xpTotal).toBe(totalXp);
       expect(completed.report?.death?.suggestions.join(' ').toLowerCase()).not.toContain('missed heal');
+      // i18n codes are additive and stay parallel to the legacy English text.
+      expect(completed.report?.death?.suggestionCodes).toHaveLength(completed.report?.death?.suggestions.length ?? -1);
+      expect(completed.report?.eventCodes).toHaveLength(completed.report?.events?.length ?? -1);
+      for (const entry of [...(completed.report?.eventCodes ?? []), ...(completed.report?.death?.suggestionCodes ?? [])])
+        expect(entry.code).toMatch(/^idle\.(event|suggestion)\.[a-z_]+$/);
       const expectedProgress = xpProgress(totalXp, xpCurve);
       expect(afterCharacter).toMatchObject({ level: expectedProgress.level, xp: expectedProgress.xpIntoLevel });
       const registry = createRpgActivityRegistry(rpgIdleContentFromBundle(bundle as never));

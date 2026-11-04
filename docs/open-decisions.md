@@ -7,13 +7,13 @@ record the outcome here (and in an ADR if architectural).
 | # | Decision | Provisional proposal | Resolve in | Status |
 |---|---|---|---|---|
 | 1 | Combat tick duration | 500 ms | Spike 1 / ADR-0013 | Open (spike 1: idle cost is independent of tick; 500 ms kept as engine constant, feel to be judged in M4 playtests) |
-| 2 | XP, damage, defense and progression formulas | Integer formulas in [combat-engine.md](spec/combat-engine.md#4-formulas-provisional-integer-only); XP curve table | M1 balance pass | Open (method checkpoint: production idle settlement and a bounded no-regen idle counterfactual are documented; production live-plugin effects are measured on one finite authored route. Human command timing, DB settlement and sustainable repeat rate remain pending; progression points remain #13) |
+| 2 | XP, damage, defense and progression formulas | Integer formulas in [combat-engine.md](spec/combat-engine.md#4-formulas-provisional-integer-only); XP curve table | M1 balance pass | Open (XP curve: owner-chosen open-ended curve, provisional, 2026-11-04 — [below](#2-xp-curve-open-ended-129); method checkpoint: production idle settlement and a bounded no-regen idle counterfactual are documented; production live-plugin effects are measured on one finite authored route. Human command timing, DB settlement and sustainable repeat rate remain pending; progression points remain #13) |
 | 3 | Party loot distribution | Equal gold/XP split; round-robin loot (idle); personal loot (live) | M8 | Open |
 | 4 | Max party size | 4 (POC validates 2) | M8 | Open |
 | 5 | Live disconnection policy | 60 s grace; combat continues on automation; then `left` — **amended by spike 3**, see [below](#5-live-disconnection-policy-spike-3) | Spike 3 / M4 | Confirmed with amendments (values provisional) |
 | 6 | Idle cancellation and partial rewards | Before the actual end, settle only revealed segments: their grants and used consumables apply, unused escrow returns, and no cancellation penalty applies. A cancel at/after the actual end settles as a natural completion. | M6 / kernel v0.3 | Resolved for solo POC; abuse/balance remains unvalidated |
 | 7 | Corpse persistence and recovery in instances | Owner-only corpse at death location, 24 h, one active, spawned into future instances | M4 | Provisional POC implemented; validate recovery/expiry behavior |
-| 8 | Exact death penalties | Idle solo POC: on natural failed completion, lose 50% of each positive gold/item bag grant (floored; odd unit kept) and apply 10% of the next-level XP requirement after adding expedition XP; used escrow is consumed and unused escrow returned. Live penalties remain provisional in [rewards spec §4](spec/rewards-and-persistence.md). | M4/M6 + playtest | Provisional POC implemented; balance validation remains open |
+| 8 | Exact death penalties | Idle solo POC: on natural failed completion, lose 50% of each positive gold/item bag grant (floored; odd unit kept) and apply the level-scaled XP loss after adding expedition XP (live and idle alike; owner values 2026-11-04, [#129](#8-death-xp-penalty-level-scaled-129)); used escrow is consumed and unused escrow returned. Live penalties remain provisional in [rewards spec §4](spec/rewards-and-persistence.md). | M4/M6 + playtest | Provisional POC implemented; balance validation remains open |
 | 9 | Crafting | Out of POC beyond placeholders | Post-POC | Deferred |
 | 10 | Premium accelerator balance | Pacing multiplier on encounter budget, capped | Post-POC | Deferred |
 | 11 | Direct purchase of resources or power | Not in POC | Post-POC | Deferred |
@@ -37,6 +37,38 @@ The evidence pair now includes the production idle simulation and settlement pat
 Current character creation seeds provisional attributes STR 9 / AGI 4 / INT 2 / VIT 10 / SPI 5 and four skills (shield bash, guard, cleave, mend), with zero unspent points and no starter equipment; see [character validation](../games/rpg/apps/server/src/characters/validation.ts) and [character service](../games/rpg/apps/server/src/characters/service.ts). Existing #13 behavior grants no attribute points on level change. Both baselines use this naked starter with explicit supplies. The live route measures plugin reward and death effects, but does not execute the PostgreSQL ledger/death hooks or model inventory acquisition and banking.
 
 This is a methodological checkpoint, not a numeric finding or approval. Next, compare live and idle only after collecting human timing and DB settlement evidence, validate resource pressure, death behavior and the XP curve, then decide progression #13 separately before final formula targets. #2 remains open.
+
+### #2 XP curve: open-ended (#129)
+
+Owner decision, 2026-11-04 (provisional values, [#129](https://github.com/mcastrucci/idle-rpg-adventure/issues/129)):
+
+- The authored table `[100, 250, 450, 700, 1000]` is unchanged, so every existing `(level, xp)` pair keeps its meaning.
+- `content/progression/xp-curve.json` gains `tailGrowthBp: 12500`. For a level `L` beyond the table,
+  `xpToNext(L) = ⌊xpToNext(L − 1) × tailGrowthBp / 10000⌋`: 1000 → 1250 → 1562 → 1952 → 2440 → 3050 …. There is **no
+  maximum level**.
+- Integer math on safe integers. The last level whose next threshold still fits in `Number.MAX_SAFE_INTEGER` (level
+  132) acts as a deterministic cap; that safe-integer ceiling is the only limit. Every persisted XP quantity is a
+  PostgreSQL `bigint` read and written as a JS safe integer (migration `0010_xp_bigint.sql`; in-level XP passes 32 bits
+  at level 71), so reward settlement never fails on an XP value below that ceiling.
+- Only the character that had piled XP up at the old cap (level 6 with ≥ 1250 XP into the level) changes: migration
+  `0009_open_xp_curve.sql` turns its overflow into levels without changing total XP.
+- Expedition snapshots persist the table and `tailGrowthBp`, so settlement never depends on deployed content. Whether
+  the curve is *good* (pacing of levels 7+) remains part of the open balance pass.
+
+### #8 Death XP penalty: level-scaled (#129)
+
+Owner decision, 2026-11-04 (provisional values, [#129](https://github.com/mcastrucci/idle-rpg-adventure/issues/129)),
+for live death and idle settlement alike. With `L` the level before the loss:
+
+- `lossBp(L) = max(200, 1000 − 20 × (L − 1))` (10% at level 1, 8% at level 11, 2% from level 41);
+- `xpLost = ⌊totalXp × lossBp(L) / 10000⌋`;
+- one-level cap: total XP after the loss is never below the XP at which level `L − 1` starts, and never below 0 /
+  level 1.
+
+Item loss rules (50% of bag grants, corpse, escrow) are unchanged. Compatibility (ADR-0005): expeditions started
+before this change were persisted under `rpg-idle@2.0.0` and settle with their original rule (10% of the next level's
+requirement); new starts are stamped `rpg-idle@2.1.0` and use the level-scaled rule. Balance validation of both numbers
+remains open.
 
 ### #5 Live disconnection policy (spike 3)
 

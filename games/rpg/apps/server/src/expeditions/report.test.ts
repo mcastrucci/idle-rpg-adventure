@@ -7,6 +7,17 @@ const actorId = 'actor-1';
 const row = { actorId, status: 'completed' as const, startsAtMs: 1_000, endsAtMs: 6_000, settledAt: new Date(6_000), outcome: 'failed' as const };
 
 describe('persisted expedition result projection', () => {
+  it('projects XP beyond 32 bits (#129) unchanged', () => {
+    const big = 4_000_000_000;
+    const result = projectExpeditionResultReport({ ...row, outcome: 'completed' }, {
+      version: 1, kind: 'settled', reason: 'completed', cutoff: 0, outcome: 'completed', endsAtMs: 6_000,
+      summary: { kills: {}, consumablesUsed: {}, hp: [], deathLog: null }, segments: [{ events: [] }], revealedDeltas: [], settledDeltas: [],
+      xp: [{ actorId, xpEarned: 30, xpPenaltyLost: 0, xpBefore: big, xpAfter: big + 30 }],
+    });
+    expect(result.xp).toEqual({ earned: 30, penaltyLost: 0, net: 30, beforeTotal: big, afterTotal: big + 30 });
+    expect(result.finalState.xpTotal).toBe(big + 30);
+  });
+
   it('reports actual secured bag totals and actual XP loss without replaying policy', () => {
     const result = projectExpeditionResultReport(row, {
       version: 1, kind: 'settled', reason: 'completed', cutoff: 0, outcome: 'failed', endsAtMs: 6_000,
@@ -32,6 +43,9 @@ describe('persisted expedition result projection', () => {
       gold: { earned: 10, lost: 6, secured: 4 }, loot: [{ item: 'item:hide', earned: 5, lost: 3, secured: 2 }],
       consumables: [{ item: 'item:potion', used: 1, returned: 2 }], finalState: { hp: 0, maxHp: 30, xpTotal: 10 },
       death: { causes: [{ key: 'idle.death.no_consumables' }], suggestions: ['Consider bringing healing consumables.'] } });
+    expect(result.death?.suggestionCodes).toEqual([{ code: 'idle.suggestion.bring_healing' }]);
+    expect(result.eventCodes).toEqual([{ code: 'idle.event.kill', params: { enemy: 'enemy:boar' } }, { code: 'idle.event.death' }]);
+    expect(result.eventCodes).toHaveLength(result.events?.length ?? -1);
     expect(result.events).toContain('Defeated enemy:boar.');
     expect(result.events).toContain('A character died in combat.');
     expect(JSON.stringify(result)).not.toContain('actor-1');
@@ -99,5 +113,27 @@ describe('persisted expedition result projection', () => {
     });
     expect(overflow).toMatchObject({ enemiesDefeated: null, gold: { earned: null } });
     expect(() => parseExpeditionResultReportDto(overflow)).not.toThrow();
+  });
+
+  it('emits stable codes and params for every event type and suggestion, parallel to the English text', () => {
+    const result = projectExpeditionResultReport(row, {
+      version: 1, kind: 'settled', reason: 'completed', cutoff: 0, outcome: 'failed', endsAtMs: 6_000,
+      summary: { kills: {}, consumablesUsed: {}, hp: [], deathLog: { actorId, encounter: 0, causes: [
+        'idle.death.no_consumables', 'idle.death.out_of_consumables', 'idle.death.outnumbered', 'idle.death.started_wounded',
+        'idle.death.stunned', 'idle.death.biggest_hit'].map(key => ({ key })) } },
+      segments: [{ events: [{ type: 'consumable', item: 'item:potion', qty: 2 }, { type: 'loot', item: 'item:hide', qty: 3 },
+        { type: 'gold', qty: 7 }, { type: 'retreat' }] }],
+      revealedDeltas: [], settledDeltas: [], xp: [],
+    });
+    expect(result.eventCodes).toEqual([
+      { code: 'idle.event.consumable', params: { item: 'item:potion', qty: 2 } },
+      { code: 'idle.event.loot', params: { item: 'item:hide', qty: 3 } },
+      { code: 'idle.event.gold', params: { qty: 7 } },
+      { code: 'idle.event.retreat' }]);
+    expect(result.death?.suggestionCodes?.map(entry => entry.code)).toEqual([
+      'idle.suggestion.bring_healing', 'idle.suggestion.bring_more_healing', 'idle.suggestion.review_risk_retreat',
+      'idle.suggestion.restore_health', 'idle.suggestion.review_stuns', 'idle.suggestion.review_defenses']);
+    expect(result.death?.suggestionCodes).toHaveLength(result.death?.suggestions.length ?? -1);
+    expect(() => parseExpeditionResultReportDto(result)).not.toThrow();
   });
 });

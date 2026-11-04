@@ -470,13 +470,20 @@ describe('cross-document checks (validate hook)', () => {
   });
 
   it('there is exactly one XP curve', () => {
-    const result = compileSeed({ add: { 'progression/other.json': { id: 'progression:other_curve', xpToNext: [10, 20] } } });
+    const result = compileSeed({ add: { 'progression/other.json': { id: 'progression:other_curve', xpToNext: [10, 20], tailGrowthBp: 12_500 } } });
     expect(errorsOf(result)).toEqual([`${RPG_ISSUE_CODES.xpCurveUnexpected} progression/other.json id`]);
   });
 
   it('validates the XP curve with the rpg-schema rules', () => {
     const result = compileSeed({ replace: [['progression/xp-curve.json', '250', '50']] });
     expect(errorsOf(result)).toEqual(['schema.invalid progression/xp-curve.json xpToNext.1']);
+  });
+
+  it('requires a tail growth that keeps the XP curve open-ended (#129)', () => {
+    expect(errorsOf(compileSeed({ replace: [['progression/xp-curve.json', '"tailGrowthBp": 12500', '"tailGrowthBp": 10000']] })))
+      .toEqual(['schema.invalid progression/xp-curve.json tailGrowthBp']);
+    expect(errorsOf(compileSeed({ replace: [['progression/xp-curve.json', ',\n  "tailGrowthBp": 12500', '']] })))
+      .toEqual(['schema.invalid progression/xp-curve.json tailGrowthBp']);
   });
 
   it('AI skillReady conditions must name one of the enemy skills', () => {

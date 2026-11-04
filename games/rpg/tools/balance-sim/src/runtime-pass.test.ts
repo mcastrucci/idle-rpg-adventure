@@ -9,7 +9,7 @@ describe('bounded runtime evidence pass', () => {
     const second = runRuntimePass({ runs: 4 });
     expect(renderRuntimePass(first)).toBe(renderRuntimePass(second));
     expect(first.contentHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(first.idleSimulatorVersion).toBe('rpg-idle@2.0.0+rpg-sim@1.1.0');
+    expect(first.idleSimulatorVersion).toBe('rpg-idle@2.1.0+rpg-sim@1.1.0');
     expect(first.rows).toHaveLength(12);
     expect(first.rows.map(({ model, level, carriedPotions }) => [model, level, carriedPotions])).toEqual(
       ['idle-default-regen', 'idle-no-regen-counterfactual'].flatMap((model) =>

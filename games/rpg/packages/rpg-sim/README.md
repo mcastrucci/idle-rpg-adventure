@@ -187,7 +187,7 @@ rpgIdleContentFromBundle(bundle)                                               /
 rpgProgress(timeline, cutoff, reason): RpgProgress                             // XP channel for the server hook
 rpgIdleMetrics(timeline): Record<string, number>                               // estimate extractor: xp:/died:<actorId>
 itemAsset(content, item): AssetRef                                             // equipment → unique_mint, else stack
-RPG_IDLE_VERSION = 'rpg-idle@2.0.0'; RPG_IDLE_SIMULATOR_VERSION = `${RPG_IDLE_VERSION}+${ENGINE_VERSION}`
+RPG_IDLE_VERSION = 'rpg-idle@2.1.0'; RPG_IDLE_SIMULATOR_VERSION = `${RPG_IDLE_VERSION}+${ENGINE_VERSION}`
 DEFAULT_RPG_IDLE_TUNING = { regenBetweenFightsBp: 1500, maxCombatTicks: 3000, deathBagLossBp: 5000,
                             gatherSegmentsPerHour: 12, durationsMin: [15, 30, 60, 180] }
 ```
@@ -256,10 +256,12 @@ instance row per unit), every other kind as `stack(item)`; gold `{ currency 'gol
 adds `xp:<actorId>` (gross XP earned) and `died:<actorId>` (0/1) percentiles to the ledger estimates.
 
 **XP channel** (not ledger deltas): `rpgProgress(timeline, cutoff, reason)` → per hero `xpEarned`, `kills`, `died`, plus
-`applyDeathPenalty` (fatal encounter covered **and** `reason === 'completed'`, same rule as the bag loss) and
-`deathXpLossBp` (`DEFAULT_DEATH_XP_LOSS_BP`). The server hook adds the XP, then applies
-`applyXpLoss(totalXp + xpEarned, deathXpLossBp, curve)` from `@rpg/rpg-stats` to heroes that died ("XP earned kept
-before penalty").
+`applyDeathPenalty` (fatal encounter covered **and** `reason === 'completed'`, same rule as the bag loss). The server
+hook adds the XP, then applies `applyDeathXpLoss(totalXp + xpEarned, curve)` from `@rpg/rpg-stats` (level-scaled, open
+curve, #129) to heroes that died ("XP earned kept before penalty"). Until `rpg-idle@2.0.0` the progress also carried a
+flat `deathXpLossBp` (10% of the next level's requirement); that channel is retained, frozen, as `rpgProgressV2`
+(`settlement-v2.ts`) and `rpg-idle@2.1.0` as `rpgProgressV2_1` (`settlement-v2-1.ts`; its bag settlement, summary and
+metrics are those of 2.0.0 and the golden hashes are unchanged).
 
 **Report** (`summarize`): segments, encounters, victories, outcome (whole timeline only), kills, XP per hero, gross gold
 and loot, consumables used, HP summary per hero (start, lowest after a fight, end), retreat reason, and the death log:

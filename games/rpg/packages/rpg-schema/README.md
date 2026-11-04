@@ -19,7 +19,7 @@ integer; percentages and coefficients are basis points (`10000` = 100%).
 | `tables.ts` | `LootTableSchema` (weighted entries, `nothingWeight`, guaranteed drops, gold range), `EncounterTableSchema`. |
 | `gathering.ts` | `ResourceNodeSchema`, `IdleActivitySchema` (`encountersPerHour`, encounter table, resource yields). |
 | `world.ts` | `RpgAreaSchema`, `RpgLocationSchema` and the bare field maps `rpgAreaFields`, `rpgLocationFields`. |
-| `progression.ts` | `XpCurveSchema` (`xpToNext`, strictly increasing), `maxLevel`. |
+| `progression.ts` | `XpCurveSchema` (`xpToNext` table strictly increasing + `tailGrowthBp` for the open-ended tail, #129), `CappedXpCurveSchema` (table only, the pre-#129 shape kept for old snapshots), `maxLevel` (`null` for an open curve). |
 | `predicates.ts` | `createRpgPredicateRegistry()` with `defeated { enemy }` and `levelAtLeast { level }` over `RpgGameContext { defeatedEnemies, level }`. |
 | `collections.ts` | `rpgCollections` (`{ name: { schema, idPrefix } }`), `rpgSingletons`, `rpgEntityExtensions`, `rpgJsonSchemas()`. |
 

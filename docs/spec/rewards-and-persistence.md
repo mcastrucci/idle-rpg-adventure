@@ -37,9 +37,17 @@ Granted only at settlement ([idle-simulation.md §6](idle-simulation.md#6-settle
 
 ## 4. Death penalties (idle solo POC behavior; balance provisional — open decision #8)
 
+XP curve (open decision #2, [#129](https://github.com/mcastrucci/idle-rpg-adventure/issues/129)): the authored table
+`xpToNext = [100, 250, 450, 700, 1000]` is unchanged and the curve has **no maximum level**. Beyond the table
+`xpToNext(L) = ⌊xpToNext(L − 1) × tailGrowthBp / 10000⌋` with `tailGrowthBp = 12500` in `progression/xp-curve.json`
+(1000 → 1250 → 1562 → 1952 → 2440 …). All values are safe integers; when the next threshold would exceed
+`Number.MAX_SAFE_INTEGER` (level 132) the last representable level behaves like a cap. Persisted XP columns are `bigint` (migration `0010_xp_bigint.sql`) and capped by CHECK at `Number.MAX_SAFE_INTEGER`. Existing
+`(level, xp)` pairs keep their meaning; a character that had piled XP up at the old cap (level 6 with ≥ 1250 XP into
+the level) is normalized by migration `0009_open_xp_curve.sql`. Provisional numbers chosen by the owner on 2026-11-04.
+
 | Penalty | Live | Idle |
 |---|---|---|
-| XP | Provisional POC implementation: XP from earlier victories is already persisted (§2), so only the penalty applies: lose `floor(10% × xpToNext[current persisted level])` (the last curve entry at the level cap, as in idle) from authoritative total XP at actual hero death, once per death; may delevel and never below level 1 / zero total XP | On a natural failed completion, add XP earned during the expedition first, then lose 10% of the XP required for the hero's next level. The penalty is floored and XP never falls below zero. |
+| XP | Level-scaled share of total XP, once per death (owner values, 2026-11-04, [#129](https://github.com/mcastrucci/idle-rpg-adventure/issues/129)): XP from earlier victories is already persisted (§2), so only the penalty applies. With `L` the level before the loss, `xpLost = ⌊totalXp × lossBp(L) / 10000⌋` with `lossBp(L) = max(200, 1000 − 20 × (L − 1))` (10% at level 1, 8% at level 11, 2% from level 41), then total XP never ends below the XP at which level `L − 1` starts (a death costs at most one level) and never below level 1 / zero. Provisional | Same function, applied to total XP after adding the XP earned during the expedition, on a natural failed completion. Expeditions started under simulator `rpg-idle@2.0.0` keep their original rule (10% of the XP required for the hero's next level, the last table entry as the reference at and above the old cap) — ADR-0005. Floored; XP never falls below zero. |
 | Run bag / expedition loot | Provisional POC implementation: actual instance-scoped ledger holdings move to corpse | On a natural failed completion, lose `floor(qty × 5000 / 10000)` of each positive gold/item grant in the bag; the odd unit is kept. |
 | Inventory | Provisional: carried consumables used are gone; rest kept | Used escrowed consumables are consumed; unused escrow is returned. A cancellation before actual end settles only revealed segments and applies no death penalty. A cancel at or after actual end is settled as a natural completion, so a revealed fatal segment still incurs the death penalties. |
 | Equipped gear | Provisional: kept in POC (durability/loss deferred) | Kept |
