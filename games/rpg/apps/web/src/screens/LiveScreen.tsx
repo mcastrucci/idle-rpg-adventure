@@ -11,6 +11,7 @@ import { codeText, t, useLocale } from '../i18n/index.ts';
 import type { Params } from '../i18n/index.ts';
 import { DeathPanel, ProvisionalLiveRiskNotice } from './character/DeathPanel.tsx';
 import { LiveCombat } from '../live/combat/LiveCombat.tsx';
+import { SceneViewport } from '../scene/SceneViewport.tsx';
 
 type Props = {
   actorId: string;
@@ -351,6 +352,7 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
         <section className="live-scene" aria-labelledby="live-scene-title">
           <h2 id="live-scene-title">{view.location ? displayLabel(view.location) : t('ui.live.current_location')}</h2>
           <p className="live-scene__area">{t('ui.live.area', { area: view.area ? displayLabel(view.area) : t('ui.live.unknown') })}</p>
+          <SceneViewport locationId={view.location} />
           <div className="live-scene__actors" aria-label={t('ui.live.party_status')}>
             {(view.heroes ?? []).map((hero) => <p key={hero.actorId}>
               <span>{hero.actorId === actorId ? t('ui.common.you') : isUuid(hero.actorId) ? t('ui.common.party_member') : displayLabel(hero.actorId)}</span>

@@ -636,6 +636,7 @@ const UI: Readonly<Record<string, string>> = {
   'ui.live.travel': 'Viajar a {to}',
   'ui.live.unknown': 'Desconocido',
   'ui.live.use_stock': 'Usar {name} · cantidad {qty}',
+  'ui.live.viewport_fallback': 'La vista de escena no está disponible en este dispositivo. Usa los controles de abajo.',
   'ui.live.wait_confirm': 'Espera a que el servidor confirme la acción actual antes de enviar otra.',
   'ui.live.waiting_attach': 'Esperando a que el servidor conecte esta aventura en vivo.',
   'ui.live.waiting_confirmation': 'Esperando la confirmación del servidor…',

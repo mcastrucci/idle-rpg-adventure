@@ -1,0 +1,5 @@
+/* Scene viewport: a fixed-ratio box; the engine canvas fills it. No transitions or animations here (motion lives in the renderer). */
+.scene-viewport { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 260px; overflow: hidden; border-radius: 8px; background: #0b0a10; }
+.scene-viewport[hidden] { display: none; }
+.scene-viewport canvas { position: absolute; inset: 0; }
+.scene-viewport__note { margin: 0; font-size: .85rem; }
