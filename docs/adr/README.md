@@ -14,12 +14,12 @@
 | [0017](0017-reusable-engine-and-game-layers.md) | Reusable engine and game layers in one monorepo | Accepted |
 | [0018](0018-hierarchical-world-graph.md) | Hierarchical world graph (world map → areas → locations) with hubs | Accepted |
 | [0019](0019-game-agnostic-expedition-kernel.md) | Game-agnostic expedition kernel with simulator plugins | Accepted |
-| [0010](0010-scene-renderer.md) | Scene viewport renderer (PixiJS vs Phaser) | Proposed — spike 2 |
-| [0011](0011-capacitor-mobile.md) | Capacitor for future iOS/Android | Proposed — spike 2 |
-| [0012](0012-live-instance-hosting.md) | Live instance hosting: in-house `InstanceHost` (Colyseus evaluated) | Accepted — spike 3 |
+| [0010](0010-scene-renderer.md) | Scene viewport renderer (PixiJS vs Phaser) | Proposed — decision after real-device results in [#12](https://github.com/mcastrucci/idle-rpg-adventure/issues/12) |
+| [0011](0011-capacitor-mobile.md) | Capacitor for future iOS/Android | Proposed — decision after real-device results in [#12](https://github.com/mcastrucci/idle-rpg-adventure/issues/12) |
+| [0012](0012-live-instance-hosting.md) | Live instance hosting: in-house `InstanceHost` (Colyseus evaluated) | Accepted — [spike 3](../spikes/spike-3-live.md) |
 | [0013](0013-tick-and-idle-encounter-model.md) | Combat tick duration and idle encounter model | Accepted — [spike 1](../spikes/spike-1-sim.md) |
-| [0014](0014-tiled-scene-editor.md) | Tiled as the scene layout editor | Proposed — M5 |
+| [0014](0014-tiled-scene-editor.md) | Tiled as the scene layout editor | Proposed — owner decision pending |
 | [0015](0015-data-access-layer.md) | Data access layer (Drizzle) | Accepted |
-| [0016](0016-hosting.md) | Hosting for the POC | Proposed — M2 |
+| [0016](0016-hosting.md) | Hosting for the POC | Proposed — provider decision pending ([#32](https://github.com/mcastrucci/idle-rpg-adventure/issues/32)) |
 
 New ADRs: copy [`0000-template.md`](0000-template.md). Accepted ADRs are never edited in substance — supersede them.
