@@ -8,6 +8,26 @@ Adding a playable location also requires adding its ID to the owning area's `loc
 connection in location JSON (including the matching exit in the adjacent location when the route is bidirectional).
 The `.tmj` file only supplies geometry; it does not create world ownership or graph edges.
 
+## Checklist: add a location with data only
+
+No TypeScript is involved. For a new location `loc:<area>.<name>` in an existing area:
+
+1. Put the background image next to the map, e.g. `scenes/<area>/<name>.png`. Inside the `.tmj`, the image layer path is
+   relative to the `.tmj` file (`<name>.png`); the compiled record stores it relative to the content root.
+2. Save the map as `scenes/<area>/<name>.tmj` with the layers and settings below. Omit object layers you do not need
+   (for example `resources` and `enemyAnchors` when the JSON declares none).
+3. Add `world/locations/<area>/<name>.json` with `"scene": "scenes/<area>/<name>.tmj"` and an `exits[]`/`hotspots[]`/
+   `resources[]`/`enemyAnchors[]` entry for every object in the map, using the exact names.
+4. Add the location ID to the area's `locations` array and add an exit to it in the neighbouring location's JSON (plus
+   the return exit in the new location). Neighbours without a `scene` need no geometry for their exits.
+5. Run `pnpm content:validate` (or `pnpm content-cli build ... --out <file>` to see the bundle).
+
+Common failures: `scene.entityParity` (a JSON exit/hotspot/resource/anchor and the Tiled objects differ by name),
+`scene.mapOrphan` (a `.tmj` that no location's `scene` references), `scene.mapMissing` (a `scene` path with no `.tmj`).
+
+[`no-code-location.test.ts`](../../games/rpg/tools/content-plugin/src/no-code-location.test.ts) automates exactly these
+steps on a copy of the real content, including the three failures above.
+
 ## Tiled map settings
 
 - Save as Tiled JSON (`.tmj`) under `content/scenes/`.

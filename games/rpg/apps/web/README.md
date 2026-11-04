@@ -126,3 +126,50 @@ inventory the stats are shown without gear.
   in the Expeditions tab; the header chip reads the actor's server-provided `activityState`.
 - No sign-in UI yet. An upgraded account's device token is disabled server-side, so this device then shows a fatal
   connection state.
+
+## World map touch evidence (#68)
+
+Opt-in browser evidence that the world map (`@engine/client-kit` `WorldMap`, integrated in #98) works at 360 px width
+with touch pan/zoom. It is **not** part of `pnpm check` and needs Playwright + Chromium on the machine (they are
+deliberately not repository dependencies). Harness: the real production build of this app (`vite preview`, which reuses
+the dev proxy table) against a real local server and PostgreSQL, so the evaluated world comes from the real
+`GET /characters/:actorId/world` with real Region 1/2 content. A character is created through the UI; the debug tool
+`debug.recordWorldProgress` completes `area:region_1` (the debug route is not in the Vite proxy, so the script calls the
+server origin directly; cookies are host-scoped, not port-scoped).
+
+```sh
+pg_isready -h 127.0.0.1 || pg_ctlcluster 16 main start
+createdb -h 127.0.0.1 -U postgres idle_rpg_touch          # or any empty database
+pnpm content-cli build games/rpg/content --game ./games/rpg/tools/content-plugin/src/index.ts --out dist/rpg-content.json
+export DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/idle_rpg_touch CONTENT_BUNDLE_PATH="$PWD/dist/rpg-content.json"
+pnpm --filter @rpg/server db:migrate
+RPG_DEBUG_TOOLS=1 APP_ENV=test pnpm --filter @rpg/server start &     # http://127.0.0.1:3000
+pnpm --filter @rpg/web build
+pnpm --filter @rpg/web exec vite preview --port 4173 --strictPort --host 127.0.0.1 &
+OUT_DIR=/some/dir node games/rpg/apps/web/scripts/world-map-touch-evidence.mjs   # BASE_URL / SERVER_URL override the defaults
+```
+
+Environment: Chromium (Playwright), viewport 360x740, `deviceScaleFactor: 2`, `hasTouch`, `isMobile`. Gestures are raw
+CDP `Input.dispatchTouchEvent` (one finger for pan/tap, two fingers for pinch). Scale limits are read from
+`MIN_MAP_SCALE` / `MAX_MAP_SCALE` in `engine/client-kit/src/world-map-layout.ts` (0.7 / 2.6). Screenshots go to `OUT_DIR`.
+
+| Check | Result (2026-11-04) |
+|---|---|
+| No horizontal page overflow (fresh and Region-1-complete character) | scrollWidth 360 = innerWidth 360 |
+| Single-finger drag pans the map (scale unchanged) | viewport (0,0) -> (197.4,-131.6) |
+| Pinch-out (2x finger spread) zooms in | scale 1.00 -> 2.00 |
+| Pinch-out clamps at documented max | 2.60 |
+| Pinch-in clamps at documented min | 0.70 |
+| Pinch does not zoom the browser page | `visualViewport.scale` 1 |
+| Every area node reachable by touch panning at max zoom (4 nodes: Sanctuary, Verdant Hollow, Region 2, Test Grove) | 4/4, 2-3 drags each (at the initial fit all 4 are already in view) |
+| Node hit areas >= 44x44 CSS px at min, initial and max zoom | 44.00 px smallest |
+| Zoom controls and detail-sheet buttons >= 44x44 CSS px | 44.00 px smallest |
+| Tap on an area opens its detail sheet; close button dismisses it by touch | pass |
+| Locked area (Region 2 for a fresh character) shows "Locked" and its reason ("Conquer the preceding area first."), enter action disabled; dismissible by touch | pass |
+
+Observation (not gating): at the initial fit the three node labels around the Sanctuary overlap each other ("Sanctuary" /
+"The Verdant Hollow" / "Test Grove" are drawn on top of one another because the authored positions are about 64 CSS px
+apart at 360 px width). Zooming in separates them.
+
+Limitation: this is emulated touch in desktop Chromium. It is not real-device acceptance (no iOS Safari, no Android
+WebView, no real multi-touch hardware, no OS gesture or safe-area behaviour); #68 still needs a manual pass on devices.
