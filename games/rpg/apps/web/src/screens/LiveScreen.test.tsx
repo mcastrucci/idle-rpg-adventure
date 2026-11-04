@@ -100,6 +100,41 @@ describe('LiveScreen navigation controller', () => {
     deps.client.stop();
   });
 
+  it('resolves area label keys in the live scene and never prints the raw key', async () => {
+    const snapshot = { ...view(), area: 'area.region_1.name' };
+    const deps = setup({ instanceId, actorId, view: snapshot as unknown as LiveViewDto, participants: [{ actorId, status: 'connected' }] });
+    const socket = await connect(deps);
+    render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
+    await attach(socket, deps.current as NonNullable<typeof deps.current>);
+    await waitFor(() => expect(screen.getByText(/Area:/).textContent).toContain('The Verdant Hollow'));
+    expect(document.body.textContent).not.toContain('area.region_1.name');
+    deps.client.stop();
+  });
+
+  it('falls back to a humanized label for unknown area keys', async () => {
+    const snapshot = { ...view(), area: 'area.region_9.mossy_deep.name' };
+    const deps = setup({ instanceId, actorId, view: snapshot as unknown as LiveViewDto, participants: [{ actorId, status: 'connected' }] });
+    const socket = await connect(deps);
+    render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
+    await attach(socket, deps.current as NonNullable<typeof deps.current>);
+    await waitFor(() => expect(screen.getByText(/Area:/).textContent).toContain('Mossy Deep'));
+    expect(document.body.textContent).not.toContain('area.region_9');
+    deps.client.stop();
+  });
+
+  it('resolves label keys in the entry form area and supply options', async () => {
+    const keyed = { ...options, areas: [{ id: 'area:region_1', label: 'area.region_1.name', startLocationId: 'location:glade' }],
+      supplies: [{ item: 'item:potion', label: 'item.healing_potion.name', availableQty: 3 }] };
+    const deps = setup(null);
+    const fetch = vi.fn(async (input: string) => input === `/live/options/${actorId}` ? Response.json(keyed)
+      : input === `/live/current/${actorId}` ? Response.json(currentResponse(null)) : Response.json({ error: 'not_found' }, { status: 404 }));
+    render(<LiveScreen actorId={actorId} api={new ApiClient(fetch)} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
+    expect(await screen.findByRole('option', { name: 'The Verdant Hollow' })).toBeDefined();
+    expect(screen.getByLabelText('Healing Potion quantity')).toBeDefined();
+    expect(document.body.textContent).not.toContain('area.region_1.name');
+    deps.client.stop();
+  });
+
   it('starts from server options and retries the exact same start command after an ambiguous failure', async () => {
     const deps = setup(null);
     deps.setStartFailure();

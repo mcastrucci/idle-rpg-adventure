@@ -439,14 +439,14 @@ function EntryForm({ options, selectedArea, setSelectedArea, supplies, setSupply
     <p>Choose an available area and supplies. The server sets your starting location and adventure state.</p>
     {options.areas.length === 0 ? <p className="muted">No live areas are currently available.</p> : <label className="live-entry__field">
       <span>Area</span><select value={selectedArea} disabled={disabled} onChange={(event) => setSelectedArea(event.currentTarget.value)}>
-        {options.areas.map((area) => <option key={area.id} value={area.id}>{area.label}</option>)}
+        {options.areas.map((area) => <option key={area.id} value={area.id}>{displayLabel(area.label)}</option>)}
       </select>
     </label>}
     {options.supplies.length > 0 && <fieldset className="live-entry__supplies" disabled={disabled}>
       <legend>Supplies</legend>
       {options.supplies.map((supply) => <label key={supply.item} className="live-entry__supply">
-        <span>{supply.label} <small>Available: {supply.availableQty}</small></span>
-        <input aria-label={`${supply.label} quantity`} type="number" min="0" max={supply.availableQty} step="1"
+        <span>{displayLabel(supply.label)} <small>Available: {supply.availableQty}</small></span>
+        <input aria-label={`${displayLabel(supply.label)} quantity`} type="number" min="0" max={supply.availableQty} step="1"
           value={supplies[supply.item] ?? 0} onChange={(event) => setSupply(supply.item, clampInt(event.currentTarget.value, supply.availableQty))} />
       </label>)}
     </fieldset>}
