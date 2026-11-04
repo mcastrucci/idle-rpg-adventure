@@ -27,6 +27,11 @@ server's same-origin check passes, and the server's `__Host-` session cookie sta
 `http://localhost` (not a LAN IP): browsers accept `Secure` cookies over plain HTTP only on localhost. For a phone on the
 LAN, serve the app over HTTPS behind the same origin as the API.
 
+In production the server serves the built app itself: the Docker image runs `pnpm --filter @rpg/web build` and sets
+`WEB_DIST_DIR`, so the app, API and `/auth/live` share one origin (relative URLs, no client configuration). To try that
+without Docker, build the app and start the server with `WEB_DIST_DIR="$PWD/games/rpg/apps/web/dist"`. Behind a TLS
+proxy or tunnel see [the self-hosting guide](../../../../docs/ops/self-host-tunnel.md).
+
 Other scripts: `pnpm --filter @rpg/web build` (production bundle in `dist/`), `pnpm --filter @rpg/web typecheck`,
 `pnpm vitest run --project @rpg/web`.
 

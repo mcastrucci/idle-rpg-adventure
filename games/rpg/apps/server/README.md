@@ -18,7 +18,7 @@ pnpm --filter @rpg/server db:migrate
 pnpm --filter @rpg/server start
 ```
 
-For a repeatable PostgreSQL + API/live/worker container setup, see [the local container guide](../../../../docs/ops/container.md). The web client remains a separate `pnpm --filter @rpg/web dev` process.
+For a repeatable PostgreSQL + API/live/worker container setup, see [the local container guide](../../../../docs/ops/container.md). The container image also serves the production web build on the same origin (`WEB_DIST_DIR`); during web development keep using `pnpm --filter @rpg/web dev`. Proxy and tunnel settings (`TRUST_PROXY`, `ALLOWED_ORIGINS`) are described in the [self-hosting guide](../../../../docs/ops/self-host-tunnel.md).
 
 Node must support built-in TypeScript stripping (Node 22.18+ or 24). The same executable supports `ROLES=api`,
 `ROLES=live` or `ROLES=worker`. `GET /content` is API-only and exposes `{ game, format, contentHash }`; it does not
@@ -55,8 +55,8 @@ returns the same response without another mutation. Incompatible key reuse is 40
 Authentication handshakes never put credential responses in the game command log.
 
 Cookie-backed browser requests enforce same-origin checks (use a development proxy for the web app). Native clients
-can use Bearer credentials. Configure the auth module's explicit allowed origins when composing a trusted TLS/CDN
-deployment; the server does not enable wildcard CORS.
+can use Bearer credentials. Set `ALLOWED_ORIGINS` (and `TRUST_PROXY` behind a proxy you control) for a trusted TLS/CDN
+deployment; every cookie-checked route and the live WebSocket honour it, and the server does not enable wildcard CORS.
 
 ## Live connection observations
 

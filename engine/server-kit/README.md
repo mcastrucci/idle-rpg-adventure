@@ -26,6 +26,31 @@ Fastify emits JSON request/module lifecycle logs and redacts authorization/cooki
 `SystemClock` is the only wall-time source. Services consume `Clock.nowMs()`; `ManualClock.set/advance` allows time
 travel in tests. Deterministic simulation receives integer times as input, rather than a clock or database handle.
 
+## Reverse proxy and web hosting
+
+Behind a TLS-terminating proxy or tunnel the server sees plain HTTP, so the cookie same-origin check
+(`checkOrigin`: `Origin` must equal `<request.protocol>://<Host>`) would reject every browser mutation and WebSocket
+upgrade. Two explicit, off-by-default settings fix that without loosening the default:
+
+- `TRUST_PROXY` makes Fastify derive `request.protocol` (and `request.ip`, used by the auth rate limits) from
+  `X-Forwarded-*`, but only for connections whose socket address is trusted. Enable it only when the server is reachable
+  solely through a proxy you control; otherwise any client can forge those headers. Prefer an address list over `true`:
+  with `true` the client address is the left-most `X-Forwarded-For` entry, which clients can forge.
+- `ALLOWED_ORIGINS` lists additional exact origins. `createServer` passes them to every module as
+  `ModuleContext.allowedOrigins`; modules must call `checkOrigin(request, context.allowedOrigins)`, and the auth module
+  takes the same list through `createAuthModule({ allowedOrigins })`.
+
+`registerStaticWeb` (`src/static-web.ts`, enabled by `WEB_DIST_DIR`; `createServer({ staticReservedPrefixes })` lists the
+game's API prefixes) serves a built SPA from the same origin. It is installed as the Fastify not-found handler, so it can
+never shadow a registered API, health or WebSocket route. Only `GET`/`HEAD` are served; files are resolved with
+`realpath` and must stay inside the directory (dot-segments, encoded separators, NUL, backslashes, dotfiles and symlinks
+leaving the directory all give 404). Content types come from a fixed extension table, with `nosniff`. `index.html` and
+other unhashed files use `Cache-Control: no-cache` with a weak `ETag`; `assets/*-<hash>.<ext>` (bundler output) is
+`public, max-age=31536000, immutable`. Extension-less paths requested with `Accept: text/html` fall back to
+`index.html` for client-side routing, except under a reserved API prefix, where unknown paths remain JSON 404s. It is a
+small purpose-built handler rather than a new dependency (`@fastify/static`) because the surface is tiny and the
+repository keeps its supply chain minimal. Operational guide: [self-hosting](../../docs/ops/self-host-tunnel.md).
+
 ## Database migrations
 
 Schema definitions live in `src/schema.ts`. `pnpm --filter @engine/server-kit db:generate` generates reviewable SQL,
@@ -52,6 +77,9 @@ explicit local/single-deployment convenience. Queries, connection acquisition an
 | `DB_TIMEOUT_MS` | `5000` | Connection/query/statement timeout (1–120000). |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Hard deadline for draining process shutdown (1–120000). |
 | `MIGRATE_ON_BOOT` | `false` | Explicit `true` enables serialized startup migrations. |
+| `TRUST_PROXY` | off | Fastify `trustProxy`: `true`/`1` trusts every peer; a comma-separated list of IPs, CIDRs and `loopback`/`linklocal`/`uniquelocal` trusts only those proxies; `false`/`0`/unset ignores `X-Forwarded-*`. |
+| `ALLOWED_ORIGINS` | empty | Comma-separated exact browser origins `http(s)://host[:port]` accepted by `checkOrigin` besides the request's own origin. No wildcards, paths or credentials; invalid entries fail boot. |
+| `WEB_DIST_DIR` | unset | Directory of a built single-page app (must contain `index.html`) served on the API origin. Unset disables static hosting. |
 
 CI supplies a real PostgreSQL 16 service on both supported Node versions. Set `TEST_DATABASE_URL` locally to run the
 same integration suites (`pnpm vitest run --project @engine/server-kit --project @rpg/server`). The user must have `CREATEDB`: tests create and drop
