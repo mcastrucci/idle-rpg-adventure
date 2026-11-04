@@ -19,6 +19,35 @@ The server serves the production web build on the same origin as the API and the
 base URL and the `__Host-idle_session` cookie (`Secure; HttpOnly; SameSite=Strict`) stays first-party. TLS ends at
 Cloudflare, so the server only sees plain HTTP and must be told which proxy it may trust (below).
 
+## Quick start (scripts)
+
+After the one-time setup in sections 1 and 2, a single command does sections 3 to 6:
+- updates and rebuilds when asked;
+- migrates;
+- starts the tunnel in the background and writes its URL into `.env`;
+- starts the server and waits until it is ready;
+- prints the URL to open on the phone.
+
+Windows (PowerShell, from the repository root):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\selfhost\up.ps1 -Staging
+```
+
+Add `-Update` to `git pull`, rebuild and migrate first. Drop `-Staging` for the safe default without the debug panel.
+Stop the tunnel and the server (the database keeps its data):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\selfhost\down.ps1
+```
+
+Linux, macOS or WSL: `scripts/selfhost/up.sh --staging [--update]` and `scripts/selfhost/down.sh`. With `make`, the
+same commands are `make selfhost-staging`, `make selfhost-update` and `make selfhost-down`.
+
+The scripts keep the tunnel's process ID and log in `.selfhost/` (git-ignored). A restart gets a new URL, and the
+script updates `.env` and recreates the server for it. The phone then starts a new guest account (section 5). The manual steps
+below remain the reference and the way to debug problems.
+
 ## 1. Prerequisites
 
 - Windows 10 22H2 (or newer) with virtualization enabled and **Docker Desktop** using the **WSL2** backend.

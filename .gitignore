@@ -11,3 +11,6 @@ coverage/
 .env.*
 !.env.example
 *.dump
+
+# Self-hosting script state (tunnel pid and log)
+.selfhost/
