@@ -10,6 +10,39 @@ import { registerStaticWeb } from './static-web.ts';
 
 const HTML = { accept: 'text/html,application/xhtml+xml' };
 
+describe('static web index.html containment', () => {
+  it('refuses to start when index.html is a symlink escaping the directory', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'static-web-index-'));
+    try {
+      const dist = join(base, 'dist');
+      await mkdir(dist, { recursive: true });
+      await writeFile(join(base, 'outside.txt'), 'outside the dist directory');
+      await symlink(join(base, 'outside.txt'), join(dist, 'index.html'));
+      const app = Fastify({ logger: false });
+      await expect(registerStaticWeb(app, { dir: dist })).rejects.toThrow('index.html');
+      await app.close();
+    } finally { await rm(base, { recursive: true, force: true }); }
+  });
+
+  it('serves a symlinked index.html that stays inside the directory at / and through the SPA fallback', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'static-web-index-'));
+    const app = Fastify({ logger: false });
+    try {
+      const dist = join(base, 'dist');
+      await mkdir(dist, { recursive: true });
+      await writeFile(join(dist, 'shell.html'), '<!doctype html><title>inside</title>');
+      await symlink(join(dist, 'shell.html'), join(dist, 'index.html'));
+      await registerStaticWeb(app, { dir: dist });
+      await app.ready();
+      for (const url of ['/', '/world/live']) {
+        const response = await app.inject({ url, headers: HTML });
+        expect(response.statusCode, url).toBe(200);
+        expect(response.body).toContain('<title>inside</title>');
+      }
+    } finally { await app.close(); await rm(base, { recursive: true, force: true }); }
+  });
+});
+
 describe('same-origin static web hosting', () => {
   let base: string;
   let app: FastifyInstance;

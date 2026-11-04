@@ -30,8 +30,11 @@ const HASHED_ASSET = /^\/assets\/(?:.+\/)?[^/]+-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+(
  */
 export async function registerStaticWeb(app: FastifyInstance, options: StaticWebOptions): Promise<void> {
   const root = await realpath(options.dir).catch(() => { throw new Error('static web directory does not exist'); });
-  const index = join(root, 'index.html');
-  if (!(await stat(index).then((entry) => entry.isFile(), () => false))) throw new Error('static web directory must contain index.html');
+  // index.html gets the same realpath containment as every other file: a symlink pointing outside `dir` is refused, and
+  // the validated real path is what `/` and the SPA fallback serve.
+  const resolvedIndex = await regularFileInside(join(root, 'index.html'));
+  if (resolvedIndex === undefined) throw new Error('static web directory must contain a regular index.html inside it');
+  const index: string = resolvedIndex;
   const reserved = (options.reservedPrefixes ?? []).map((prefix) => prefix.replace(/\/+$/, ''));
 
   app.setNotFoundHandler(async (request, reply) => {
