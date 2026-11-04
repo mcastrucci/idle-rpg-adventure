@@ -8,6 +8,11 @@
  * game math is integer/basis points, no clocks and no I/O. Durable records (discoveries, boss defeats) leave the plugin
  * as `LiveStep.effects` and are committed by the store in the checkpoint/close transaction (see `effects.ts`).
  *
+ * XP (rewards-and-persistence §2, owner decision 2026-11-04): each combat victory grants its XP to the surviving
+ * fighters immediately, as an `xpGranted` effect committed with the combat-end checkpoint (idempotency key
+ * `<instance>:xp:<victory action>:<actor>`). The hero's in-state level follows at once but only feeds the next
+ * encounter's derived stats (`startCombat`); `returnToSanctuary` grants no XP and death applies only the penalty.
+ *
  * Provisional rules (docs/open-decisions.md #14, #17, #18, #20, #21 — implemented provisionally by #38, pending
  * playtest) are named constants or isolated functions below so a decision change touches one place.
  */
@@ -18,8 +23,7 @@ import type { AreaId, LocationId } from '@engine/world';
 import { createCombat, ENGINE_VERSION, rpgIdleContentFromBundle, rollLoot, step } from '@rpg/rpg-sim';
 import type { CombatContent, CombatInput, CombatState, ConsumableStack, HeroSetup, RpgIdleContent } from '@rpg/rpg-sim';
 import type { AutomationRule, ConsumableItem } from '@rpg/rpg-schema';
-import { DEFAULT_STAT_FORMULAS, deriveStats } from '@rpg/rpg-stats';
-import { totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
+import { DEFAULT_DEATH_XP_LOSS_BP, DEFAULT_STAT_FORMULAS, applyXpLoss, deriveStats, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
 import type { DeriveStatsInput } from '@rpg/rpg-stats';
 import { XpCurveSchema } from '@rpg/rpg-schema';
 
@@ -355,12 +359,14 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       if (causes.length === 0) causes.push({ sourceId: combat.actors.find(actor => actor.id === evidence?.killerId)?.enemy ?? evidence?.killerId ?? 'unknown',
         label: 'live.death.cause.unknown', damage: 0 });
       const actorId = hero.actorId;
-      const xpLost = Math.min(hero.xp, Math.floor((xpCurve.xpToNext[hero.build.level - 1] ?? 0) / 10));
-      hero.xp = Math.max(0, hero.xp - xpLost);
-      hero.build = { ...hero.build, level: xpProgress(hero.xp, xpCurve).level };
+      // Same helper as idle settlement and the fenced `heroDied` effect, which recomputes it from the persisted row.
+      // Everything earned by earlier victories of this instance is already persisted, so only the penalty remains.
+      const loss = applyXpLoss(hero.xp, DEFAULT_DEATH_XP_LOSS_BP, xpCurve);
+      hero.xp = loss.totalXp;
+      hero.build = { ...hero.build, level: loss.level };
       state.runBag[actorId] = { items: {}, gold: 0, uniques: [] };
       effects.push({ type: 'heroDied', actorId, areaId: state.area, locationId: state.location, causes, xpToNext: xpCurve.xpToNext });
-      events.push({ type: 'heroDied', actorId, causes });
+      events.push({ type: 'heroDied', actorId, causes, xpLost: loss.xpLost, levelBefore: loss.levelBefore, levelAfter: loss.level });
     }
     state.combatDeaths = {};
   }
@@ -391,11 +397,17 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       onDeath: ['live.death.run_bag_to_corpse', 'live.death.xp_penalty'],
       deathConsequences: state.heroes.filter(hero => hero.present).map(hero => {
         const bag = state.runBag[hero.actorId] ?? { items: {}, gold: 0, uniques: [] };
-        return { actorId: hero.actorId, xpLost: Math.min(hero.xp, Math.floor((xpCurve.xpToNext[hero.build.level - 1] ?? 0) / 10)),
+        return { actorId: hero.actorId, xpLost: applyXpLoss(hero.xp, DEFAULT_DEATH_XP_LOSS_BP, xpCurve).xpLost,
           xpBeforeTotal: hero.xp, runBag: { items: Object.entries(bag.items).sort(([a], [b]) => a.localeCompare(b)).map(([item, qty]) => ({ item, qty })),
             gold: bag.gold, uniques: (bag.uniques ?? []).map(item => ({ ...item, rolls: item.rolls as JsonValue })) } };
       }),
     };
+  }
+
+  /** Progress inside the current level for client display (`xpToNext` is `null` at the level cap). */
+  function xpView(totalXp: number): { xpIntoLevel: number; xpToNext: number | null } {
+    const progress = xpProgress(totalXp, xpCurve);
+    return { xpIntoLevel: progress.xpIntoLevel, xpToNext: progress.xpToNext };
   }
 
   function summary(state: RpgLiveState): JsonValue {
@@ -625,7 +637,9 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
         const actionId = `victory:${group.id}`;
         const xpEach = group.enemies.reduce((sum, enemy) => sum + (combatContent.enemies[enemy]?.xp ?? 0), 0);
         const rewards = fighters.map((hero) => ({ actorId: hero.actorId, xp: xpEach,
-          drops: [] as { item: string; qty: number; kind: 'stack' | 'unique_mint' }[], gold: 0 }));
+          drops: [] as { item: string; qty: number; kind: 'stack' | 'unique_mint' }[], gold: 0,
+          // Filled below from the hero's total XP; shown by clients as "+xp" and "level a -> b".
+          levelBefore: hero.build.level, levelAfter: hero.build.level, xpIntoLevel: 0, xpToNext: null as number | null }));
         for (const [enemyIndex, enemyId] of group.enemies.entries()) {
           const tableId = combatContent.enemies[enemyId]?.lootTable;
           if (!tableId || rewards.length === 0) continue;
@@ -639,8 +653,12 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
         for (const reward of rewards) {
           const hero = ended.heroes.find((h) => h.actorId === reward.actorId);
           if (!hero) continue;
+          // The level is applied to the hero's build now but only read when the next encounter starts
+          // (`startCombat` derives stats from `hero.build`), so a level-up never changes a fight in progress.
           hero.xp += reward.xp;
-          hero.build = { ...hero.build, level: xpProgress(hero.xp, xpCurve).level };
+          const progress = xpProgress(hero.xp, xpCurve);
+          hero.build = { ...hero.build, level: progress.level };
+          reward.levelAfter = progress.level; reward.xpIntoLevel = progress.xpIntoLevel; reward.xpToNext = progress.xpToNext;
           addLoot(ended, hero.actorId, reward.drops, reward.gold);
           if (reward.xp > 0) effects.push({ type: 'xpGranted', actionId, actorId: hero.actorId, xp: reward.xp,
             xpToNext: xpCurve.xpToNext });
@@ -693,7 +711,7 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
           const actor = combat?.actors.find((candidate) => candidate.side === 'hero' && candidate.id === hero.actorId);
           return { actorId: hero.actorId, hp: actor?.hp ?? hero.hp, maxHp: actor?.stats.maxHp ?? maxHp(hero), present: hero.present,
           consumables: (actor?.consumables ?? hero.consumables).map((stack) => ({ ...stack,
-            ...(combatContent.items[stack.item]?.nameKey ? { labelKey: combatContent.items[stack.item]?.nameKey } : {}) })), level: hero.build.level, xp: hero.xp,
+            ...(combatContent.items[stack.item]?.nameKey ? { labelKey: combatContent.items[stack.item]?.nameKey } : {}) })), level: hero.build.level, xp: hero.xp, ...xpView(hero.xp),
           skills: hero.skills.filter((skill) => skill !== BASIC_ATTACK_SKILL).slice(0, 4).map((id, index) => {
             const skill = combatContent.skills[id];
             const readyAtTick = actor?.cooldowns[id] ?? 0;

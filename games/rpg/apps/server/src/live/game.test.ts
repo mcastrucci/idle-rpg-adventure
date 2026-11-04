@@ -58,6 +58,82 @@ function fight(state: RpgLiveState, groupId: string): { last: LiveStep<RpgLiveSt
   return { last: current, ticks };
 }
 
+describe('RPG live plugin: XP at victory and death', () => {
+  const SLIMES_2 = { id: 'group:slimes_2', enemies: ['enemy:test_grove.slime'] };
+  const withSlimes = (xp: number, level = 1) => start({ location: 'loc:test_grove.entrance', groups: [SLIMES, SLIMES_2, WARDENS], heroes: [hero(HERO, {
+    build: { level, attributes: { ...PROVISIONAL_STARTER_ATTRIBUTES }, equipment: [] }, xp })] });
+  const viewHero = (state: RpgLiveState) => (game.view(state, HERO) as unknown as { heroes: { level: number; xp: number; xpIntoLevel: number;
+    xpToNext: number | null; maxHp: number }[] }).heroes[0];
+  const events = (step: LiveStep<RpgLiveState>) => (step.events ?? []) as { type?: string; rewards?: Record<string, unknown>[] }[];
+
+  it('emits one durable xpGranted effect per surviving fighter at victory and reports the level-up', () => {
+    const start95 = withSlimes(95);
+    const before = viewHero(start95);
+    expect(before).toMatchObject({ level: 1, xp: 95, xpIntoLevel: 95, xpToNext: 100 });
+    const { last } = fight(start95, SLIMES.id);
+    const grants = (last.effects ?? []).filter((effect) => (effect as { type?: string }).type === 'xpGranted');
+    expect(grants).toEqual([{ type: 'xpGranted', actionId: `victory:${SLIMES.id}`, actorId: HERO, xp: 10,
+      xpToNext: [100, 250, 450, 700, 1000] }]);
+    const rewards = events(last).find((event) => event.type === 'combatRewards')?.rewards?.[0];
+    expect(rewards).toMatchObject({ actorId: HERO, xp: 10, levelBefore: 1, levelAfter: 2, xpIntoLevel: 5, xpToNext: 250 });
+    expect(viewHero(last.state)).toMatchObject({ level: 2, xp: 105, xpIntoLevel: 5, xpToNext: 250 });
+    expect(last.checkpoint).toBe(true); // the effect commits with this very checkpoint
+  });
+
+  it('applies the new level from the next encounter only: the finished fight used the old level, the next one the new stats', () => {
+    const state = withSlimes(95);
+    const engaged = ok(game.applyCommand(state, HERO, { type: 'engage', groupId: SLIMES.id }));
+    const levelOneMaxHp = engaged.state.combat?.actors.find((actor) => actor.id === HERO)?.stats.maxHp;
+    const { last } = fight(state, SLIMES.id);
+    const next = ok(game.applyCommand(last.state, HERO, { type: 'engage', groupId: SLIMES_2.id }));
+    const levelTwoMaxHp = next.state.combat?.actors.find((actor) => actor.id === HERO)?.stats.maxHp;
+    expect(levelOneMaxHp).toBeDefined();
+    expect(levelTwoMaxHp).toBeGreaterThan(levelOneMaxHp as number);
+    expect(viewHero(last.state)?.maxHp).toBe(levelTwoMaxHp); // idle view also shows the new level's stats
+    // The checkpoint taken at the victory restores the level together with the XP that caused it.
+    const restored = game.restore(JSON.parse(JSON.stringify(game.serialize(last.state))) as JsonValue);
+    expect(viewHero(restored)).toMatchObject({ level: 2, xp: 105 });
+  });
+
+  it('keeps XP of earlier victories and returning to the Sanctuary grants nothing', () => {
+    const first = fight(withSlimes(0), SLIMES.id).last;
+    const second = fight(first.state, SLIMES_2.id).last;
+    expect(viewHero(second.state)).toMatchObject({ level: 1, xp: 20 });
+    expect((second.effects ?? []).filter((effect) => (effect as { type?: string }).type === 'xpGranted')).toHaveLength(1);
+    expect(new Set([first, second].flatMap((step) => (step.effects ?? []).map((effect) => (effect as { actionId?: string }).actionId)))
+      .size).toBe(2); // distinct victory actions have distinct idempotency keys
+    const returned = ok(game.applyCommand(second.state, HERO, { type: 'returnToSanctuary' }));
+    expect(returned.close?.outcome).toBe('returned');
+    expect((returned.effects ?? []).filter((effect) => (effect as { type?: string }).type === 'xpGranted')).toEqual([]);
+    expect(viewHero(returned.state)).toMatchObject({ level: 1, xp: 20 });
+  });
+
+  it('applies only the death penalty at death (earned XP stays), may de-level, and never goes below level 1 / zero XP', () => {
+    // Level 2 with 20 XP into the level (total 120): victory +10 -> 130, then the warden pack kills the hero and the
+    // penalty floor(10% x 250) = 25 leaves total 105, still level 2 (the level starts at total 100).
+    const won = fight(withSlimes(20, 2), SLIMES.id).last;
+    expect(viewHero(won.state)).toMatchObject({ level: 2, xp: 130 });
+    const died = fight(won.state, WARDENS.id).last;
+    const dead = events(died).find((event) => event.type === 'heroDied');
+    expect(dead).toMatchObject({ actorId: HERO, xpLost: 25, levelBefore: 2, levelAfter: 2 });
+    expect(viewHero(died.state)).toMatchObject({ level: 2, xp: 105 });
+    expect((died.effects ?? []).filter((effect) => (effect as { type?: string }).type === 'xpGranted')).toEqual([]);
+    expect((died.effects ?? []).filter((effect) => (effect as { type?: string }).type === 'heroDied')).toHaveLength(1);
+    // De-level: total 110 (level 2, 10 into the level) loses 25 -> 85 -> level 1.
+    const delevelled = fight(withSlimes(10, 2), WARDENS.id).last;
+    expect(events(delevelled).find((event) => event.type === 'heroDied')).toMatchObject({ xpLost: 25, levelBefore: 2, levelAfter: 1 });
+    expect(viewHero(delevelled.state)).toMatchObject({ level: 1, xp: 85 });
+    // At the level cap (6) the last curve entry is the reference, exactly like idle settlement: floor(1000 / 10).
+    const capped = fight(withSlimes(200, 6), WARDENS.id).last;
+    expect(events(capped).find((event) => event.type === 'heroDied')).toMatchObject({ xpLost: 100, levelBefore: 6, levelAfter: 6 });
+    expect(viewHero(capped.state)).toMatchObject({ level: 6, xp: 2600 });
+    // Level 1 with 0 XP loses nothing.
+    const floor = fight(withSlimes(0), WARDENS.id).last;
+    expect(events(floor).find((event) => event.type === 'heroDied')).toMatchObject({ xpLost: 0, levelBefore: 1, levelAfter: 1 });
+    expect(viewHero(floor.state)).toMatchObject({ level: 1, xp: 0 });
+  });
+});
+
 describe('RPG live plugin: combat', () => {
   it('wins against slimes with automation, checkpointing the end of combat back in exploring', () => {
     const { last } = fight(init(), SLIMES.id);
