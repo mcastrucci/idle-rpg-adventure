@@ -7,6 +7,17 @@ const actorId = 'actor-1';
 const row = { actorId, status: 'completed' as const, startsAtMs: 1_000, endsAtMs: 6_000, settledAt: new Date(6_000), outcome: 'failed' as const };
 
 describe('persisted expedition result projection', () => {
+  it('projects XP beyond 32 bits (#129) unchanged', () => {
+    const big = 4_000_000_000;
+    const result = projectExpeditionResultReport({ ...row, outcome: 'completed' }, {
+      version: 1, kind: 'settled', reason: 'completed', cutoff: 0, outcome: 'completed', endsAtMs: 6_000,
+      summary: { kills: {}, consumablesUsed: {}, hp: [], deathLog: null }, segments: [{ events: [] }], revealedDeltas: [], settledDeltas: [],
+      xp: [{ actorId, xpEarned: 30, xpPenaltyLost: 0, xpBefore: big, xpAfter: big + 30 }],
+    });
+    expect(result.xp).toEqual({ earned: 30, penaltyLost: 0, net: 30, beforeTotal: big, afterTotal: big + 30 });
+    expect(result.finalState.xpTotal).toBe(big + 30);
+  });
+
   it('reports actual secured bag totals and actual XP loss without replaying policy', () => {
     const result = projectExpeditionResultReport(row, {
       version: 1, kind: 'settled', reason: 'completed', cutoff: 0, outcome: 'failed', endsAtMs: 6_000,

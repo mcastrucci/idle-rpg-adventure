@@ -501,6 +501,72 @@ describe.skipIf(!adminUrl)('expedition deployment compatibility against real Pos
     }
   }, 60_000);
 
+  it('migration 0010 widens every XP column to bigint without changing existing rows (#129)', async () => {
+    const sql = await readFile(fileURLToPath(new URL('../../migrations/0010_xp_bigint.sql', import.meta.url)), 'utf8');
+    const statements = sql.split('--> statement-breakpoint').map(statement => statement.trim()).filter(Boolean);
+    const columns = [['rpg_characters', 'xp'], ['rpg_live_deaths', 'xp_before_into_level'], ['rpg_live_deaths', 'xp_before_total'],
+      ['rpg_live_deaths', 'xp_lost'], ['rpg_live_deaths', 'xp_after_into_level'], ['rpg_live_deaths', 'xp_after_total']] as const;
+    const typeOf = async (table: string, column: string) => (await database.pool.query<{ data_type: string }>(
+      'SELECT data_type FROM information_schema.columns WHERE table_name=$1 AND column_name=$2', [table, column])).rows[0]?.data_type;
+    for (const [table, column] of columns) expect(await typeOf(table, column), `${table}.${column}`).toBe('bigint');
+    // Rebuild the pre-migration state (32-bit columns and the old CHECKs), put known rows in it, then re-apply 0010.
+    const { character } = await fixture();
+    for (const [table, column] of columns) await database.pool.query(`ALTER TABLE ${table} ALTER COLUMN ${column} TYPE integer`);
+    await database.pool.query('UPDATE rpg_characters SET level=9, xp=2147483647 WHERE actor_id=$1', [character.actorId]);
+    await database.pool.query(`INSERT INTO rpg_live_deaths (death_id, actor_id, instance_id, area_id, location_id, occurred_at, expires_at, status,
+      xp_before_level, xp_before_into_level, xp_before_total, xp_lost, xp_after_level, xp_after_into_level, xp_after_total, causes, bag_snapshot)
+      VALUES ($1,$2,$3,'area:a','loc:a',now(),now(),'expired',9,2147483647,2147483647,5,9,2147483642,2147483642,'[]','{"stacks":[],"gold":0,"uniques":[]}')`,
+      [randomUUID(), character.actorId, randomUUID()]);
+    for (const statement of statements) await database.pool.query(statement);
+    for (const [table, column] of columns) expect(await typeOf(table, column), `${table}.${column}`).toBe('bigint');
+    const migrated = await database.pool.query('SELECT level, xp::text AS xp FROM rpg_characters WHERE actor_id=$1', [character.actorId]);
+    expect(migrated.rows[0]).toEqual({ level: 9, xp: '2147483647' });
+    const death = await database.pool.query(`SELECT xp_before_into_level::text a, xp_before_total::text b, xp_lost::text c, xp_after_into_level::text d,
+      xp_after_total::text e FROM rpg_live_deaths WHERE actor_id=$1`, [character.actorId]);
+    expect(death.rows[0]).toEqual({ a: '2147483647', b: '2147483647', c: '5', d: '2147483642', e: '2147483642' });
+    // 64-bit values now fit, up to the safe-integer ceiling; beyond it the CHECK refuses the write.
+    await database.pool.query('UPDATE rpg_characters SET xp=9007199254740991 WHERE actor_id=$1', [character.actorId]);
+    await expect(database.pool.query('UPDATE rpg_characters SET xp=9007199254740992 WHERE actor_id=$1', [character.actorId]))
+      .rejects.toMatchObject({ code: '23514' });
+    await database.pool.query('UPDATE rpg_characters SET level=1, xp=0 WHERE actor_id=$1', [character.actorId]);
+    await database.pool.query('DELETE FROM rpg_live_deaths WHERE actor_id=$1', [character.actorId]);
+  }, 60_000);
+
+  it('settles XP across the 32-bit boundary under the 2.1.0 policy at level 71 and the same grant under 2.0.0 (#129)', async () => {
+    const INT32_MAX = 2_147_483_647;
+    const open = { xpToNext: [100, 250, 450, 700, 1000], tailGrowthBp: 12_500 };
+    const hero = await fixture();
+    const legacy = await fixture();
+    for (const { character } of [hero, legacy]) {
+      await database.db.update(characters).set({ level: 71, xp: INT32_MAX - 20 }).where(eq(characters.actorId, character.actorId));
+    }
+    const settle = async (who: Fixture, legacyPolicy: boolean) => {
+      const character = { ...who.character, level: 71, xp: INT32_MAX - 20 };
+      nextSeed = findSurvivingSeed(bundleA, character);
+      const started = await startAndVerify(who.session, who.character.actorId);
+      if (legacyPolicy) await database.pool.query(`UPDATE rpg_expeditions SET simulator_version='rpg-idle@2.0.0+rpg-sim@1.1.0',
+        snapshot = snapshot - 'xpTailGrowthBp' WHERE id=$1`, [started.id]);
+      const row = await persisted(started.id);
+      clock.set(row.endsAtMs);
+      expect((await get(who.session, started.id, appA)).json<DeploymentDto>().state).toBe('completed');
+      const report = (await terminalReport(started.id))?.xp[0];
+      if (!report) throw new Error('missing settled XP row');
+      return report;
+    };
+    for (const [who, legacyPolicy] of [[hero, false], [legacy, true]] as const) {
+      const report = await settle(who, legacyPolicy);
+      const total = totalXpFromLevelProgress(71, INT32_MAX - 20, open);
+      expect(report).toMatchObject({ xpBefore: total, xpPenaltyApplied: false, xpAfter: total + report.xpEarned });
+      expect(report.xpEarned).toBeGreaterThan(20); // crosses INT32_MAX inside level 71
+      const progress = xpProgress(total + report.xpEarned, open);
+      const row = (await database.db.select().from(characters).where(eq(characters.actorId, who.character.actorId)))[0];
+      expect(row).toMatchObject({ level: progress.level, xp: progress.xpIntoLevel });
+      expect(progress.xpIntoLevel).toBeGreaterThan(INT32_MAX);
+      expect(await database.db.transaction(tx => checkLedgerInvariants(tx, [who.character.actorId], []))).toEqual([]);
+      clock.set(START_AT);
+    }
+  }, 90_000);
+
   it('recovers an unknown simulator tuple by returning exact escrow once, without XP or rewards, across job and cancel races', async () => {
     const { session, character } = await fixture(2);
     const started = await startAndVerify(session, character.actorId, { consumableQty: 1 });
@@ -598,6 +664,27 @@ function findFatalSeed(bundle: unknown, character: CharacterDto): number {
       kept.filter(delta => delta.from === undefined).reduce((sum, delta) => sum + delta.qty, 0)) return seed;
   }
   throw new Error('no fatal simulator seed with both XP and bag rewards found');
+}
+
+/** A seed whose run ends without a death and earns more than 20 XP (so XP can cross a boundary without a penalty). */
+function findSurvivingSeed(bundle: unknown, character: CharacterDto): number {
+  const content = rpgIdleContentFromBundle(bundle as never);
+  const registry = createRpgActivityRegistry(content);
+  const simulator = registry.get(HUNT);
+  if (!simulator) throw new Error(`missing simulator ${HUNT}`);
+  const snapshots = [snapshotRpgActor(character as never, [], bundle as never)];
+  const evalContexts = [{ actor: createActorWorldState({ completedAreas: [REGION] }), game: { defeatedEnemies: new Set<string>(), level: character.level } }];
+  const gate = checkStart({ world: (bundle as { world: unknown }).world as never,
+    request: { areaId: REGION, activityId: HUNT, durationMin: 60, paceBp: 10_000 }, activities: registry,
+    simulator, rawConfig: DEFAULT_CONFIG, actors: snapshots, evalContexts, predicates: createRpgPredicateRegistry() });
+  if (!gate.ok) throw new Error(`surviving seed fixture failed start gate: ${gate.code}`);
+  for (let seed = 1; seed <= 200; seed++) {
+    const timeline = simulator.simulate({ config: gate.config, actors: snapshots, seed, budget: gate.budget, areaId: REGION, activityId: HUNT }) as Timeline<RpgIdleEvent, RpgIdleState>;
+    if (timeline.outcome === 'failed') continue;
+    const progress = rpgProgress(timeline, timeline.segments.length - 1, 'completed');
+    if ((progress.actors.find(actor => actor.actorId === character.actorId)?.xpEarned ?? 0) > 20) return seed;
+  }
+  throw new Error('no surviving simulator seed with XP found');
 }
 
 /** Picks a real simulator seed with a visible partial prefix before its natural early end. */

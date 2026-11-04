@@ -115,6 +115,8 @@ the XP the next level requires, from the capped table, so an in-flight run settl
 Both read and write the character's `(level, xp)` with the open-ended curve (a `2.0.0` snapshot has no tail and uses
 `DEFAULT_XP_TAIL_GROWTH_BP`), so total XP is identical to the capped era and XP above the old cap becomes levels.
 
+XP columns (`rpg_characters.xp` and the XP quantities of `rpg_live_deaths`) are `bigint` read as JS numbers, with CHECKs capping them at `Number.MAX_SAFE_INTEGER`: the open-ended curve passes 32 bits of in-level XP at level 71, and its hard ceiling is the last safe-integer level (132). `rpg_live_xp_events.granted_xp` was already `bigint`. Expedition terminal reports are JSON, and the report projection and protocol parser bound XP fields by the safe-integer range (gold, loot and counters keep their 32-bit bound).
+
 If a running expedition has no registered policy, reads and history remain available as a minimal metadata view
 (`segments: []`, no outcome, and `recoveryAvailable: true`); lazy settlement waits for an operator/player recovery
 instead of decoding an unknown timeline or applying current/default rules. The owner can call

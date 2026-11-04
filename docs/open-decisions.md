@@ -47,8 +47,9 @@ Owner decision, 2026-11-04 (provisional values, [#129](https://github.com/mcastr
   `xpToNext(L) = ⌊xpToNext(L − 1) × tailGrowthBp / 10000⌋`: 1000 → 1250 → 1562 → 1952 → 2440 → 3050 …. There is **no
   maximum level**.
 - Integer math on safe integers. The last level whose next threshold still fits in `Number.MAX_SAFE_INTEGER` (level
-  130+) acts as a cap, deterministically; the PostgreSQL `xp` columns are 32-bit, which already limits an in-level value
-  to ~2.1 billion (about level 64) — both are far beyond what play can reach and are noted limitations, not design.
+  132) acts as a deterministic cap; that safe-integer ceiling is the only limit. Every persisted XP quantity is a
+  PostgreSQL `bigint` read and written as a JS safe integer (migration `0010_xp_bigint.sql`; in-level XP passes 32 bits
+  at level 71), so reward settlement never fails on an XP value below that ceiling.
 - Only the character that had piled XP up at the old cap (level 6 with ≥ 1250 XP into the level) changes: migration
   `0009_open_xp_curve.sql` turns its overflow into levels without changing total XP.
 - Expedition snapshots persist the table and `tailGrowthBp`, so settlement never depends on deployed content. Whether

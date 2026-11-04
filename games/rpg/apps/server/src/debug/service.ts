@@ -25,7 +25,7 @@ export const DebugGrantSchema = z.strictObject({
   gold: z.int().min(1).max(1_000_000_000).optional(),
   items: z.array(z.strictObject({ item: contentId, qty: z.int().min(1).max(10_000) })).min(1).max(20).optional(),
 }).refine(value => value.gold !== undefined || value.items !== undefined, 'grant must not be empty');
-export const DebugProgressionSchema = z.strictObject({ actorId, level: z.int().min(1).max(10_000), xp: z.int().min(0).max(2_147_483_647).default(0) });
+export const DebugProgressionSchema = z.strictObject({ actorId, level: z.int().min(1).max(10_000), xp: z.int().min(0).max(Number.MAX_SAFE_INTEGER).default(0) });
 export const DebugWorldProgressSchema = z.strictObject({
   actorId,
   completedAreas: z.array(contentId).max(50).optional(),

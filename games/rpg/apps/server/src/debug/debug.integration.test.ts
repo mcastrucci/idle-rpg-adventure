@@ -178,6 +178,9 @@ describe.skipIf(!adminUrl)('debug/admin tools against real PostgreSQL', () => {
     expect([past.json<Character>().level, past.json<Character>().xp]).toEqual([7, 1_561]);
     expect((await setProgression(session, character.actorId, { level: 7, xp: 1_562 })).json()).toEqual({ error: 'invalid_progression' });
     expect((await setProgression(session, character.actorId, { level: 9_999 })).json()).toEqual({ error: 'invalid_progression' }); // beyond the safe-integer bound
+    const wide = await setProgression(session, character.actorId, { level: 71, xp: 2_400_000_000 }); // beyond 32 bits, < 2,486,920,696
+    expect(wide.statusCode).toBe(200);
+    expect([wide.json<Character>().level, wide.json<Character>().xp]).toEqual([71, 2_400_000_000]);
     expect((await setProgression(session, character.actorId, { level: 6, xp: 1_249 })).statusCode).toBe(200);
   });
 

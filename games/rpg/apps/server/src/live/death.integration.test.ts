@@ -15,6 +15,7 @@ import plugin from '@rpg/content-plugin';
 import { desc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { applyDeathXpLoss, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
 import { createCharacterService } from '../characters/service.ts';
 import { characters } from '../characters/schema.ts';
 import { createRpgDatabase, createRpgServer } from '../index.ts';
@@ -537,6 +538,36 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     expect(death).toMatchObject({ xpBeforeLevel: 7, xpBeforeIntoLevel: 300, xpBeforeTotal: 4055, xpLost: 356,
       xpAfterLevel: 6, xpAfterIntoLevel: 1194, xpAfterTotal: 3699 });
     expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0]).toMatchObject({ level: 6, xp: 1194 });
+    expect(await issues(who.actorId)).toEqual([]);
+  }, 60_000);
+
+  it('applies the death loss at level 71 with 64-bit XP columns: in-level XP and totals beyond INT32_MAX (#129)', async () => {
+    const who = await player('Beyond int32', false);
+    const INT32_MAX = 2_147_483_647;
+    const curve = { xpToNext: (content.collections['progression']?.[0] as unknown as { xpToNext: number[] }).xpToNext, tailGrowthBp: 12_500 };
+    const inLevel = INT32_MAX + 1_000; // level 71 needs 2,486,920,696
+    await database.db.update(characters).set({ level: 71, xp: inLevel }).where(eq(characters.actorId, who.actorId));
+    const before = totalXpFromLevelProgress(71, inLevel, curve);
+    const expected = applyDeathXpLoss(before, curve);
+    expect(before).toBeGreaterThan(INT32_MAX);
+    expect(expected.lossBp).toBe(200);
+    const effect = { type: 'heroDied', actorId: who.actorId, areaId: 'area:test_grove', locationId: ENTRANCE,
+      causes: [{ sourceId: 'enemy:test_grove.slime', label: 'live.death.cause.test', damage: 1 }],
+      xpToNext: curve.xpToNext, xpTailGrowthBp: 12_500 };
+    await database.db.transaction(tx => applyRpgLiveEffects(tx, { instanceId: randomUUID(), participants: [{ actorId: who.actorId }] },
+      [effect as never], clock.nowMs(), { type: 'close' }));
+    const death = await deathRow(who.actorId);
+    const after = xpProgress(expected.totalXp, curve);
+    expect(death).toMatchObject({ xpBeforeLevel: 71, xpBeforeIntoLevel: inLevel, xpBeforeTotal: before, xpLost: expected.xpLost,
+      xpAfterLevel: after.level, xpAfterIntoLevel: after.xpIntoLevel, xpAfterTotal: expected.totalXp });
+    expect(death.xpBeforeIntoLevel).toBeGreaterThan(INT32_MAX);
+    expect(death.xpLost).toBe(Math.floor((before * 200) / 10_000));
+    expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0])
+      .toMatchObject({ level: after.level, xp: after.xpIntoLevel });
+    // Exactly once: re-delivery for the same instance is a no-op.
+    await database.db.transaction(tx => applyRpgLiveEffects(tx, { instanceId: death.instanceId, participants: [{ actorId: who.actorId }] },
+      [effect as never], clock.nowMs(), { type: 'close' }));
+    expect(await database.db.select().from(liveDeaths).where(eq(liveDeaths.actorId, who.actorId))).toHaveLength(1);
     expect(await issues(who.actorId)).toEqual([]);
   }, 60_000);
 

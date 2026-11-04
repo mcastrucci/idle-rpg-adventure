@@ -268,6 +268,26 @@ describe.skipIf(!adminUrl)('live rewards and ledger integration (real PostgreSQL
     expect(await ledgerIssues(who.actorId)).toEqual([]);
   }, 45_000);
 
+  it('persists in-level XP beyond the 32-bit range at level 71 (bigint columns, #129)', async () => {
+    const n = await node('reward-beyond-int32');
+    const who = await player();
+    const INT32_MAX = 2_147_483_647;
+    // Level 71 needs 2,486,920,696 XP to the next level, so the in-level value can legitimately pass INT32_MAX.
+    await database.db.update(characters).set({ level: 71, xp: INT32_MAX - 7 }).where(eq(characters.actorId, who.actorId));
+    const instanceId = await startRpgLiveInstance(n.live, database, { actorIds: [who.actorId], location: LOCATION, groups: [SLIME] });
+    await attach(n, who, instanceId);
+    expect(await command(n, who, instanceId, { type: 'engage', groupId: SLIME.id })).toMatchObject({ ack: { status: 'applied' } });
+    await advance(n, instanceId, () => n.live.host().inspect(instanceId)?.ticking === false);
+    const saved = (await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0];
+    expect(saved).toMatchObject({ level: 71, xp: INT32_MAX + 3 }); // 10 XP from the slimes
+    expect(saved?.xp).toBeGreaterThan(INT32_MAX);
+    expect(await database.db.select().from(rpgLiveXpEvents).where(eq(rpgLiveXpEvents.instanceId, instanceId)))
+      .toMatchObject([{ grantedXp: 10 }]);
+    expect(await command(n, who, instanceId, { type: 'returnToSanctuary' })).toMatchObject({ ack: { status: 'applied' } });
+    expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0]?.xp).toBe(INT32_MAX + 3);
+    expect(await ledgerIssues(who.actorId)).toEqual([]);
+  }, 45_000);
+
   it('keeps the level-up exactly once across a node handover, command retries and duplicate effect delivery', async () => {
     const a = await node('reward-handover-a');
     const b = await node('reward-handover-b');

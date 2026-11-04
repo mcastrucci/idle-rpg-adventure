@@ -41,7 +41,7 @@ XP curve (open decision #2, [#129](https://github.com/mcastrucci/idle-rpg-advent
 `xpToNext = [100, 250, 450, 700, 1000]` is unchanged and the curve has **no maximum level**. Beyond the table
 `xpToNext(L) = ⌊xpToNext(L − 1) × tailGrowthBp / 10000⌋` with `tailGrowthBp = 12500` in `progression/xp-curve.json`
 (1000 → 1250 → 1562 → 1952 → 2440 …). All values are safe integers; when the next threshold would exceed
-`Number.MAX_SAFE_INTEGER` (around level 130, far beyond play) the last representable level behaves like a cap. Existing
+`Number.MAX_SAFE_INTEGER` (level 132) the last representable level behaves like a cap. Persisted XP columns are `bigint` (migration `0010_xp_bigint.sql`) and capped by CHECK at `Number.MAX_SAFE_INTEGER`. Existing
 `(level, xp)` pairs keep their meaning; a character that had piled XP up at the old cap (level 6 with ≥ 1250 XP into
 the level) is normalized by migration `0009_open_xp_curve.sql`. Provisional numbers chosen by the owner on 2026-11-04.
 

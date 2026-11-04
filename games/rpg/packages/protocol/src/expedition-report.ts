@@ -43,6 +43,8 @@ const record = (input: unknown, keys: readonly string[]): Record<string, unknown
 };
 const nonnegativeInt = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= MAX_INT;
 const nullableInt = (value: unknown): value is number | null => value === null || nonnegativeInt(value);
+// XP is open-ended (#129): bounded by the safe-integer range, not the 32-bit bound of gold, loot and counters.
+const nullableXp = (value: unknown): value is number | null => value === null || (Number.isSafeInteger(value) && (value as number) >= 0);
 const text = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= MAX_TEXT;
 const textList = (value: unknown, max: number): value is readonly string[] => Array.isArray(value) && value.length <= max && value.every(text);
 
@@ -55,9 +57,9 @@ export function parseExpeditionResultReportDto(input: unknown): ExpeditionResult
       !(row['consumables'] === null || (Array.isArray(row['consumables']) && row['consumables'].length <= MAX_ITEMS)) ||
       !(row['events'] === null || textList(row['events'], MAX_EVENTS))) throw new TypeError('invalid expedition report');
   const xp = record(row['xp'], ['earned', 'penaltyLost', 'net', 'beforeTotal', 'afterTotal']);
-  if (!nullableInt(xp['earned']) || !nullableInt(xp['penaltyLost']) ||
-      !(xp['net'] === null || (Number.isSafeInteger(xp['net']) && Math.abs(xp['net'] as number) <= MAX_INT)) ||
-      !nullableInt(xp['beforeTotal']) || !nullableInt(xp['afterTotal'])) throw new TypeError('invalid expedition report XP');
+  if (!nullableXp(xp['earned']) || !nullableXp(xp['penaltyLost']) ||
+      !(xp['net'] === null || Number.isSafeInteger(xp['net'])) ||
+      !nullableXp(xp['beforeTotal']) || !nullableXp(xp['afterTotal'])) throw new TypeError('invalid expedition report XP');
   const gold = record(row['gold'], ['earned', 'lost', 'secured']);
   if (!nullableInt(gold['earned']) || !nullableInt(gold['lost']) || !nullableInt(gold['secured'])) throw new TypeError('invalid expedition report gold');
   const loot = row['loot'] === null ? null : row['loot'].map(raw => {
@@ -71,7 +73,7 @@ export function parseExpeditionResultReportDto(input: unknown): ExpeditionResult
     return Object.freeze({ item: item['item'], used: item['used'], returned: item['returned'] });
   });
   const finalState = record(row['finalState'], ['hp', 'maxHp', 'xpTotal']);
-  if (!nullableInt(finalState['hp']) || !nullableInt(finalState['maxHp']) || !nullableInt(finalState['xpTotal'])) throw new TypeError('invalid expedition report final state');
+  if (!nullableInt(finalState['hp']) || !nullableInt(finalState['maxHp']) || !nullableXp(finalState['xpTotal'])) throw new TypeError('invalid expedition report final state');
   let death: ExpeditionResultReportDto['death'] = null;
   if (row['death'] !== null) {
     const d = record(row['death'], ['causes', 'suggestions']);

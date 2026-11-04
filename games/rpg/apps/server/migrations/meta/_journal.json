@@ -71,6 +71,13 @@
       "when": 1793700000000,
       "tag": "0009_open_xp_curve",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793710000000,
+      "tag": "0010_xp_bigint",
+      "breakpoints": true
     }
   ]
 }
