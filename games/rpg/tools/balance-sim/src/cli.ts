@@ -16,7 +16,14 @@ import type { ReportFormat } from './report.ts';
 import { SECTIONS, runBalance } from './run.ts';
 import type { BalanceConfig, Section } from './run.ts';
 import { REGION_1_SCENARIO } from './scenario.ts';
-import { renderRegion2Json, renderRegion2Markdown, runRegion2Balance } from './region2.ts';
+import {
+  renderRegion2Json,
+  renderRegion2Markdown,
+  renderRegion2PreparationJson,
+  renderRegion2PreparationMarkdown,
+  runRegion2Balance,
+  runRegion2Preparation,
+} from './region2.ts';
 
 export interface CliIo {
   readonly cwd: string;
@@ -41,7 +48,7 @@ export const USAGE = `Usage: balance-sim [options]
 Monte Carlo balance report over compiled RPG content (Region 1 scenario; all numbers provisional).
 
 Options:
-  --scenario <name>     region-1 (default) or region-2 (fixed L4/L5 cohorts)
+  --scenario <name>     region-1 (default), region-2 (historical cohorts), or region-2-preparation (current L4 starter)
   --content <dir>       Content root to compile (default: games/rpg/content)
   --runs <n>            Fights per encounter-group cell and attempts per boss row (default ${DEFAULTS.runs})
   --hours <n>           Simulated hours per hourly row (default ${DEFAULTS.hours})
@@ -88,7 +95,7 @@ function parseSections(raw: string): Section[] {
 
 export interface ParsedArgs {
   readonly contentRoot: string;
-  readonly scenario: 'region-1' | 'region-2';
+  readonly scenario: 'region-1' | 'region-2' | 'region-2-preparation';
   readonly config: BalanceConfig;
   readonly format: ReportFormat;
   readonly out: string | null;
@@ -132,15 +139,20 @@ export function parseCliArgs(argv: readonly string[], cwd: string): ParsedArgs |
   const regenPct = int('regen-pct', v['regen-pct'], DEFAULTS.regenPct, 0);
   if (regenPct > 100) throw new UsageError('--regen-pct must be <= 100');
   const scenario = v.scenario ?? 'region-1';
-  if (scenario !== 'region-1' && scenario !== 'region-2') throw new UsageError('--scenario must be region-1 or region-2');
-  if (scenario === 'region-2') {
+  if (scenario !== 'region-1' && scenario !== 'region-2' && scenario !== 'region-2-preparation') {
+    throw new UsageError('--scenario must be region-1, region-2, or region-2-preparation');
+  }
+  if (scenario === 'region-2' || scenario === 'region-2-preparation') {
     for (const option of ['hours', 'levels', 'boss-levels', 'hour-levels', 'regen-pct'] as const) {
-      if (v[option] !== undefined) throw new UsageError(`--${option} is not supported by --scenario region-2; it uses fixed L4/L5 snapshots and per-encounter runs`);
+      if (v[option] !== undefined) throw new UsageError(`--${option} is not supported by --scenario ${scenario}; it uses fixed snapshots and per-encounter runs`);
+    }
+    if (scenario === 'region-2-preparation' && v.sections !== undefined) {
+      throw new UsageError('--sections is not supported by --scenario region-2-preparation; it always reports cells and Warden');
     }
     const sectionSpec = v.sections ?? 'cells,boss';
     const sections = parseSections(sectionSpec);
-    if (sections.includes('hourly')) throw new UsageError('--scenario region-2 supports only --sections cells,boss');
-    if (format === 'csv') throw new UsageError('--scenario region-2 supports only --format md or json');
+    if (sections.includes('hourly')) throw new UsageError(`--scenario ${scenario} supports only --sections cells,boss`);
+    if (format === 'csv') throw new UsageError(`--scenario ${scenario} supports only --format md or json`);
   }
   return {
     contentRoot: v.content === undefined ? DEFAULT_CONTENT_ROOT : path.resolve(cwd, v.content),
@@ -180,11 +192,15 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
-  const text = args.scenario === 'region-2'
+  const text = args.scenario === 'region-2-preparation'
     ? args.format === 'json'
+      ? renderRegion2PreparationJson(runRegion2Preparation(content, args.config.seedRoot, args.config.runs))
+      : renderRegion2PreparationMarkdown(runRegion2Preparation(content, args.config.seedRoot, args.config.runs))
+    : args.scenario === 'region-2'
+      ? args.format === 'json'
       ? renderRegion2Json(runRegion2Balance(content, args.config.seedRoot, args.config.runs, args.config.sections.filter((s): s is 'cells' | 'boss' => s !== 'hourly')))
       : renderRegion2Markdown(runRegion2Balance(content, args.config.seedRoot, args.config.runs, args.config.sections.filter((s): s is 'cells' | 'boss' => s !== 'hourly')))
-    : renderReport(runBalance(content, REGION_1_SCENARIO, args.config), args.format);
+      : renderReport(runBalance(content, REGION_1_SCENARIO, args.config), args.format);
   if (args.out === null) {
     io.stdout(text);
   } else {

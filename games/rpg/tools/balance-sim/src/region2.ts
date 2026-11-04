@@ -5,7 +5,7 @@
 import { deriveSeed } from '@engine/sim-core';
 import type { Seed } from '@engine/sim-core';
 import { AutomationRulesSchema } from '@rpg/rpg-schema';
-import { DEFAULT_STAT_FORMULAS, deriveStats } from '@rpg/rpg-stats';
+import { DEFAULT_STAT_FORMULAS, deriveStats, totalXpAtLevelStart } from '@rpg/rpg-stats';
 
 import type { BalanceContent } from './content.ts';
 import { formatX100 } from './math.ts';
@@ -444,6 +444,247 @@ export function renderRegion2Markdown(report: Region2Report): string {
 }
 
 export function renderRegion2Json(report: Region2Report): string {
+  return `${JSON.stringify(report, null, 2)}\n`;
+}
+
+/**
+ * Current-playable preparation comparison. Unlike the historical paper-reference cohorts above, this fixes the
+ * production starter's attributes and unlocked skills at L4, then varies only compiled R1 equipment and carried
+ * supplies. The four rows form a 2x2 gear/supply comparison with paired combat seeds.
+ */
+export interface Region2PreparationCohort {
+  readonly key: 'fresh' | 'gear-only' | 'supplies-only' | 'prepared';
+  readonly label: string;
+  readonly gear: 'starter' | 'farmed';
+  readonly supplies: 'fresh' | 'farmed';
+}
+
+export const REGION_2_PREPARATION_COHORTS: readonly Region2PreparationCohort[] = [
+  { key: 'fresh', label: 'Fresh R1 departure', gear: 'starter', supplies: 'fresh' },
+  { key: 'gear-only', label: 'Farmed gear only', gear: 'farmed', supplies: 'fresh' },
+  { key: 'supplies-only', label: 'Farmed supplies only', gear: 'starter', supplies: 'farmed' },
+  { key: 'prepared', label: 'Farmed gear + supplies', gear: 'farmed', supplies: 'farmed' },
+];
+
+const PREPARATION_LEVEL = 4;
+const PRODUCTION_STARTER_ATTRIBUTES = { STR: 9, AGI: 4, INT: 2, VIT: 10, SPI: 5 } as const;
+const PREPARATION_STARTER_GEAR = ['item:rusty_sword', 'item:padded_vest', 'item:wooden_buckler'] as const;
+// These authored R1 drops replace the same three equipment slots as the starter kit.
+const PREPARATION_FARMED_GEAR = ['item:sapforged_blade', 'item:padded_vest', 'item:heartwood_buckler', 'item:lantern_lens'] as const;
+
+const PREPARATION_FRESH_SUPPLIES: SupplyInventory = [
+  { item: MINOR_POTION, qty: 4 },
+  { item: SAP_TONIC, qty: 2 },
+  { item: HEALING_POTION, qty: 0 },
+];
+const PREPARATION_FARMED_SUPPLIES: SupplyInventory = FARMED_SUPPLIES;
+
+export interface Region2PreparationRow {
+  readonly cohort: Region2PreparationCohort['key'];
+  readonly build: 'bulwark';
+  readonly group: EncounterGroup | 'warden';
+  readonly mode: 'auto';
+  readonly stats: Region2FightStats;
+}
+
+export interface Region2PreparationReport {
+  readonly engineVersion: string;
+  readonly contentHash: string;
+  readonly seedRoot: Seed;
+  readonly runs: number;
+  readonly level: number;
+  /** Computed from the compiled authored XP curve. */
+  readonly xpRequiredForLevel: number;
+  readonly attributes: Readonly<Record<string, number>>;
+  readonly statsByCohort: Readonly<Record<string, ReturnType<typeof deriveStats>>>;
+  readonly cohortInputs: readonly {
+    readonly cohort: Region2PreparationCohort;
+    readonly inventory: SupplyInventory;
+    readonly gear: readonly string[];
+    readonly gearStats: readonly { readonly item: string; readonly slot: string; readonly stats: Readonly<Record<string, number>> }[];
+    readonly supplyCostGoldAssumption: number;
+    readonly commonSkills: readonly string[];
+    readonly bossSkills: readonly string[];
+    readonly commonRules: HeroLoadout['rules'];
+    readonly bossRules: HeroLoadout['rules'];
+  }[];
+  readonly rows: readonly Region2PreparationRow[];
+  readonly command: string;
+}
+
+function preparationBuild(cohort: Region2PreparationCohort): HeroBuildDef {
+  const gear = cohort.gear === 'starter' ? PREPARATION_STARTER_GEAR : PREPARATION_FARMED_GEAR;
+  const attributesByLevel = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [index + 1, PRODUCTION_STARTER_ATTRIBUTES]));
+  return {
+    ...BULWARK,
+    attributesByLevel,
+    gearByLevel: () => gear,
+  };
+}
+
+function preparationInventory(cohort: Region2PreparationCohort): SupplyInventory {
+  return cohort.supplies === 'fresh' ? PREPARATION_FRESH_SUPPLIES : PREPARATION_FARMED_SUPPLIES;
+}
+
+function validateR1FarmedGear(content: BalanceContent, gear: readonly string[]): void {
+  const r1Drops = new Set<string>(Object.values(content.lootTables)
+    .filter((table) => table.id.startsWith('loot:region_1.'))
+    .flatMap((table) => table.entries.map((entry) => entry.item)));
+  for (const id of gear) {
+    if (!r1Drops.has(id)) throw new Error(`preparation gear ${id} is not an authored Region 1 loot drop`);
+  }
+}
+
+export function runRegion2Preparation(content: BalanceContent, seedRoot: Seed, runs: number): Region2PreparationReport {
+  if (!Number.isSafeInteger(runs) || runs < 1 || runs > 10_000) throw new RangeError('runs must be in [1, 10000]');
+  if (content.combat.enemies[REGION_2_BOSS] === undefined) throw new Error(`missing Region 2 boss ${REGION_2_BOSS}`);
+  if (content.progression === undefined) throw new Error('compiled content has no authored progression curve');
+  const tables = REGION_2_TABLES.filter((id) => content.encounterTables[id] !== undefined);
+  if (tables.length !== REGION_2_TABLES.length) throw new Error('missing one or more Region 2 encounter tables');
+  const groups = distinctGroups(content, tables);
+  const rows: Region2PreparationRow[] = [];
+  const cohortInputs: Region2PreparationReport['cohortInputs'][number][] = [];
+  const statsByCohort: Record<string, ReturnType<typeof deriveStats>> = {};
+
+  for (const cohort of REGION_2_PREPARATION_COHORTS) {
+    const build = preparationBuild(cohort);
+    const inventory = preparationInventory(cohort);
+    validateCohortGear(content, build, PREPARATION_LEVEL);
+    validateCohortInventory(content, inventory);
+    const derivedBuild = heroBuild(build, PREPARATION_LEVEL, content);
+    const derivedStats = deriveStats(derivedBuild, DEFAULT_STAT_FORMULAS);
+    statsByCohort[cohort.key] = derivedStats;
+    const gear = build.gearByLevel(PREPARATION_LEVEL);
+    if (cohort.gear === 'farmed') {
+      validateR1FarmedGear(content, gear.filter((id) => !PREPARATION_STARTER_GEAR.includes(id as typeof PREPARATION_STARTER_GEAR[number])));
+    }
+    const loadouts = region2Loadouts(build);
+    const commonRules = AutomationRulesSchema.parse([
+      ...loadouts.common.rules.slice(0, 4),
+      { when: { selfHpBelowBp: 5500, skillReady: 'skill:mend' }, do: { useSkill: 'skill:mend', target: 'self' } },
+      loadouts.common.rules[5],
+    ]);
+    const commonLoadout: HeroLoadout = { skills: loadouts.common.skills, rules: commonRules };
+    cohortInputs.push({
+      cohort,
+      inventory,
+      gear,
+      gearStats: gear.map((item) => {
+        const resolved = content.combat.items[item];
+        if (resolved?.kind !== 'equipment') throw new Error(`cohort gear ${item} is not equipment`);
+        return { item, slot: resolved.slot, stats: resolved.stats };
+      }),
+      supplyCostGoldAssumption: supplyCost(inventory),
+      commonSkills: commonLoadout.skills,
+      bossSkills: loadouts.boss.skills,
+      commonRules: commonLoadout.rules,
+      bossRules: loadouts.boss.rules,
+    });
+    for (const group of groups) {
+      const results: FightResult[] = [];
+      for (let i = 0; i < runs; i++) {
+        results.push(fight({
+          content,
+          build: derivedBuild,
+          loadout: commonLoadout,
+          group,
+          potion: MINOR_POTION,
+          potions: 0,
+          inventory,
+          policy: NO_INPUTS,
+          seed: deriveSeed(deriveSeed(seedRoot, 'balance', i), 'cell'),
+        }));
+      }
+      rows.push({ cohort: cohort.key, build: 'bulwark', group, mode: 'auto', stats: region2Stats(results, content, build, PREPARATION_LEVEL, inventory) });
+    }
+
+    const bossGroup = toGroup({ enemies: [{ enemy: REGION_2_BOSS, count: 1 }] }, content);
+    const bossResults: FightResult[] = [];
+    for (let i = 0; i < runs; i++) {
+      bossResults.push(fight({
+        content,
+        build: derivedBuild,
+        loadout: loadouts.boss,
+        group: bossGroup,
+        potion: MINOR_POTION,
+        potions: 0,
+        inventory,
+        policy: NO_INPUTS,
+        seed: deriveSeed(deriveSeed(seedRoot, 'balance', i), 'boss'),
+      }));
+    }
+    rows.push({ cohort: cohort.key, build: 'bulwark', group: 'warden', mode: 'auto', stats: region2Stats(bossResults, content, build, PREPARATION_LEVEL, inventory) });
+  }
+
+  return {
+    engineVersion: ENGINE_VERSION,
+    contentHash: content.contentHash,
+    seedRoot,
+    runs,
+    level: PREPARATION_LEVEL,
+    xpRequiredForLevel: totalXpAtLevelStart(PREPARATION_LEVEL, content.progression),
+    attributes: PRODUCTION_STARTER_ATTRIBUTES,
+    statsByCohort,
+    cohortInputs,
+    rows,
+    command: `pnpm balance-sim --scenario region-2-preparation --runs ${runs} --seed ${seedRoot} --format md`,
+  };
+}
+
+export function renderRegion2PreparationMarkdown(report: Region2PreparationReport): string {
+  const rowsByGroup = (group: Region2PreparationRow['group']) => report.rows.filter((row) => row.group === group);
+  const boss = rowsByGroup('warden');
+  const fresh = boss.find((row) => row.cohort === 'fresh');
+  const prepared = boss.find((row) => row.cohort === 'prepared');
+  const delta = (a: number | undefined, b: number | undefined) => a === undefined || b === undefined ? 'n/a' : `${((b - a) / 100).toFixed(2)} pp`;
+  const freshGearOnly = boss.find((row) => row.cohort === 'gear-only');
+  const freshSuppliesOnly = boss.find((row) => row.cohort === 'supplies-only');
+  const preparedUse = prepared === undefined ? 'n/a' : Object.entries(prepared.stats.usedPerTrial)
+    .map(([id, amount]) => `${id} ${(amount / 100).toFixed(2)}`).join(', ');
+  const contrast = fresh?.stats.winBp === 0 && prepared?.stats.winBp === 10_000
+    ? `**The sampled simulation meets the fresh-struggles / prepared-succeeds contrast for this configured Bulwark comparison.** Fresh won ${fresh.stats.wins}/${fresh.stats.runs}; gear-only won ${freshGearOnly?.stats.wins ?? 'n/a'}/${freshGearOnly?.stats.runs ?? 'n/a'}; supplies-only won ${freshSuppliesOnly?.stats.wins ?? 'n/a'}/${freshSuppliesOnly?.stats.runs ?? 'n/a'}; combined preparation won ${prepared.stats.wins}/${prepared.stats.runs}. In this sample, both gear and supplies were needed for success. This is simulation evidence under the stated policy, not final balance or proof of a reachable R1 farming path.`
+    : `**This sample does not show the full fresh-struggles / prepared-succeeds contrast.** Fresh won ${fresh?.stats.wins ?? 'n/a'}/${fresh?.stats.runs ?? 'n/a'}; combined preparation won ${prepared?.stats.wins ?? 'n/a'}/${prepared?.stats.runs ?? 'n/a'}. Treat this as bounded measurement evidence, not a balance decision.`;
+  const lines = [
+    '# Region 2 current preparation measurement', '',
+    '> Bounded present-code measurement. Results are evidence for this configured simulation comparison, not a final balance decision.', '',
+    '| ENGINE_VERSION | contentHash | seed root | N | command |', '|---|---|---:|---:|---|',
+    `| ${report.engineVersion} | \`${report.contentHash}\` | ${report.seedRoot} | ${report.runs} | \`${report.command}\` |`, '',
+    '## Setup boundary', '',
+    `All cohorts are the playable Bulwark starter at level ${report.level}: attributes STR/AGI/INT/VIT/SPI ${Object.values(report.attributes).join('/')} and the currently unlocked Basic Attack, Shield Bash, Guard, Cleave, and Mend skills. The compiled authored XP curve puts the start of L${report.level} at ${report.xpRequiredForLevel} cumulative XP; current level-ups grant no attributes. Gear-derived combat stats come from compiled equipment passed through @rpg/rpg-stats.`,
+    'The four cohorts cross starter versus R1-farmed gear with fresh versus farmed supplies at the same level, using paired seed indices. All four use the same legal six-rule R2 common policy and six-rule boss policy. This is a configurable R2 comparison policy, not the server’s five-rule default automation. Common encounters have no harmful effects, so the carried sap tonic is not expected to be used there; it remains in the common inventory to keep the supply cohorts identical.', '',
+    '| cohort | gear | inventory | gear slots and authored stats | derived HP / power / armor / crit | supply cost assumption |', '|---|---|---|---|---|---:|',
+    ...report.cohortInputs.map((input) => {
+      const stats = report.statsByCohort[input.cohort.key];
+      const gear = input.gearStats.map((item) => `${item.item} (${item.slot}: ${Object.entries(item.stats).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'})`).join('; ');
+      return `| ${input.cohort.label} | ${input.gear.join(', ')} | ${input.inventory.map((item) => `${item.item} ×${item.qty}`).join(', ')} | ${gear} | ${stats?.maxHp ?? '—'} / ${stats?.power ?? '—'} / ${stats?.armor ?? '—'} / ${stats?.critBp ?? '—'} bp | ${input.supplyCostGoldAssumption}g |`;
+    }), '',
+    '## Exact policy inputs', '',
+    ...report.cohortInputs.slice(0, 1).flatMap((input) => [
+      '### Shared across all cohorts',
+      `- Common skills: ${input.commonSkills.join(', ')}.`,
+      `- Common rules: \`${JSON.stringify(input.commonRules)}\`.`,
+      `- Boss skills: ${input.bossSkills.join(', ')}.`,
+      `- Boss rules: \`${JSON.stringify(input.bossRules)}\`.`,
+      '',
+    ]),
+    '## Warden result', '',
+    '| cohort | runs | wins | deaths | timeouts | win rate | TTK p10 / p50 / p90 | mean HP lost | consumables used per trial |', '|---|---:|---:|---:|---:|---:|---|---:|---|',
+    ...boss.map((row) => `| ${row.cohort} | ${row.stats.runs} | ${row.stats.wins} | ${row.stats.deaths} | ${row.stats.timeouts} | ${bp(row.stats.winBp)} | ${ticks(row.stats)} | ${bp(row.stats.hpLostBp)} | ${formatItems(row.stats.usedPerTrial)} |`), '',
+    contrast,
+    `Fresh-to-prepared Warden change: win rate ${delta(fresh?.stats.winBp, prepared?.stats.winBp)}; mean HP lost ${fresh === undefined || prepared === undefined ? 'n/a' : `${((prepared.stats.hpLostBp - fresh.stats.hpLostBp) / 100).toFixed(2)} pp`}; median fight duration ${fresh?.stats.ticksP50 ?? 'no winning fresh trials'} → ${prepared?.stats.ticksP50 ?? 'n/a'} ticks. Prepared used per trial: ${preparedUse}.`, '',
+    '## Ordinary R2 encounter groups', '',
+    '| cohort | encounter group | runs | wins | deaths | timeouts | win rate | TTK p10 / p50 / p90 | mean HP lost | consumables used per trial |', '|---|---|---:|---:|---:|---:|---:|---|---:|---|',
+    ...report.rows.filter((row) => row.group !== 'warden').map((row) => `| ${row.cohort} | ${typeof row.group === 'string' ? row.group : row.group.label} | ${row.stats.runs} | ${row.stats.wins} | ${row.stats.deaths} | ${row.stats.timeouts} | ${bp(row.stats.winBp)} | ${ticks(row.stats)} | ${bp(row.stats.hpLostBp)} | ${formatItems(row.stats.usedPerTrial)} |`), '',
+    '## Limits and next hypotheses', '',
+    '- Direct encounters start at full HP; there is no R1 farm route, drop/purchase history, affordability, travel, retreat, rest, live settlement, or idle expedition settlement. The supply prices are arithmetic assumptions only. The report measures combat samples, not a sustainable acquisition path or hourly progression.',
+    '- The configured policy uses automation only; it is not a human performance estimate. Ordinary encounters use the same common policy and Warden runs use the same boss policy across all cohorts. All gear and supplies are explicit snapshots. Content is unchanged by this work.',
+    '- Human validation should play the same L4 starter and prepared Bulwark setups against the Warden, record completion/death, duration, HP remaining, and item use, and confirm that the assumed drops/supplies are actually reachable by the stated R1 departure point. This report does not substitute for that playtest.',
+    '- The historical `region-2-measurements.md` report and default `region-2` scenario are preserved unchanged.', '',
+  ];
+  return lines.join('\n');
+}
+
+export function renderRegion2PreparationJson(report: Region2PreparationReport): string {
   return `${JSON.stringify(report, null, 2)}\n`;
 }
 
