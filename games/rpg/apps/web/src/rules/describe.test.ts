@@ -60,7 +60,7 @@ describe('describeRule', () => {
 
   it('derives labels from IDs by default', () => {
     expect(describeRule({ when: { skillReady: 'skill:shield_bash' }, do: { useSkill: 'skill:shield_bash' } })).toBe(
-      'If Shield bash is ready, use Shield bash.',
+      'If Shield Bash is ready, use Shield Bash.',
     );
   });
 

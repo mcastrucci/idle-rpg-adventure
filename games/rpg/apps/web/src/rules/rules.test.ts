@@ -81,7 +81,7 @@ describe('validateRules', () => {
       [rule({}, { useConsumable: 'item:glowcap' }), 'Glowcap is not a known consumable.'],
       [rule({ hasConsumable: 'item:glowcap' }, { useSkill: 'skill:guard' }), 'Glowcap is not a known consumable.'],
       [rule({}, { useSkill: 'skill:mend', target: 'lowestHpEnemy' }), 'Mend cannot target the enemy with the lowest HP.'],
-      [rule({}, { useSkill: 'skill:shield_bash', target: 'self' }), 'Shield bash cannot target myself.'],
+      [rule({}, { useSkill: 'skill:shield_bash', target: 'self' }), 'Shield Bash cannot target myself.'],
     ];
     for (const [r, message] of cases) expect(validateRules([r], context)).toEqual({ ok: false, issues: [{ index: 0, message }] });
   });
@@ -110,7 +110,7 @@ describe('presets', () => {
 
   it('are disabled with a reason when their skills are not in the loadout', () => {
     expect(presetUnavailableReason(bulwark, context)).toBeNull();
-    expect(presetUnavailableReason(thornblade, context)).toBe('Needs Second wind, Precise strike, Rend in your loadout.');
+    expect(presetUnavailableReason(thornblade, context)).toBe('Needs Second Wind, Precise Strike, Rend in your loadout.');
   });
 
   it('are copied, never shared', () => {

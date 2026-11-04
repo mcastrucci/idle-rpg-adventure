@@ -14,7 +14,7 @@ import { buyInventoryCommand, claimStarterKitCommand, equipInventoryCommand, mov
 import { useInventoryState } from './inventory/useInventoryState.ts';
 import { InventoryDetail } from './inventory/InventoryDetail.tsx';
 import { InventoryItemGrid } from './inventory/InventoryItemGrid.tsx';
-import { containerLabel, currencyLabel, fallbackName, kindLabel, slotLabel } from './inventory/inventoryLabels.ts';
+import { currencyLabel, fallbackName, kindLabel, slotLabel } from './inventory/inventoryLabels.ts';
 import { RunBagPanel } from './inventory/RunBagPanel.tsx';
 import { SellMaterialsPanel } from './inventory/SellMaterialsPanel.tsx';
 import { clearInventoryCommand, pendingInventoryCommand, rememberInventoryCommand } from './inventory/pendingInventoryCommand.ts';

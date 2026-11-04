@@ -1,7 +1,7 @@
 import type { AutomationRules, SkillId } from '@rpg/rpg-schema';
 
 import type { ContentLabels } from '../content/labels.ts';
-import { displayId, ID_LABELS } from '../content/labels.ts';
+import { ID_LABELS } from '../content/labels.ts';
 import { t } from '../i18n/index.ts';
 import { BASIC_ATTACK } from './catalog.ts';
 import type { RuleContext } from './catalog.ts';

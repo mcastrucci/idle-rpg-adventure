@@ -70,7 +70,7 @@ describe('RulesScreen', () => {
     harness([]);
     expect(summaries()).toEqual([
       'If my HP is below 55% and Mend is ready, use Mend on myself.',
-      'Always use Basic attack on the enemy with the lowest HP.',
+      'Always use Basic Attack on the enemy with the lowest HP.',
     ]);
     expect(screen.getByRole('status').textContent).toBe('All changes saved.');
     expect(isDisabled(save())).toBe(true);
@@ -123,9 +123,9 @@ describe('RulesScreen', () => {
     expect(summaries()[1]).toBe('If there are at least 3 enemies, use Cleave.');
 
     fireEvent.change(within(card).getByLabelText('Action'), { target: { value: 'consumable' } });
-    expect(summaries()[1]).toBe('If there are at least 3 enemies, use Minor healing potion.');
+    expect(summaries()[1]).toBe('If there are at least 3 enemies, use Minor Healing Potion.');
     fireEvent.click(within(card).getByRole('button', { name: /Remove condition “Enemies at least”/ }));
-    expect(summaries()[1]).toBe('Always use Minor healing potion.');
+    expect(summaries()[1]).toBe('Always use Minor Healing Potion.');
   });
 
   it('blocks saving invalid rules', () => {
@@ -151,7 +151,7 @@ describe('RulesScreen', () => {
     expect(Object.keys(first?.body.payload ?? {})).toEqual(['automationRules']);
 
     expect(screen.getByRole('status').textContent).toBe('All changes saved.');
-    expect(summaries()[0]).toBe('Always use Basic attack on the enemy with the lowest HP.');
+    expect(summaries()[0]).toBe('Always use Basic Attack on the enemy with the lowest HP.');
   });
 
   it('retries an unconfirmed save with the same command_id', async () => {
@@ -181,12 +181,12 @@ describe('RulesScreen', () => {
     harness([]);
     const thornblade = screen.getByRole('button', { name: 'Use Thornblade' });
     expect(isDisabled(thornblade)).toBe(true);
-    expect(screen.getByText('Needs Second wind, Precise strike, Rend in your loadout.')).toBeDefined();
+    expect(screen.getByText('Needs Second Wind, Precise Strike, Rend in your loadout.')).toBeDefined();
 
     fireEvent.click(screen.getByRole('button', { name: 'Use Bulwark' }));
     expect(cards()).toHaveLength(6);
-    expect(summaries()[0]).toBe('If my HP is below 40% and I carry Minor healing potion, use Minor healing potion.');
-    expect(summaries()[5]).toBe('Always use Basic attack on the enemy with the lowest HP.');
+    expect(summaries()[0]).toBe('If my HP is below 40% and I carry Minor Healing Potion, use Minor Healing Potion.');
+    expect(summaries()[5]).toBe('Always use Basic Attack on the enemy with the lowest HP.');
     expect(isDisabled(save())).toBe(false);
     expect(PRESETS[0]?.rules).toHaveLength(6);
   });

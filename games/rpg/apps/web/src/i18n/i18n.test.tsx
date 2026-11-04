@@ -75,7 +75,8 @@ describe('translation lookup', () => {
   });
 
   it('humanizes content IDs when no content catalog entry exists', () => {
-    expect(displayLabel('item:minor_healing_potion')).toBe('Minor Healing Potion');
+    expect(displayLabel('item:unknown_thing')).toBe('Unknown Thing');
+    expect(displayLabel('item:minor_healing_potion')).toBe('Poción de Curación Menor');
     expect(displayLabel('area.region_1.name')).toBe('La Hondonada Verde');
     setLocale('en', { persist: false });
     expect(displayLabel('area.region_1.name')).toBe('The Verdant Hollow');
@@ -110,7 +111,7 @@ describe('Spanish rendering', () => {
     expect(screen.getByRole('heading', { name: /Reglas de automatización \(1\/\d+\)/ })).toBeDefined();
     expect(screen.getByText('En el Santuario: puedes cambiar los atributos, las habilidades equipadas y las reglas.')).toBeDefined();
     expect(screen.getByRole('button', { name: 'Añadir un punto a FUE' })).toBeDefined();
-    expect(screen.getByText(/Si mi HP está por debajo de 35%, usar Mend sobre mí mismo\./)).toBeDefined();
+    expect(screen.getByText(/Si mi HP está por debajo de 35%, usar Sanar sobre mí mismo\./)).toBeDefined();
   });
 
   it('renders the rules editor in Spanish', () => {
@@ -122,7 +123,7 @@ describe('Spanish rendering', () => {
   });
 
   it('describes rules and connection states in Spanish', () => {
-    expect(describeRule({ when: {}, do: { useSkill: 'skill:cleave' } })).toBe('Siempre usar Cleave.');
+    expect(describeRule({ when: {}, do: { useSkill: 'skill:cleave' } })).toBe('Siempre usar Tajo Amplio.');
     expect(connectionMessage({ ...INITIAL_LIVE_STATE, status: 'reconnecting', retryInMs: 2500, lastCloseCode: null }))
       .toBe('Se perdió la conexión. Reconectando en 3 s…');
   });

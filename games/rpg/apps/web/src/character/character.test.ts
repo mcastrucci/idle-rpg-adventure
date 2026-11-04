@@ -105,7 +105,7 @@ describe('loadout draft', () => {
     expect(unlocked([])).toEqual(BULWARK.loadout);
     expect(unlocked(['skill:rend'])).toContain('skill:rend');
     expect(presetLockedReason(BULWARK, skillOptions([]))).toBeNull();
-    expect(presetLockedReason(THORNBLADE, skillOptions([]))).toBe('Precise strike, Rend, Second wind are not unlocked yet.');
+    expect(presetLockedReason(THORNBLADE, skillOptions([]))).toBe('Precise Strike, Rend, Second Wind are not unlocked yet.');
   });
 
   it('finds the rules that name a skill the new loadout drops', () => {

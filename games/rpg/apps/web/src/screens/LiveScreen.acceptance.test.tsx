@@ -15,7 +15,7 @@ const secondInstanceId = '55555555-5555-4555-8555-555555555555';
 const deathId = '33333333-3333-4333-8333-333333333333';
 const areaId = 'area:region_1';
 const options: LiveOptionsDto = { actorId, areas: [{ id: areaId, label: 'Region One', startLocationId: 'loc:region_1.portal_clearing' }],
-  supplies: [{ item: 'item:minor_healing_potion', label: 'Minor healing potion', availableQty: 2 }] };
+  supplies: [{ item: 'item:minor_healing_potion', label: 'Minor Healing Potion', availableQty: 2 }] };
 
 type JsonRecord = Record<string, unknown>;
 type ClientCommand = { op: string; commandId?: string; command?: JsonRecord; actorId?: string; instanceId?: string };
@@ -134,7 +134,7 @@ describe('LiveScreen fullflow acceptance', () => {
     render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={refreshCharacter} />);
 
     fireEvent.change(await screen.findByLabelText('Area'), { target: { value: areaId } });
-    fireEvent.change(screen.getByLabelText('Minor healing potion quantity'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Minor Healing Potion quantity'), { target: { value: '1' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start live adventure' }));
     await waitFor(() => expect(deps.requests.some(request => request.path === '/live/start')).toBe(true));
     const startRequest = deps.requests.find(request => request.path === '/live/start');
@@ -394,7 +394,7 @@ describe('LiveScreen fullflow acceptance', () => {
     expect(await screen.findByRole('heading', { name: 'Adventure ended: defeated.' })).toBeDefined();
     await waitFor(() => expect(deps.requests.filter(request => request.path === `/characters/${actorId}/live-death`).length).toBeGreaterThan(1));
     expect(await screen.findByText('Stone Guardian · 50 damage')).toBeDefined();
-    expect(screen.getByText('Test Grove Herb')).toBeDefined();
+    expect(screen.getByText('Grove Herb')).toBeDefined();
     expect(refreshCharacter).toHaveBeenCalledTimes(1);
     deps.client.stop();
   });

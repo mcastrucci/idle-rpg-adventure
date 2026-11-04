@@ -111,7 +111,7 @@ describe('App shell', () => {
   it('reaches the automation rules editor from the Character tab', async () => {
     const rules = [{ when: {}, do: { useSkill: 'skill:basic_attack', target: 'lowestHpEnemy' } }];
     render(<App services={services([{ ...CHARACTER, automationRules: rules }])} />);
-    expect(await screen.findByText('Always use Basic attack on the enemy with the lowest HP.')).toBeDefined();
+    expect(await screen.findByText('Always use Basic Attack on the enemy with the lowest HP.')).toBeDefined();
     const edit = screen.getByRole('link', { name: 'Edit automation rules' });
     expect(edit.getAttribute('href')).toBe('#/character/rules');
     act(() => { window.location.hash = '/character/rules'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
