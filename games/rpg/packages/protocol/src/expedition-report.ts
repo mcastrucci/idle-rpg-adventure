@@ -1,3 +1,9 @@
+/** Stable i18n code with optional scalar params; clients localize via `ui.code.<code>` and fall back to the English text. */
+export interface ExpeditionReportCodeDto {
+  readonly code: string;
+  readonly params?: Readonly<Record<string, string | number>>;
+}
+
 /** Safe, persisted-only presentation of an expedition's terminal result. Null means the stored source did not support it. */
 export interface ExpeditionResultReportDto {
   readonly availability: 'available' | 'returned_escrow' | 'legacy_unavailable';
@@ -17,6 +23,8 @@ export interface ExpeditionResultReportDto {
   readonly consumables: readonly { readonly item: string; readonly used: number | null; readonly returned: number | null }[] | null;
   /** Short server-safe labels derived only from persisted, cutoff-revealed events. */
   readonly events: readonly string[] | null;
+  /** Codes parallel to `events` (same length and order). Absent from older servers. */
+  readonly eventCodes?: readonly ExpeditionReportCodeDto[] | null;
   readonly finalState: { readonly hp: number | null; readonly maxHp: number | null; readonly xpTotal: number | null };
   readonly death: null | {
     readonly causes: readonly {
@@ -28,6 +36,8 @@ export interface ExpeditionResultReportDto {
       readonly crit?: boolean;
     }[];
     readonly suggestions: readonly string[];
+    /** Codes parallel to `suggestions` (same length and order). Absent from older servers. */
+    readonly suggestionCodes?: readonly ExpeditionReportCodeDto[];
   };
 }
 
@@ -48,8 +58,27 @@ const nullableXp = (value: unknown): value is number | null => value === null ||
 const text = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= MAX_TEXT;
 const textList = (value: unknown, max: number): value is readonly string[] => Array.isArray(value) && value.length <= max && value.every(text);
 
+const CODE_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
+function parseCodes(value: unknown, max: number): readonly ExpeditionReportCodeDto[] {
+  if (!Array.isArray(value) || value.length > max) throw new TypeError('invalid expedition report codes');
+  return Object.freeze(value.map(raw => {
+    const entry = record(raw, ['code', 'params']);
+    const code = entry['code'];
+    if (typeof code !== 'string' || code.length > 100 || !CODE_PATTERN.test(code)) throw new TypeError('invalid expedition report codes');
+    if (entry['params'] === undefined) return Object.freeze({ code });
+    const rawParams = entry['params'];
+    if (rawParams === null || typeof rawParams !== 'object' || Array.isArray(rawParams)) throw new TypeError('invalid expedition report codes');
+    const params: Record<string, string | number> = {};
+    for (const [key, param] of Object.entries(rawParams)) {
+      if (!/^[A-Za-z][A-Za-z0-9_]{0,31}$/.test(key) || !(text(param) || (typeof param === 'number' && Number.isSafeInteger(param) && Math.abs(param) <= MAX_INT))) throw new TypeError('invalid expedition report codes');
+      params[key] = param as string | number;
+    }
+    return Object.freeze({ code, params: Object.freeze(params) });
+  }));
+}
+
 export function parseExpeditionResultReportDto(input: unknown): ExpeditionResultReportDto {
-  const row = record(input, ['availability', 'effectiveDurationMs', 'outcome', 'enemiesDefeated', 'xp', 'gold', 'loot', 'consumables', 'events', 'finalState', 'death']);
+  const row = record(input, ['availability', 'effectiveDurationMs', 'outcome', 'enemiesDefeated', 'xp', 'gold', 'loot', 'consumables', 'events', 'eventCodes', 'finalState', 'death']);
   if (!['available', 'returned_escrow', 'legacy_unavailable'].includes(String(row['availability'])) ||
       !nullableInt(row['effectiveDurationMs']) ||
       !(row['outcome'] === null || ['completed', 'retreated', 'failed', 'cancelled', 'version_unavailable'].includes(String(row['outcome']))) ||
@@ -76,7 +105,7 @@ export function parseExpeditionResultReportDto(input: unknown): ExpeditionResult
   if (!nullableInt(finalState['hp']) || !nullableInt(finalState['maxHp']) || !nullableXp(finalState['xpTotal'])) throw new TypeError('invalid expedition report final state');
   let death: ExpeditionResultReportDto['death'] = null;
   if (row['death'] !== null) {
-    const d = record(row['death'], ['causes', 'suggestions']);
+    const d = record(row['death'], ['causes', 'suggestions', 'suggestionCodes']);
     if (!Array.isArray(d['causes']) || d['causes'].length > 20 || !textList(d['suggestions'], 20)) throw new TypeError('invalid expedition report death');
     const causes = d['causes'].map(raw => {
       const cause = record(raw, ['key', 'enemy', 'skill', 'amount', 'count', 'crit']);
@@ -87,8 +116,13 @@ export function parseExpeditionResultReportDto(input: unknown): ExpeditionResult
         ...(cause['skill'] === undefined ? {} : { skill: cause['skill'] as string }), ...(cause['amount'] === undefined ? {} : { amount: cause['amount'] as number }),
         ...(cause['count'] === undefined ? {} : { count: cause['count'] as number }), ...(cause['crit'] === undefined ? {} : { crit: cause['crit'] as boolean }) });
     });
-    death = Object.freeze({ causes: Object.freeze(causes), suggestions: Object.freeze([...(d['suggestions'] as readonly string[])]) });
+    const suggestionCodes = d['suggestionCodes'] === undefined ? undefined : parseCodes(d['suggestionCodes'], 20);
+    if (suggestionCodes && suggestionCodes.length !== (d['suggestions'] as readonly string[]).length) throw new TypeError('invalid expedition report codes');
+    death = Object.freeze({ causes: Object.freeze(causes), suggestions: Object.freeze([...(d['suggestions'] as readonly string[])]),
+      ...(suggestionCodes ? { suggestionCodes } : {}) });
   }
+  const eventCodes = row['eventCodes'] === undefined || row['eventCodes'] === null ? row['eventCodes'] as null | undefined : parseCodes(row['eventCodes'], MAX_EVENTS);
+  if (eventCodes && (row['events'] === null || eventCodes.length !== (row['events'] as readonly string[]).length)) throw new TypeError('invalid expedition report codes');
   return Object.freeze({ availability: row['availability'] as ExpeditionResultReportDto['availability'], effectiveDurationMs: row['effectiveDurationMs'] as number | null,
     outcome: row['outcome'] as ExpeditionResultReportDto['outcome'], enemiesDefeated: row['enemiesDefeated'] as number | null,
     xp: Object.freeze({ earned: xp['earned'] as number | null, penaltyLost: xp['penaltyLost'] as number | null, net: xp['net'] as number | null,
@@ -96,6 +130,7 @@ export function parseExpeditionResultReportDto(input: unknown): ExpeditionResult
     gold: Object.freeze({ earned: gold['earned'] as number | null, lost: gold['lost'] as number | null, secured: gold['secured'] as number | null }),
     loot: loot === null ? null : Object.freeze(loot),
     consumables: consumables === null ? null : Object.freeze(consumables), events: row['events'] === null ? null : Object.freeze([...(row['events'] as readonly string[])]),
+    ...(eventCodes === undefined ? {} : { eventCodes }),
     finalState: Object.freeze({ hp: finalState['hp'] as number | null, maxHp: finalState['maxHp'] as number | null,
       xpTotal: finalState['xpTotal'] as number | null }), death });
 }

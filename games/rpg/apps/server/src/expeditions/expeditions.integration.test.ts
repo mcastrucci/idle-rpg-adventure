@@ -79,7 +79,8 @@ interface ExpeditionDto {
     loot: readonly { item: string; earned: number; lost: number; secured: number }[] | null;
     consumables: readonly { item: string; used: number | null; returned: number | null }[] | null;
     events: readonly string[] | null; finalState: { hp: number | null; maxHp: number | null; xpTotal: number | null };
-    death: { causes: readonly { key: string }[]; suggestions: readonly string[] } | null;
+    death: { causes: readonly { key: string }[]; suggestions: readonly string[]; suggestionCodes?: readonly { code: string }[] } | null;
+    eventCodes?: readonly { code: string; params?: Record<string, string | number> }[] | null;
   };
   [key: string]: unknown;
 }
@@ -470,6 +471,11 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
         beforeTotal: totalXpFromLevelProgress(beforeCharacter.level, beforeCharacter.xp, xpCurve), afterTotal: totalXp });
       expect(completed.report?.finalState.xpTotal).toBe(totalXp);
       expect(completed.report?.death?.suggestions.join(' ').toLowerCase()).not.toContain('missed heal');
+      // i18n codes are additive and stay parallel to the legacy English text.
+      expect(completed.report?.death?.suggestionCodes).toHaveLength(completed.report?.death?.suggestions.length ?? -1);
+      expect(completed.report?.eventCodes).toHaveLength(completed.report?.events?.length ?? -1);
+      for (const entry of [...(completed.report?.eventCodes ?? []), ...(completed.report?.death?.suggestionCodes ?? [])])
+        expect(entry.code).toMatch(/^idle\.(event|suggestion)\.[a-z_]+$/);
       const expectedProgress = xpProgress(totalXp, xpCurve);
       expect(afterCharacter).toMatchObject({ level: expectedProgress.level, xp: expectedProgress.xpIntoLevel });
       const registry = createRpgActivityRegistry(rpgIdleContentFromBundle(bundle as never));
