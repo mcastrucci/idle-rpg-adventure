@@ -37,4 +37,27 @@ describe('expedition result report protocol', () => {
     expect(() => parseExpeditionResultReportDto({ ...available, events: Array(51).fill('event') })).toThrow('invalid expedition report');
     expect(() => parseExpeditionResultReportDto({ ...available, xp: { ...available.xp, penaltyLost: -1 } })).toThrow('invalid expedition report XP');
   });
+
+  it('parses additive i18n code fields and stays compatible with servers that omit them', () => {
+    const withCodes = {
+      ...available,
+      eventCodes: [{ code: 'idle.event.kill', params: { enemy: 'enemy:boar' } }],
+      death: { ...available.death, suggestionCodes: [{ code: 'idle.suggestion.bring_healing' }] },
+    };
+    const parsed = parseExpeditionResultReportDto(withCodes);
+    expect(parsed.eventCodes).toEqual([{ code: 'idle.event.kill', params: { enemy: 'enemy:boar' } }]);
+    expect(parsed.death?.suggestionCodes).toEqual([{ code: 'idle.suggestion.bring_healing' }]);
+    expect(Object.isFrozen(parsed.eventCodes)).toBe(true);
+    expect(parseExpeditionResultReportDto(available).eventCodes).toBeUndefined();
+    expect(parseExpeditionResultReportDto({ ...available, events: null, eventCodes: null }).eventCodes).toBeNull();
+  });
+
+  it('rejects malformed, misaligned or oversized code fields', () => {
+    const bad = (eventCodes: unknown) => () => parseExpeditionResultReportDto({ ...available, eventCodes });
+    expect(bad([{ code: 'Not A Code' }])).toThrow('invalid expedition report codes');
+    expect(bad([{ code: 'idle.event.kill', params: { enemy: { nested: 1 } } }])).toThrow('invalid expedition report codes');
+    expect(bad([{ code: 'idle.event.kill', extra: true }])).toThrow('invalid expedition report');
+    expect(bad([{ code: 'idle.event.death' }, { code: 'idle.event.death' }])).toThrow('invalid expedition report codes');
+    expect(() => parseExpeditionResultReportDto({ ...available, death: { ...available.death, suggestionCodes: [] } })).toThrow('invalid expedition report codes');
+  });
 });
