@@ -22,7 +22,7 @@ export const worldModule: ServerModule = {
   async register(app, context) {
     app.addHook('onRequest', async (request, reply) => {
       reply.header('cache-control', 'no-store');
-      checkOrigin(request);
+      checkOrigin(request, context.allowedOrigins);
     });
     app.get('/characters/:actorId/world', async (request, reply) => {
       try {

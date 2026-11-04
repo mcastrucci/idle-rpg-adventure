@@ -9,6 +9,7 @@ import { loadContentBundle } from './content.ts';
 import type { Database, MigrationSet } from './database.ts';
 import { createDatabase } from './database.ts';
 import { contentReleases } from './schema.ts';
+import { registerStaticWeb } from './static-web.ts';
 
 /** Domain boundaries are extension points, not preinstalled empty services. Each module owns its routes/state. */
 export const MODULE_NAMES = ['auth', 'character', 'commands', 'ledger', 'content', 'conquest', 'live-host', 'live-entry', 'expeditions', 'party', 'jobs', 'debug', 'world'] as const;
@@ -17,6 +18,8 @@ export interface ModuleContext {
   readonly clock: Clock;
   readonly database: Database;
   readonly content: LoadedContent;
+  /** Extra exact browser origins for `checkOrigin(request, context.allowedOrigins)`; the same-origin default is unchanged. */
+  readonly allowedOrigins: readonly string[];
 }
 export interface ServerModule {
   readonly name: ModuleName;
@@ -32,6 +35,8 @@ export interface ServerOptions {
   readonly migrationSets?: readonly MigrationSet[];
   /** Additional game schema validation runs before database connections are acquired. */
   readonly validateContent?: (content: LoadedContent) => void;
+  /** Used when `config.staticDir` is set: API path prefixes that must keep JSON 404s instead of the SPA fallback. */
+  readonly staticReservedPrefixes?: readonly string[];
 }
 
 /** Builds a fully ready server without listening; inject() works for tests. app.close() drains modules then DB. */
@@ -49,7 +54,9 @@ export async function createServer(options: ServerOptions): Promise<FastifyInsta
   const clock = options.clock ?? new SystemClock();
   const app = Fastify({ logger: { level: config.logLevel,
     redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie', 'databaseUrl', 'config.databaseUrl'] },
-    return503OnClosing: true, forceCloseConnections: 'idle' });
+    return503OnClosing: true, forceCloseConnections: 'idle',
+    // Only honour X-Forwarded-* from configured proxies; a false/default keeps request.protocol/ip socket-derived.
+    trustProxy: typeof config.trustProxy === 'boolean' ? config.trustProxy : [...config.trustProxy] });
   const database = createDatabase(config, options);
   app.addHook('onClose', async () => { await database.close(); });
   // pg emits idle-client errors outside requests; handle them to prevent an unhandled EventEmitter crash.
@@ -72,9 +79,12 @@ export async function createServer(options: ServerOptions): Promise<FastifyInsta
     for (const module of modules) {
       if (!module.roles.some((role) => config.roles.includes(role))) continue;
       app.register(async (scope) => {
-        await module.register(scope, { clock, database, content });
+        await module.register(scope, { clock, database, content, allowedOrigins: config.allowedOrigins });
         scope.log.info({ module: module.name }, 'module started');
       });
+    }
+    if (config.staticDir !== undefined) {
+      await registerStaticWeb(app, { dir: config.staticDir, ...(options.staticReservedPrefixes ? { reservedPrefixes: options.staticReservedPrefixes } : {}) });
     }
     await app.ready();
     app.log.info({ roles: config.roles, contentHash: content.contentHash }, 'server ready');

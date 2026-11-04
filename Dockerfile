@@ -4,7 +4,8 @@ ENV APP_ENV=production \
     RPG_DEBUG_TOOLS=0 \
     HOST=0.0.0.0 \
     PORT=3000 \
-    CONTENT_BUNDLE_PATH=/app/dist/rpg-content.json
+    CONTENT_BUNDLE_PATH=/app/dist/rpg-content.json \
+    WEB_DIST_DIR=/app/games/rpg/apps/web/dist
 
 WORKDIR /app
 
@@ -12,12 +13,15 @@ WORKDIR /app
 # package symlinks directly, and runtime migration SQL/meta files remain beside the app.
 COPY . .
 
+# The production web build (games/rpg/apps/web/dist) is served by the server on the same origin as the API and
+# WebSocket (WEB_DIST_DIR). Unset WEB_DIST_DIR to run an API-only container.
 # Corepack reads packageManager from package.json, pinning pnpm to 10.28.0.
 RUN corepack enable \
     && pnpm install --frozen-lockfile \
     && pnpm content-cli build games/rpg/content \
       --game ./games/rpg/tools/content-plugin/src/index.ts \
       --out dist/rpg-content.json \
+    && pnpm --filter @rpg/web build \
     && chown -R node:node /app
 
 ENV NODE_ENV=production

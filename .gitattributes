@@ -1,0 +1,3 @@
+# Keep checked-out text files LF on every platform. Windows checkouts with core.autocrlf=true would otherwise
+# rewrite SQL migrations (drizzle hashes the raw file text), the Dockerfile and shell scripts with CRLF line endings.
+* text=auto eol=lf

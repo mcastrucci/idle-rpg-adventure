@@ -1,0 +1,14 @@
+# Opt-in staging overlay: enables the debug/admin tools (time travel, grants) for private playtests.
+#
+#   docker compose -f compose.yaml -f compose.staging.yaml up -d server
+#
+# Debug tools stay disabled in the default compose.yaml. They require two explicit signals (APP_ENV in an allowlisted
+# non-production environment and RPG_DEBUG_TOOLS=1) and refuse to boot when NODE_ENV=production, which the image sets
+# by default, so this overlay also overrides NODE_ENV. Never expose a staging server to people you do not trust:
+# the debug routes let any authenticated account change the server clock and grant items.
+services:
+  server:
+    environment:
+      APP_ENV: staging
+      RPG_DEBUG_TOOLS: "1"
+      NODE_ENV: staging
