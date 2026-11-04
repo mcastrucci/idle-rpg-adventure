@@ -2,14 +2,25 @@ import type { AutomationRules, SkillId } from '@rpg/rpg-schema';
 
 import type { ContentLabels } from '../content/labels.ts';
 import { ID_LABELS } from '../content/labels.ts';
+import { t } from '../i18n/index.ts';
 import { BASIC_ATTACK } from './catalog.ts';
 import type { RuleContext } from './catalog.ts';
 
 export interface RulePreset {
   readonly id: 'bulwark' | 'thornblade';
-  readonly name: string;
-  readonly blurb: string;
   readonly rules: AutomationRules;
+}
+
+const PRESET_NAME_KEYS = { bulwark: 'ui.preset.bulwark.name', thornblade: 'ui.preset.thornblade.name' } as const;
+const RULE_PRESET_BLURB_KEYS = { bulwark: 'ui.preset.bulwark.rules_blurb', thornblade: 'ui.preset.thornblade.rules_blurb' } as const;
+
+/** Display name of a reference build (shared by rule presets and loadout presets). */
+export function presetName(id: RulePreset['id']): string {
+  return t(PRESET_NAME_KEYS[id]);
+}
+
+export function rulePresetBlurb(preset: RulePreset): string {
+  return t(RULE_PRESET_BLURB_KEYS[preset.id]);
 }
 
 const POTION = 'item:minor_healing_potion';
@@ -18,8 +29,6 @@ const POTION = 'item:minor_healing_potion';
 export const PRESETS: readonly RulePreset[] = [
   {
     id: 'bulwark',
-    name: 'Bulwark',
-    blurb: 'Tank: guard telegraphs, self-mend, cleave packs.',
     rules: [
       { when: { selfHpBelowBp: 4000, hasConsumable: POTION }, do: { useConsumable: POTION } },
       { when: { enemyTelegraphing: true, skillReady: 'skill:guard' }, do: { useSkill: 'skill:guard' } },
@@ -31,8 +40,6 @@ export const PRESETS: readonly RulePreset[] = [
   },
   {
     id: 'thornblade',
-    name: 'Thornblade',
-    blurb: 'Striker: burst the weakest, bleed the toughest.',
     rules: [
       { when: { selfHpBelowBp: 4000, hasConsumable: POTION }, do: { useConsumable: POTION } },
       { when: { selfHpBelowBp: 5500, skillReady: 'skill:second_wind' }, do: { useSkill: 'skill:second_wind' } },
@@ -59,7 +66,7 @@ export function presetUnavailableReason(preset: RulePreset, context: RuleContext
   const equipped = new Set<string>(context.equippedSkills);
   const missing = skillsUsed(preset.rules).filter((id) => !equipped.has(id));
   if (missing.length === 0) return null;
-  return `Needs ${missing.map((id) => labels.skill(id)).join(', ')} in your loadout.`;
+  return t('ui.preset.needs_skills', { skills: missing.map((id) => labels.skill(id)).join(', ') });
 }
 
 /** Deep copy so edits never mutate the preset constants. */

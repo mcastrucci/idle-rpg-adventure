@@ -3,6 +3,7 @@ import type { AutomationRule, SkillId } from '@rpg/rpg-schema';
 
 import type { ContentLabels } from '../content/labels.ts';
 import { ID_LABELS } from '../content/labels.ts';
+import { t } from '../i18n/index.ts';
 import { BASIC_ATTACK, HERO_SKILLS, PROVISIONAL_UNLOCKED_SKILLS } from '../rules/catalog.ts';
 import type { HeroSkillInfo } from '../rules/catalog.ts';
 import { skillsUsed } from '../rules/presets.ts';
@@ -83,19 +84,24 @@ export function rulesWithout(rules: readonly unknown[], conflicts: readonly Rule
 
 export interface LoadoutPreset {
   readonly id: 'bulwark' | 'thornblade';
-  readonly name: string;
-  readonly blurb: string;
   readonly loadout: readonly SkillId[];
+}
+
+/** Short description of a loadout preset. The Thornblade note names two skills, so those come from the content labels. */
+export function loadoutPresetBlurb(preset: LoadoutPreset, labels: ContentLabels = ID_LABELS): string {
+  return preset.id === 'bulwark'
+    ? t('ui.loadout_preset.bulwark.blurb')
+    : t('ui.loadout_preset.thornblade.blurb', { cleave: labels.skill('skill:cleave'), guard: labels.skill('skill:guard') });
 }
 
 /** Reference build loadouts, verbatim from docs/design/region-1.md §4.2 (provisional). */
 export const LOADOUT_PRESETS: readonly LoadoutPreset[] = [
   {
-    id: 'bulwark', name: 'Bulwark', blurb: 'Tank: slow and safe.',
+    id: 'bulwark',
     loadout: ['skill:shield_bash', 'skill:guard', 'skill:cleave', 'skill:mend'],
   },
   {
-    id: 'thornblade', name: 'Thornblade', blurb: 'Striker: fast kills, fragile. Boss: swap Cleave for Guard.',
+    id: 'thornblade',
     loadout: ['skill:precise_strike', 'skill:rend', 'skill:second_wind', 'skill:cleave'],
   },
 ];
@@ -105,5 +111,5 @@ export function presetLockedReason(preset: LoadoutPreset, options: readonly Skil
   const unlocked = new Set(options.filter((option) => option.unlocked).map((option) => option.id));
   const locked = preset.loadout.filter((id) => !unlocked.has(id));
   if (locked.length === 0) return null;
-  return `${locked.map((id) => labels.skill(id)).join(', ')} ${locked.length === 1 ? 'is' : 'are'} not unlocked yet.`;
+  return t('ui.loadout.preset_locked', { count: locked.length, skills: locked.map((id) => labels.skill(id)).join(', ') });
 }

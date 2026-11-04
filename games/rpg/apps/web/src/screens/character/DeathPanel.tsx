@@ -3,6 +3,7 @@ import type { LiveBossRiskDto, LiveDeathSummaryDto } from '@rpg/protocol';
 import type { ApiClient } from '../../api/http.ts';
 import type { LiveClient } from '../../live/client.ts';
 import { displayLabel } from '../../content/labels.ts';
+import { formatDateTime, t } from '../../i18n/index.ts';
 
 type State = { readonly phase: 'loading' } | { readonly phase: 'error' } |
   { readonly phase: 'ready'; readonly death: LiveDeathSummaryDto | null };
@@ -33,46 +34,48 @@ export function DeathPanel({ actorId, api, live }: { actorId: string; api: ApiCl
 
   return <section className="death-panel" aria-labelledby="death-panel-title">
     <div className="death-panel__heading">
-      <h2 id="death-panel-title" className="screen__subtitle">Latest live death</h2>
-      <button type="button" className="button button--secondary death-panel__refresh" onClick={refresh}>Refresh</button>
+      <h2 id="death-panel-title" className="screen__subtitle">{t('ui.death.title')}</h2>
+      <button type="button" className="button button--secondary death-panel__refresh" onClick={refresh}>{t('ui.common.refresh')}</button>
     </div>
-    {state.phase === 'loading' && <p className="muted" role="status">Loading death record…</p>}
-    {state.phase === 'error' && <div role="alert"><p>Could not load the death record.</p><button type="button" className="button button--secondary" onClick={refresh}>Try again</button></div>}
-    {state.phase === 'ready' && !state.death && <p className="muted">No recent live death.</p>}
+    {state.phase === 'loading' && <p className="muted" role="status">{t('ui.death.loading')}</p>}
+    {state.phase === 'error' && <div role="alert"><p>{t('ui.death.load_failed')}</p><button type="button" className="button button--secondary" onClick={refresh}>{t('ui.common.try_again')}</button></div>}
+    {state.phase === 'ready' && !state.death && <p className="muted">{t('ui.death.none')}</p>}
     {state.phase === 'ready' && state.death && <DeathRecord death={state.death} />}
   </section>;
 }
 
 /** Formats the server's boss-entry warning without estimating or deriving risk in the client. */
 export function ProvisionalLiveRiskNotice({ risk, actorId }: { risk?: LiveBossRiskDto; actorId?: string } = {}) {
-  if (risk === undefined) return <aside className="live-risk-notice" aria-label="Provisional live death consequences">
-    <h2>Death consequences · provisional</h2>
-    <p>The current live rules apply an XP loss of 10% of the XP required for the next level. That loss can drop a level, but never below level 1. Your run bag moves to a corpse for 24 hours; equipped gear is kept. The server calculates and records the actual result. These rules remain provisional.</p>
-    <p>Recovering a corpse leaves its contents at risk in your run bag until you return to Sanctuary.</p>
+  if (risk === undefined) return <aside className="live-risk-notice" aria-label={t('ui.death.risk_label')}>
+    <h2>{t('ui.death.provisional_title')}</h2>
+    <p>{t('ui.death.provisional_rules')}</p>
+    <p>{t('ui.death.provisional_recovery')}</p>
   </aside>;
-  return <aside className="live-risk-notice" aria-label="Provisional live death consequences">
-    <h3>Server risk summary · provisional rules</h3>
-    <p>Location: {displayLabel(risk.locationId)}. Retreat is blocked in this boss room.</p>
+  return <aside className="live-risk-notice" aria-label={t('ui.death.risk_label')}>
+    <h3>{t('ui.death.server_summary')}</h3>
+    <p>{t('ui.death.location', { location: displayLabel(risk.locationId) })}</p>
     <div className="live-risk-notice__section">
-      <h4>Enemies</h4>
-      {risk.enemies.length === 0 ? <p>None listed by the server.</p> : <ul>{risk.enemies.map((enemy, index) =>
-        <li key={`${enemy.enemy}:${index}`}>{displayLabel(enemy.enemy)} · {displayLabel(enemy.rank)} rank · level {enemy.level}</li>)}</ul>}
+      <h4>{t('ui.death.enemies')}</h4>
+      {risk.enemies.length === 0 ? <p>{t('ui.death.none_listed')}</p> : <ul>{risk.enemies.map((enemy, index) =>
+        <li key={`${enemy.enemy}:${index}`}>{t('ui.death.enemy_line', { enemy: displayLabel(enemy.enemy), rank: displayLabel(enemy.rank), level: enemy.level })}</li>)}</ul>}
     </div>
     <div className="live-risk-notice__section">
-      <h4>Party status</h4>
-      {risk.heroes.length === 0 ? <p>No hero details returned.</p> : <ul>{risk.heroes.map((hero) =>
-        <li key={hero.actorId}>{heroLabel(hero.actorId, actorId)}: {hero.hp} / {hero.maxHp} HP · {hero.healingConsumables} healing supplies</li>)}</ul>}
+      <h4>{t('ui.death.party_status')}</h4>
+      {risk.heroes.length === 0 ? <p>{t('ui.death.no_heroes')}</p> : <ul>{risk.heroes.map((hero) =>
+        <li key={hero.actorId}>{t('ui.death.hero_line', { who: heroLabel(hero.actorId, actorId), hp: hero.hp, max: hero.maxHp, count: hero.healingConsumables })}</li>)}</ul>}
     </div>
     <div className="live-risk-notice__section">
-      <h4>What is at risk if you die</h4>
-      {risk.deathConsequences.length === 0 ? <p>The server returned no per-hero loss estimate.</p> : <ul>{risk.deathConsequences.map((consequence) => {
+      <h4>{t('ui.death.at_risk')}</h4>
+      {risk.deathConsequences.length === 0 ? <p>{t('ui.death.no_estimate')}</p> : <ul>{risk.deathConsequences.map((consequence) => {
         const bag = consequence.runBag;
         const itemCount = bag.items.reduce((sum, item) => sum + item.qty, 0);
-        return <li key={consequence.actorId}>{heroLabel(consequence.actorId, actorId)}: lose {consequence.xpLost} XP; run bag ({itemCount} stack item(s), {bag.gold} gold, {bag.uniques.length} unique item(s)) moves to a corpse.</li>;
+        return <li key={consequence.actorId}>{t('ui.death.loss_line', {
+          who: heroLabel(consequence.actorId, actorId), xp: consequence.xpLost, items: itemCount, gold: bag.gold, uniques: bag.uniques.length,
+        })}</li>;
       })}</ul>}
-      {risk.onDeath.length > 0 && <p>Server-listed consequences: {risk.onDeath.map(deathConsequenceLabel).join(', ')}.</p>}
+      {risk.onDeath.length > 0 && <p>{t('ui.death.server_consequences', { list: risk.onDeath.map(deathConsequenceLabel).join(', ') })}</p>}
     </div>
-    <p>The server computes and records any actual loss. Recovering a corpse leaves its contents at risk until you return to Sanctuary.</p>
+    <p>{t('ui.death.server_records')}</p>
   </aside>;
 }
 
@@ -83,33 +86,37 @@ function DeathRecord({ death }: { death: LiveDeathSummaryDto }) {
   const uniques = corpse.contents.uniques;
   const noItems = stackItems.length === 0 && uniques.length === 0 && corpse.contents.gold === 0;
   return <div className="death-panel__record">
-    <p className="death-panel__date">Died {dateLabel(death.occurredAt)}</p>
+    <p className="death-panel__date">{t('ui.death.died_at', { date: formatDateTime(death.occurredAt) })}</p>
     <div className="death-panel__section">
-      <h3>Top damage sources in this fight</h3>
+      <h3>{t('ui.death.top_sources')}</h3>
       {causeRows.length === 0
-        ? <p>Damage source details are unavailable for this fight.</p>
-        : <ol className="death-panel__causes">{causeRows.map((cause) => <li key={`${cause.sourceId}:${cause.label}`}>{displayLabel(cause.label)} · {cause.damage} damage</li>)}</ol>}
+        ? <p>{t('ui.death.sources_unavailable')}</p>
+        : <ol className="death-panel__causes">{causeRows.map((cause) => <li key={`${cause.sourceId}:${cause.label}`}>{t('ui.death.source_line', { label: displayLabel(cause.label), damage: cause.damage })}</li>)}</ol>}
     </div>
     <div className="death-panel__section">
-      <h3>XP consequence</h3>
-      <p>Lost {death.xpLost} XP · total XP {death.xpBefore.totalXp} → {death.xpAfter.totalXp}. Level {death.xpBefore.level} → {death.xpAfter.level}; XP in level {death.xpBefore.xpIntoLevel} → {death.xpAfter.xpIntoLevel}.</p>
+      <h3>{t('ui.death.xp_title')}</h3>
+      <p>{t('ui.death.xp_line', {
+        lost: death.xpLost, totalBefore: death.xpBefore.totalXp, totalAfter: death.xpAfter.totalXp,
+        levelBefore: death.xpBefore.level, levelAfter: death.xpAfter.level,
+        inLevelBefore: death.xpBefore.xpIntoLevel, inLevelAfter: death.xpAfter.xpIntoLevel,
+      })}</p>
     </div>
     <div className="death-panel__section">
-      <h3>Corpse · {statusLabel(corpse.status)}</h3>
-      <p>Area {displayLabel(death.areaId)} · location {displayLabel(death.locationId)}</p>
-      <p>Expiry: {dateLabel(corpse.expiresAt)}</p>
-      <p>{corpse.status === 'active' ? 'Corpse contents:' : 'Bag contents recorded at death:'}</p>
-      {noItems ? <p className="muted">The corpse held no loot.</p> : <ul className="death-panel__loot">
-        {corpse.contents.gold > 0 && <li><span>Gold</span><strong>{corpse.contents.gold}</strong></li>}
+      <h3>{t('ui.death.corpse_title', { status: statusLabel(corpse.status) })}</h3>
+      <p>{t('ui.death.corpse_place', { area: displayLabel(death.areaId), location: displayLabel(death.locationId) })}</p>
+      <p>{t('ui.death.corpse_expiry', { date: formatDateTime(corpse.expiresAt) })}</p>
+      <p>{corpse.status === 'active' ? t('ui.death.corpse_contents') : t('ui.death.corpse_recorded')}</p>
+      {noItems ? <p className="muted">{t('ui.death.corpse_empty')}</p> : <ul className="death-panel__loot">
+        {corpse.contents.gold > 0 && <li><span>{t('ui.common.gold')}</span><strong>{corpse.contents.gold}</strong></li>}
         {stackItems.map((item) => <li key={`stack:${item.item}`}><span>{displayLabel(item.item)}</span><strong>×{item.qty}</strong></li>)}
         {uniques.map((item) => <li key={`unique:${item.itemId}`}><span>{displayLabel(item.definition)}</span><strong>×1</strong></li>)}
       </ul>}
     </div>
     <div className="death-panel__recovery">
       {corpse.status === 'active' ? <>
-        <h3>Recovery</h3>
-        <p>Only you can recover this corpse. Enter a new live instance in {displayLabel(death.areaId)}, reach {displayLabel(death.locationId)}, and interact with your corpse. Sanctuary alone cannot recover it.</p>
-        <p>Recovered loot stays in your run bag and remains at risk until you return to Sanctuary.</p>
+        <h3>{t('ui.death.recovery_title')}</h3>
+        <p>{t('ui.death.recovery_steps', { area: displayLabel(death.areaId), location: displayLabel(death.locationId) })}</p>
+        <p>{t('ui.death.recovery_risk')}</p>
       </> : <p>{statusDetail(corpse.status)}</p>}
     </div>
   </div>;
@@ -117,28 +124,27 @@ function DeathRecord({ death }: { death: LiveDeathSummaryDto }) {
 
 function statusLabel(status: LiveDeathSummaryDto['corpse']['status']): string {
   switch (status) {
-    case 'active': return 'active';
-    case 'recovered': return 'recovered';
-    case 'expired': return 'expired';
-    case 'invalidated': return 'lost after a newer death';
+    case 'active': return t('ui.death.status_active');
+    case 'recovered': return t('ui.death.status_recovered');
+    case 'expired': return t('ui.death.status_expired');
+    case 'invalidated': return t('ui.death.status_invalidated');
   }
 }
 function statusDetail(status: LiveDeathSummaryDto['corpse']['status']): string {
   switch (status) {
-    case 'active': return 'Your corpse is active.';
-    case 'recovered': return 'This corpse has been recovered. The list above records what it held at death.';
-    case 'expired': return 'This corpse has expired and its contents can no longer be recovered.';
-    case 'invalidated': return 'A newer death replaced this corpse; these contents can no longer be recovered.';
+    case 'active': return t('ui.death.detail_active');
+    case 'recovered': return t('ui.death.detail_recovered');
+    case 'expired': return t('ui.death.detail_expired');
+    case 'invalidated': return t('ui.death.detail_invalidated');
   }
 }
-function dateLabel(timestamp: number): string { return new Date(timestamp).toLocaleString(); }
 function heroLabel(heroId: string, actorId?: string): string {
-  if (actorId && heroId === actorId) return 'You';
-  return /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(heroId) ? 'Party member' : displayLabel(heroId);
+  if (actorId && heroId === actorId) return t('ui.common.you');
+  return /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(heroId) ? t('ui.common.party_member') : displayLabel(heroId);
 }
 function deathConsequenceLabel(value: string): string {
-  if (value === 'live.death.run_bag_to_corpse') return 'Run bag moves to a corpse';
-  if (value === 'live.death.xp_penalty') return 'XP is lost';
+  if (value === 'live.death.run_bag_to_corpse') return t('ui.death.consequence_run_bag');
+  if (value === 'live.death.xp_penalty') return t('ui.death.consequence_xp');
   return displayLabel(value);
 }
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -5,15 +5,21 @@ import { sendCommand } from '../api/commands.ts';
 import type { CommandRequest } from '../api/commands.ts';
 import type { CharacterDto, SessionDto } from '../api/types.ts';
 import type { AppServices } from './services.ts';
+import { NetworkError } from '../api/http.ts';
 import { currentLive } from '../live/api.ts';
 
 export type GameSession =
   | { readonly phase: 'loading' }
   | { readonly phase: 'error'; readonly error: string }
-  | { readonly phase: 'ready'; readonly session: SessionDto; readonly character: CharacterDto | null; readonly expeditionNotice?: string };
+  | { readonly phase: 'ready'; readonly session: SessionDto; readonly character: CharacterDto | null; readonly expeditionNotice?: ExpeditionNotice | undefined };
 
+/** Which end-of-expedition message to show; the text is resolved at render time so it follows the locale. */
+export type ExpeditionNotice = 'escrow_returned' | 'completed' | 'cancelled';
+
+/** Stable code of a failure (`ApiError.code`, `CommandRejectedError.code`), `network_error` or the error message. */
 export function describeError(error: unknown): string {
   if (error !== null && typeof error === 'object' && 'code' in error && typeof error.code === 'string') return error.code;
+  if (error instanceof NetworkError) return 'network_error';
   return error instanceof Error ? error.message : 'unknown_error';
 }
 
@@ -75,8 +81,8 @@ export function useGameSession({ api, live, storage }: AppServices) {
         if (cancelled) return;
         const recovered = isEscrowReturnedReport(expedition.terminalReport);
         setState((current) => current.phase === 'ready' && current.character?.activityId === monitoredExpeditionId
-          ? { ...current, character, expeditionNotice: recovered ? 'Expedition ended; consumables returned, no rewards or XP awarded.'
-            : expedition.state === 'completed' ? 'Expedition completed' : 'Expedition cancelled' }
+          ? { ...current, character, expeditionNotice: recovered ? 'escrow_returned'
+            : expedition.state === 'completed' ? 'completed' : 'cancelled' }
           : current);
       } catch { /* Keep the active chip and retry on the next poll or focus. */ }
       finally { inFlight = false; }
@@ -107,8 +113,8 @@ export function useGameSession({ api, live, storage }: AppServices) {
       const status = String(result['state']);
       const report = 'terminalReport' in result ? result['terminalReport'] : null;
       const recovered = isEscrowReturnedReport(report);
-      setState((current) => current.phase === 'ready' ? { ...current, expeditionNotice: recovered ? 'Expedition ended; consumables returned, no rewards or XP awarded.'
-        : status === 'completed' ? 'Expedition completed' : 'Expedition cancelled' } : current);
+      setState((current) => current.phase === 'ready' ? { ...current, expeditionNotice: recovered ? 'escrow_returned'
+        : status === 'completed' ? 'completed' : 'cancelled' } : current);
     }
     return result;
   }, [api, live]);
@@ -142,7 +148,7 @@ export function useGameSession({ api, live, storage }: AppServices) {
   }, [api]);
 
   const dismissExpeditionNotice = useCallback(() => {
-    setState((current) => current.phase === 'ready' ? { ...current, expeditionNotice: '' } : current);
+    setState((current) => current.phase === 'ready' ? { ...current, expeditionNotice: undefined } : current);
   }, []);
 
   return { state, retry, runCharacterCommand, runExpeditionCommand, refreshCharacter, dismissExpeditionNotice };

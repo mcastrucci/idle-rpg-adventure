@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 
+import { t, useLocale } from '../i18n/index.ts';
 import type { TabId } from './tabs.ts';
 import { TABS } from './tabs.ts';
 
@@ -11,8 +12,9 @@ const ICONS: Record<TabId, ReactElement> = {
 };
 
 export function TabBar({ active, onSelect }: { active: TabId; onSelect: (tab: TabId) => void }) {
+  useLocale();
   return (
-    <nav className="tabbar" aria-label="Sanctuary">
+    <nav className="tabbar" aria-label={t('ui.tabs.nav_label')}>
       {TABS.map((tab) => (
         <a
           key={tab.id}
@@ -22,7 +24,7 @@ export function TabBar({ active, onSelect }: { active: TabId; onSelect: (tab: Ta
           onClick={(event) => { event.preventDefault(); onSelect(tab.id); }}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true" className="tabbar__icon">{ICONS[tab.id]}</svg>
-          <span>{tab.label}</span>
+          <span className="tabbar__label">{t(tab.labelKey)}</span>
         </a>
       ))}
     </nav>

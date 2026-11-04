@@ -88,8 +88,8 @@ export function selectorFits(selector: TargetSelector, targeting: SkillTargeting
 export interface HeroSkillInfo {
   readonly id: SkillId;
   readonly cooldownTicks: number;
-  /** Short plain-language effect summary. */
-  readonly summary: string;
+  /** Catalog key of the short plain-language effect summary. */
+  readonly summaryKey: string;
 }
 
 /**
@@ -98,13 +98,13 @@ export interface HeroSkillInfo {
  * always available outside the four slots. A test pins ids, cooldowns and targeting to the content file.
  */
 export const HERO_SKILLS: readonly HeroSkillInfo[] = [
-  { id: 'skill:shield_bash', cooldownTicks: 10, summary: 'Hits one enemy (90%), taunts it and raises your armor for 3 hits.' },
-  { id: 'skill:guard', cooldownTicks: 12, summary: 'Absorbs the next hit with +150 armor and resist; also prevents stuns.' },
-  { id: 'skill:cleave', cooldownTicks: 8, summary: 'Hits every enemy for 60% damage.' },
-  { id: 'skill:mend', cooldownTicks: 15, summary: 'Heals you or an ally (250% of heal power).' },
-  { id: 'skill:precise_strike', cooldownTicks: 10, summary: 'One heavy hit on one enemy (180% damage).' },
-  { id: 'skill:rend', cooldownTicks: 12, summary: 'Hits, bleeds over time and lowers the target’s armor by 30%.' },
-  { id: 'skill:second_wind', cooldownTicks: 20, summary: 'Removes harmful effects and heals you over time.' },
+  { id: 'skill:shield_bash', cooldownTicks: 10, summaryKey: 'ui.skill.shield_bash.summary' },
+  { id: 'skill:guard', cooldownTicks: 12, summaryKey: 'ui.skill.guard.summary' },
+  { id: 'skill:cleave', cooldownTicks: 8, summaryKey: 'ui.skill.cleave.summary' },
+  { id: 'skill:mend', cooldownTicks: 15, summaryKey: 'ui.skill.mend.summary' },
+  { id: 'skill:precise_strike', cooldownTicks: 10, summaryKey: 'ui.skill.precise_strike.summary' },
+  { id: 'skill:rend', cooldownTicks: 12, summaryKey: 'ui.skill.rend.summary' },
+  { id: 'skill:second_wind', cooldownTicks: 20, summaryKey: 'ui.skill.second_wind.summary' },
 ];
 
 /**

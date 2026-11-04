@@ -1,18 +1,37 @@
 import { ATTRIBUTES } from '@rpg/rpg-schema';
 
 import type { AttributeKey } from '../api/types.ts';
+import { t } from '../i18n/index.ts';
 
 export type AttributeValues = Readonly<Record<AttributeKey, number>>;
 
 export const ATTRIBUTE_ORDER: readonly AttributeKey[] = ATTRIBUTES;
 
-export const ATTRIBUTE_HINTS: Readonly<Record<AttributeKey, string>> = {
-  STR: 'Physical power',
-  AGI: 'Crit and haste',
-  INT: 'Magic power',
-  VIT: 'Max HP and armor',
-  SPI: 'Heal power and resist',
+const ATTRIBUTE_HINT_KEYS: Readonly<Record<AttributeKey, string>> = {
+  STR: 'ui.attribute.hint_str',
+  AGI: 'ui.attribute.hint_agi',
+  INT: 'ui.attribute.hint_int',
+  VIT: 'ui.attribute.hint_vit',
+  SPI: 'ui.attribute.hint_spi',
 };
+
+const ATTRIBUTE_NAME_KEYS: Readonly<Record<AttributeKey, string>> = {
+  STR: 'ui.attribute.name_str',
+  AGI: 'ui.attribute.name_agi',
+  INT: 'ui.attribute.name_int',
+  VIT: 'ui.attribute.name_vit',
+  SPI: 'ui.attribute.name_spi',
+};
+
+/** One-line explanation of what an attribute improves. */
+export function attributeHint(key: AttributeKey): string {
+  return t(ATTRIBUTE_HINT_KEYS[key]);
+}
+
+/** Short attribute label (`STR` / `FUE`); the server key stays the identity, this is display only. */
+export function attributeName(key: AttributeKey): string {
+  return t(ATTRIBUTE_NAME_KEYS[key]);
+}
 
 export const NO_ALLOCATION: AttributeValues = { STR: 0, AGI: 0, INT: 0, VIT: 0, SPI: 0 };
 

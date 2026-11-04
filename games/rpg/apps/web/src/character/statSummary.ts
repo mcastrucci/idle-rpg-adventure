@@ -1,22 +1,18 @@
 import type { StatSummaryKey } from '@rpg/protocol';
 
+import { t } from '../i18n/index.ts';
 import { formatBp } from '../rules/describe.ts';
+import { STAT_LABEL_KEYS } from './stats.ts';
 
 /** Row labels for the server's stat summary (`StatSummaryDto.rows[].key`). Names only; every number comes from the server. */
-const LABELS: Readonly<Record<StatSummaryKey, string>> = {
-  STR: 'STR', AGI: 'AGI', INT: 'INT', VIT: 'VIT', SPI: 'SPI',
-  maxHp: 'Max HP', physicalPower: 'Physical power', magicPower: 'Magic power', armor: 'Armor', resist: 'Resist',
-  critBp: 'Crit chance', haste: 'Haste', actionIntervalTicks: 'Action interval', healPower: 'Heal power',
-};
-
 export function summaryLabel(key: StatSummaryKey): string {
-  return LABELS[key];
+  return t(STAT_LABEL_KEYS[key]);
 }
 
 /** Plain value (`12`, `5.8%`, `6 ticks`). */
 export function summaryValue(key: StatSummaryKey, value: number): string {
   if (key === 'critBp') return formatBp(value);
-  if (key === 'actionIntervalTicks') return `${value} ${Math.abs(value) === 1 ? 'tick' : 'ticks'}`;
+  if (key === 'actionIntervalTicks') return t('ui.unit.ticks', { count: Math.abs(value) });
   return String(value);
 }
 

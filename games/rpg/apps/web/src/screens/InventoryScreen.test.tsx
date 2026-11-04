@@ -259,7 +259,7 @@ describe('InventoryScreen', () => {
     expect(within(dialog).getByText('+2', { selector: 'strong' })).toBeDefined();
     const comparison = within(dialog).getByRole('region', { name: 'Comparison with equipped gear' });
     expect(within(comparison).getByText('Power').parentElement?.textContent).toContain('+9');
-    expect(within(comparison).getByText('Physical Power').parentElement?.textContent).toContain('+9');
+    expect(within(comparison).getByText('Physical power').parentElement?.textContent).toContain('+9');
     fireEvent.keyDown(dialog, { key: 'Escape' });
     fireEvent(dialog, new Event('cancel', { bubbles: false, cancelable: true }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

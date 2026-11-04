@@ -8,6 +8,7 @@ import type { CharacterDto } from '../api/types.ts';
 import type { ApiClient } from '../api/http.ts';
 import type { LiveConnection } from '../app/services.ts';
 import { describeError } from '../app/useGameSession.ts';
+import { codeText, t } from '../i18n/index.ts';
 import { levelProgress } from '../character/progression.ts';
 import { describeRule } from '../rules/describe.ts';
 import { AttributesPanel } from './character/AttributesPanel.tsx';
@@ -36,16 +37,16 @@ export function CharacterScreen({ character, canCommand, runCharacterCommand, ne
       {api && <DeathPanel actorId={character.actorId} api={api} live={live} />}
       <p className={`character-activity${inSanctuary ? '' : ' character-activity--busy'}`}>
         {inSanctuary
-          ? 'In the Sanctuary: attributes, loadout and rules can be changed.'
-          : `On ${character.activityState === 'live' ? 'a live run' : 'an expedition'}: changes wait until the character returns to the Sanctuary.`}
+          ? t('ui.character.activity_sanctuary')
+          : character.activityState === 'live' ? t('ui.character.activity_live') : t('ui.character.activity_expedition')}
       </p>
       <AttributesPanel character={character} canCommand={canCommand} runCharacterCommand={runCharacterCommand} newCommandId={newCommandId} />
       {api && <StatSummaryPanel character={character} api={api} />}
       <LoadoutEditor character={character} canCommand={canCommand} runCharacterCommand={runCharacterCommand} newCommandId={newCommandId} />
       <section className="character-section" aria-labelledby="rules-summary-title">
-        <h2 id="rules-summary-title" className="screen__subtitle">Automation rules ({character.automationRules.length}/{MAX_AUTOMATION_RULES})</h2>
+        <h2 id="rules-summary-title" className="screen__subtitle">{t('ui.character.rules_title', { current: character.automationRules.length, max: MAX_AUTOMATION_RULES })}</h2>
         <RulesSummary rules={character.automationRules} />
-        <a className="button button--link" href="#/character/rules">Edit automation rules</a>
+        <a className="button button--link" href="#/character/rules">{t('ui.rules.edit_link')}</a>
       </section>
     </section>
   );
@@ -55,13 +56,15 @@ export function CharacterScreen({ character, canCommand, runCharacterCommand, ne
 function LevelSummary({ character }: { character: CharacterDto }) {
   const progress = levelProgress(character.level, character.xp);
   if (!progress) {
-    return <p className="character-level">Level {character.level} · {character.xp} XP <span className="muted">(XP to next level unknown)</span></p>;
+    return <p className="character-level">{t('ui.character.level_xp', { level: character.level, xp: character.xp })} <span className="muted">{t('ui.character.xp_unknown')}</span></p>;
   }
-  const label = progress.xpToNext === null ? `${progress.xpIntoLevel} XP · max level` : `${progress.xpIntoLevel} / ${progress.xpToNext} XP`;
+  const label = progress.xpToNext === null
+    ? t('ui.character.xp_max', { xp: progress.xpIntoLevel })
+    : t('ui.character.xp_progress', { xp: progress.xpIntoLevel, next: progress.xpToNext });
   return (
     <div className="character-level">
-      <p>Level {progress.level} · {label}</p>
-      <div className="xp-bar" role="progressbar" aria-label="XP to next level" aria-valuemin={0} aria-valuemax={10_000}
+      <p>{t('ui.character.level_line', { level: progress.level, label })}</p>
+      <div className="xp-bar" role="progressbar" aria-label={t('ui.character.xp_bar_label')} aria-valuemin={0} aria-valuemax={10_000}
         aria-valuenow={progress.progressBp} aria-valuetext={label}>
         <div className="xp-bar__fill" style={{ width: `${progress.progressBp / 100}%` }} />
       </div>
@@ -99,9 +102,9 @@ function CreateCharacter({ canCommand, run }: { canCommand: boolean; run: Props[
   const trimmed = name.trim();
   return (
     <section className="screen" aria-labelledby="create-title">
-      <h1 id="create-title" className="screen__title">Create your character</h1>
+      <h1 id="create-title" className="screen__title">{t('ui.character.create_title')}</h1>
       <form className="form" onSubmit={onSubmit}>
-        <label className="form__label" htmlFor="character-name">Name</label>
+        <label className="form__label" htmlFor="character-name">{t('ui.character.name')}</label>
         <input
           id="character-name"
           className="form__input"
@@ -111,11 +114,11 @@ function CreateCharacter({ canCommand, run }: { canCommand: boolean; run: Props[
           disabled={pending || unconfirmed !== null}
           onChange={(event) => setName(event.target.value)}
         />
-        {error && <p className="form__error" role="alert">Could not create the character ({error}).</p>}
+        {error && <p className="form__error" role="alert">{t('ui.character.create_failed', { error: codeText(error) })}</p>}
         <button className="button" type="submit" disabled={!canCommand || pending || trimmed.length === 0}>
-          {pending ? 'Creating…' : unconfirmed ? 'Retry' : 'Create'}
+          {pending ? t('ui.character.creating') : unconfirmed ? t('ui.common.retry') : t('ui.character.create')}
         </button>
-        {!canCommand && <p className="muted">Waiting for the connection…</p>}
+        {!canCommand && <p className="muted">{t('ui.common.waiting_connection')}</p>}
       </form>
     </section>
   );
@@ -123,12 +126,12 @@ function CreateCharacter({ canCommand, run }: { canCommand: boolean; run: Props[
 
 /** Read-only list of the saved rules, in evaluation order. */
 function RulesSummary({ rules }: { rules: readonly unknown[] }) {
-  if (rules.length === 0) return <p className="muted">No rules: the character only uses basic attacks.</p>;
+  if (rules.length === 0) return <p className="muted">{t('ui.rules.none_summary')}</p>;
   return (
     <ol className="rules-summary">
       {rules.map((raw, index) => {
         const parsed = AutomationRuleSchema.safeParse(raw);
-        return <li key={index}>{parsed.success ? describeRule(parsed.data) : 'Unreadable rule'}</li>;
+        return <li key={index}>{parsed.success ? describeRule(parsed.data) : t('ui.rules.unreadable')}</li>;
       })}
     </ol>
   );

@@ -1,5 +1,9 @@
 import type { InventoryHoldingDto, InventorySnapshotDto } from '@rpg/protocol';
 
+import { itemDisplayName } from '../../content/labels.ts';
+import { t } from '../../i18n/index.ts';
+import { currencyLabel, fallbackName, slotLabel } from './inventoryLabels.ts';
+
 interface Props {
   readonly holdings: readonly InventoryHoldingDto[];
   readonly snapshot: InventorySnapshotDto | null;
@@ -9,15 +13,17 @@ interface Props {
 export function InventoryItemGrid({ holdings, snapshot, onSelect }: Props) {
   const rows = coalesceStacks(holdings);
   if (rows.length === 0) return null;
-  return <ul className="inventory-grid" aria-label="Items">
+  return <ul className="inventory-grid" aria-label={t('ui.inventory.items_label')}>
     {rows.map(({ holding, qty, key }) => {
       const definition = resolveDefinition(snapshot, holding);
-      const name = definition?.nameKey ? displayName(definition.nameKey, definition.id) : humanize(holding.definition ?? (holding.asset.kind === 'stack' ? holding.asset.item : holding.asset.kind === 'currency' ? holding.asset.currency : holding.itemId ?? holding.asset.itemId));
-      return <li key={key}><button className="inventory-card" type="button" onClick={() => onSelect({ ...holding, qty })} aria-label={`Details for ${name}`}>
+      const name = definition?.nameKey ? itemDisplayName(definition.nameKey, definition.id)
+        : holding.asset.kind === 'currency' ? currencyLabel(holding.asset.currency)
+          : fallbackName(holding.definition ?? (holding.asset.kind === 'stack' ? holding.asset.item : holding.itemId ?? holding.asset.itemId));
+      return <li key={key}><button className="inventory-card" type="button" onClick={() => onSelect({ ...holding, qty })} aria-label={t('ui.inventory.details_for', { name })}>
         <span className="inventory-card__mark" aria-hidden="true">{definition?.kind === 'equipment' ? '◇' : definition?.kind === 'consumable' ? '✦' : holding.asset.kind === 'currency' ? '●' : '▧'}</span>
         <span className="inventory-card__name">{name}</span>
         {qty > 1 && <span className="inventory-card__qty">×{qty}</span>}
-        {definition?.kind === 'equipment' && definition.slot && <span className="inventory-card__meta">{humanize(definition.slot)}</span>}
+        {definition?.kind === 'equipment' && definition.slot && <span className="inventory-card__meta">{slotLabel(definition.slot)}</span>}
       </button></li>;
     })}
   </ul>;
@@ -46,9 +52,4 @@ function resolveDefinition(snapshot: InventorySnapshotDto | null, holding: Inven
   if (!snapshot) return null;
   const id = holding.definition ?? (holding.asset.kind === 'stack' ? holding.asset.item : holding.asset.kind === 'unique' ? holding.definition : null);
   return id ? snapshot.catalog.items.find((item) => item.id === id) ?? null : null;
-}
-function humanize(value: string): string { const leaf = (value.includes(':') ? value.slice(value.indexOf(':') + 1) : value).replace(/([a-z0-9])([A-Z])/g, '$1 $2'); return leaf.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toLocaleUpperCase()); }
-function displayName(nameKey: string, id: string): string {
-  const candidate = nameKey.split('.').filter((part) => part && part !== 'item' && part !== 'name').at(-1);
-  return humanize(candidate || id);
 }

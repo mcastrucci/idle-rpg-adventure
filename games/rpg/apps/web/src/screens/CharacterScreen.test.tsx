@@ -169,7 +169,7 @@ describe('CharacterScreen', () => {
     const { requests } = harness({ skillLoadout: ['skill:guard', 'skill:cleave'], automationRules: [] });
     const thornblade = screen.getByRole('button', { name: 'Use Thornblade' });
     expect(isDisabled(thornblade)).toBe(true);
-    expect(screen.getByText('Precise strike, Rend, Second wind are not unlocked yet.')).toBeDefined();
+    expect(screen.getByText('Precise Strike, Rend, Second Wind are not unlocked yet.')).toBeDefined();
     const lockedOption = within(slot(1)).getByRole('option', { name: 'Rend (locked)' }) as HTMLOptionElement;
     expect(lockedOption.disabled).toBe(true);
 

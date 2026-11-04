@@ -4,6 +4,7 @@ import type { InventorySnapshotDto, StatSummaryDto, StatSummaryRowDto } from '@r
 import type { ApiClient } from '../../api/http.ts';
 import type { CharacterDto } from '../../api/types.ts';
 import { displayLabel } from '../../content/labels.ts';
+import { t } from '../../i18n/index.ts';
 import { getInventory } from '../../inventory/api.ts';
 import { isImprovement, summaryChange, summaryLabel, summaryValue } from '../../character/statSummary.ts';
 
@@ -32,15 +33,15 @@ export function StatSummaryPanel({ character, api }: { character: CharacterDto; 
 
   return (
     <section className="character-section" aria-labelledby="stat-summary-title">
-      <h2 id="stat-summary-title" className="screen__subtitle">Stat summary</h2>
-      {state.phase === 'loading' && <p className="muted" role="status">Loading stats…</p>}
+      <h2 id="stat-summary-title" className="screen__subtitle">{t('ui.stat_summary.title')}</h2>
+      {state.phase === 'loading' && <p className="muted" role="status">{t('ui.stat_summary.loading')}</p>}
       {state.phase === 'error' && (
         <div role="alert">
-          <p>Could not load the stat summary.</p>
-          <button type="button" className="button button--secondary" onClick={() => setAttempt((value) => value + 1)}>Try again</button>
+          <p>{t('ui.stat_summary.load_failed')}</p>
+          <button type="button" className="button button--secondary" onClick={() => setAttempt((value) => value + 1)}>{t('ui.common.try_again')}</button>
         </div>
       )}
-      {state.phase === 'unavailable' && <p className="muted">The stat summary is unavailable while equipped gear has unsupported rolls.</p>}
+      {state.phase === 'unavailable' && <p className="muted">{t('ui.stat_summary.unavailable')}</p>}
       {state.phase === 'ready' && <SummaryTable summary={state.summary} />}
     </section>
   );
@@ -50,7 +51,7 @@ function SummaryTable({ summary }: { summary: StatSummaryDto }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const itemName = (itemId: string): string => {
     const item = summary.items.find((entry) => entry.itemId === itemId);
-    return item ? displayLabel(item.nameKey ?? item.definition) : 'Unknown item';
+    return item ? displayLabel(item.nameKey ?? item.definition) : t('ui.stat_summary.unknown_item');
   };
   const toggle = (key: string) => setOpen((current) => {
     const next = new Set(current);
@@ -60,14 +61,20 @@ function SummaryTable({ summary }: { summary: StatSummaryDto }) {
   return (
     <>
       <p className="muted character-note">
-        Level {summary.level}.{' '}
-        {summary.items.length === 0 ? 'No gear equipped.' : `Gear: ${summary.items.map((item) => displayLabel(item.nameKey ?? item.definition)).join(', ')}.`}
-        {' '}Totals match what combat uses. Provisional formulas.
+        {t('ui.stat_summary.note', {
+          level: summary.level,
+          gear: summary.items.length === 0
+            ? t('ui.stat_summary.no_gear')
+            : t('ui.stat_summary.gear', { items: summary.items.map((item) => displayLabel(item.nameKey ?? item.definition)).join(', ') }),
+        })}
       </p>
       <table className="stat-summary">
-        <caption className="visually-hidden">Base, gear and total value of each stat</caption>
+        <caption className="visually-hidden">{t('ui.stat_summary.caption')}</caption>
         <thead>
-          <tr><th scope="col">Stat</th><th scope="col">Base</th><th scope="col">Gear</th><th scope="col">Total</th></tr>
+          <tr>
+            <th scope="col">{t('ui.stat_summary.col_stat')}</th><th scope="col">{t('ui.stat_summary.col_base')}</th>
+            <th scope="col">{t('ui.stat_summary.col_gear')}</th><th scope="col">{t('ui.stat_summary.col_total')}</th>
+          </tr>
         </thead>
         <tbody>
           {summary.rows.map((row) => (
@@ -92,7 +99,9 @@ function StatRow({ row, expanded, onToggle, itemName }: {
         <th scope="row">
           {expandable ? (
             <button type="button" className="stat-summary__toggle" aria-expanded={expanded} aria-controls={detailId}
-              aria-label={`${label}: base ${summaryValue(row.key, row.base)}, gear ${summaryChange(row.key, row.equipment)}, total ${summaryValue(row.key, row.total)}. Gear breakdown`}
+              aria-label={t('ui.stat_summary.row_label', {
+                label, base: summaryValue(row.key, row.base), gear: summaryChange(row.key, row.equipment), total: summaryValue(row.key, row.total),
+              })}
               onClick={onToggle}>
               <span aria-hidden="true">{expanded ? '▾' : '▸'}</span> {label}
             </button>
@@ -105,7 +114,7 @@ function StatRow({ row, expanded, onToggle, itemName }: {
       {expandable && expanded && (
         <tr className="stat-summary__detail" id={detailId}>
           <td colSpan={4}>
-            <ul aria-label={`${label} from gear`}>
+            <ul aria-label={t('ui.stat_summary.from_gear', { label })}>
               {row.contributions.map((entry) => (
                 <li key={entry.itemId}>
                   <span>{itemName(entry.itemId)}</span>

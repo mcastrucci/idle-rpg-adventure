@@ -9,6 +9,8 @@ import type { CommandRequest } from '../api/commands.ts';
 import type { ApiClient } from '../api/http.ts';
 import type { CharacterDto } from '../api/types.ts';
 import { describeError } from '../app/useGameSession.ts';
+import { labelOrHumanized } from '../content/labels.ts';
+import { codeText, t, useLocale } from '../i18n/index.ts';
 import { describeRule } from '../rules/describe.ts';
 import { toDraft } from '../rules/draft.ts';
 import { EstimateCard } from './expedition/EstimateCard.tsx';
@@ -40,6 +42,7 @@ export function ExpeditionScreen(props: Props) {
 }
 
 function ExpeditionScreenForActor({ character, canCommand, api, runCommand, refreshCharacter, initialAreaId, estimateDebounceMs = ESTIMATE_DEBOUNCE_MS }: Props) {
+  const locale = useLocale();
   const actorId = character?.actorId ?? null;
   const activeId = character?.activityState === 'expedition' ? character.activityId : null;
   const [options, setOptions] = useState<ExpeditionOptionsDto | null>(null);
@@ -190,12 +193,12 @@ function ExpeditionScreenForActor({ character, canCommand, api, runCommand, refr
     }
     : lastExpedition;
   const repeatProblem = repeatCandidate && options
-    ? lastExpeditionProblem(repeatCandidate, options) ?? (!latestServerActivity?.available && serverTerminal ? 'The latest server expedition area or activity is no longer available.' : null)
+    ? lastExpeditionProblem(repeatCandidate, options) ?? (!latestServerActivity?.available && serverTerminal ? t('ui.expedition.problem_latest') : null)
     : null;
   const canRepeat = Boolean(repeatCandidate && options && !repeatProblem && !activeId && canCommand && !pending && !unconfirmed);
   const rulePreview = useMemo(() => toDraft(character?.automationRules ?? []).map(({ rule }) => {
-    try { return describeRule(rule); } catch { return 'Custom rule'; }
-  }), [character?.automationRules]);
+    try { return describeRule(rule); } catch { return t('ui.expedition.custom_rule'); }
+  }), [character?.automationRules, locale]);
 
   function applySetup(last: LastExpedition) {
     setAreaId(last.request.areaId);
@@ -260,74 +263,74 @@ function ExpeditionScreenForActor({ character, canCommand, api, runCommand, refr
 
   return (
     <section className="screen" aria-labelledby="expedition-title">
-      {initialAreaId && <a className="back-link" href="#/world">← World map</a>}
-      <h1 id="expedition-title" className="screen__title">Expeditions</h1>
-      {!character && <p className="muted">Create a character before starting an expedition.</p>}
-      {optionsError && <p className="form__error" role="alert">Could not load available expeditions ({optionsError}).</p>}
-      {options && availableAreas.length === 0 && <p className="muted">No conquered expedition activities are available yet. Clear an area first to unlock activities here.</p>}
+      {initialAreaId && <a className="back-link" href="#/world">{t('ui.expedition.back_to_map')}</a>}
+      <h1 id="expedition-title" className="screen__title">{t('ui.expedition.title')}</h1>
+      {!character && <p className="muted">{t('ui.expedition.need_character')}</p>}
+      {optionsError && <p className="form__error" role="alert">{t('ui.expedition.options_failed', { error: codeText(optionsError) })}</p>}
+      {options && availableAreas.length === 0 && <p className="muted">{t('ui.expedition.none_available')}</p>}
       {currentExpedition?.state === 'running' && <RunningExpedition expedition={currentExpedition} progress={elapsed} style={ringStyle} onCancel={() => setCancelOpen(true)}
         onRecover={() => currentExpedition.recoveryAvailable && void send(unconfirmed?.envelope.operation === 'expedition.recoverUnavailable' ? unconfirmed : recoverUnavailableExpeditionCommand(currentExpedition.id), 'recover')}
         canCancel={canCommand && !pending && (!unconfirmed || (currentExpedition.recoveryAvailable === true && unconfirmed.envelope.operation === 'expedition.recoverUnavailable'))}
         retryRecovery={unconfirmed?.envelope.operation === 'expedition.recoverUnavailable'} loading={loading} />}
       {terminalExpedition && <CompletedExpedition expedition={terminalExpedition} />}
-      {readError && <p className="form__error" role="alert">Could not refresh expedition status ({readError}).</p>}
-      {trackingId && <button type="button" className="button button--secondary" disabled={loading} onClick={() => void loadExpedition()}>{loading ? 'Refreshing…' : 'Refresh status'}</button>}
+      {readError && <p className="form__error" role="alert">{t('ui.expedition.refresh_failed', { error: codeText(readError) })}</p>}
+      {trackingId && <button type="button" className="button button--secondary" disabled={loading} onClick={() => void loadExpedition()}>{loading ? t('ui.expedition.refreshing') : t('ui.expedition.refresh_status')}</button>}
       {character && !activeId && <form className="form expedition-form" onSubmit={start}>
-        <h2 className="screen__subtitle">Start an expedition</h2>
-        {!options && !optionsError && <p className="muted">Checking conquered activities…</p>}
+        <h2 className="screen__subtitle">{t('ui.expedition.start_title')}</h2>
+        {!options && !optionsError && <p className="muted">{t('ui.expedition.checking')}</p>}
         {options && repeatCandidate && <section className="repeat-card" aria-labelledby="repeat-title">
-          <h3 id="repeat-title">Go again</h3>
-          <p className="muted">Prefills this setup. Review it, then choose Start to begin.</p>
+          <h3 id="repeat-title">{t('ui.expedition.repeat_title')}</h3>
+          <p className="muted">{t('ui.expedition.repeat_note')}</p>
           <p>{label(repeatCandidate.request.activityId)} · {label(repeatCandidate.request.areaId)} · {formatDuration(repeatCandidate.request.durationMin)}
             {repeatCandidate.config.consumables.length ? ` · ${formatItems(repeatCandidate.config.consumables)}` : ''}</p>
           {repeatProblem && <p className="muted">{repeatProblem}</p>}
-          <button type="button" className="button" disabled={!canRepeat} onClick={goAgain}>Go again</button>
+          <button type="button" className="button" disabled={!canRepeat} onClick={goAgain}>{t('ui.expedition.repeat_title')}</button>
         </section>}
         {options && availableAreas.length > 0 && <>
-          <label className="form__label" htmlFor="expedition-area">Conquered area</label>
+          <label className="form__label" htmlFor="expedition-area">{t('ui.expedition.area')}</label>
           <select id="expedition-area" className="form__input" value={areaId} onChange={(event) => setAreaId(event.target.value)} disabled={pending || unconfirmed !== null}>
             {availableAreas.map((area) => <option key={area.areaId} value={area.areaId}>{label(area.areaId)}</option>)}
           </select>
-          <label className="form__label" htmlFor="expedition-activity">Activity</label>
+          <label className="form__label" htmlFor="expedition-activity">{t('ui.expedition.activity')}</label>
           <select id="expedition-activity" className="form__input" value={selectedActivity?.activityId ?? ''} onChange={(event) => setActivityId(event.target.value)} disabled={pending || unconfirmed !== null}>
             {activities.map((activity) => <option key={activity.activityId} value={activity.activityId}>{label(activity.activityId)}</option>)}
           </select>
           <fieldset className="duration-chips">
-            <legend className="form__label">Duration</legend>
+            <legend className="form__label">{t('ui.expedition.duration')}</legend>
             {options.durationsMin.map((duration) => <button key={duration} type="button" aria-pressed={duration === durationMin}
               className={duration === durationMin ? 'duration-chip duration-chip--active' : 'duration-chip'}
               onClick={() => setDurationMin(duration)} disabled={pending || unconfirmed !== null}>{formatDuration(duration)}</button>)}
           </fieldset>
           {options.paceBp.min === options.paceBp.max
-            ? <p className="muted">Pace: Normal</p>
-            : <><label className="form__label" htmlFor="expedition-pace">Pace (%)</label>
+            ? <p className="muted">{t('ui.expedition.pace_normal')}</p>
+            : <><label className="form__label" htmlFor="expedition-pace">{t('ui.expedition.pace')}</label>
               <input id="expedition-pace" className="form__input" type="number" min={options.paceBp.min / 100} max={options.paceBp.max / 100} step="1" value={paceBp / 100} onChange={(event) => setPaceBp(Math.round(Number(event.target.value) * 100))} disabled={pending || unconfirmed !== null} /></>}
           {options.consumables.length > 0 && <>
-            <label className="form__label" htmlFor="expedition-consumable">Consumable (optional)</label>
+            <label className="form__label" htmlFor="expedition-consumable">{t('ui.expedition.consumable')}</label>
             <select id="expedition-consumable" className="form__input" value={consumableItem} onChange={(event) => { setConsumableItem(event.target.value); setConsumableQty(0); }} disabled={pending || unconfirmed !== null}>
-              <option value="">None</option>{options.consumables.map((item) => <option key={item.item} value={item.item}>{label(item.item)} ({item.availableQty})</option>)}
+              <option value="">{t('ui.common.none')}</option>{options.consumables.map((item) => <option key={item.item} value={item.item}>{label(item.item)} ({item.availableQty})</option>)}
             </select>
             {consumableItem && <>
-              <label className="form__label" htmlFor="expedition-consumable-qty">Quantity</label>
+              <label className="form__label" htmlFor="expedition-consumable-qty">{t('ui.expedition.quantity')}</label>
               <input id="expedition-consumable-qty" className="form__input" type="number" min="0" max={availableItem?.availableQty ?? 0} step="1" value={consumableQty} onChange={(event) => setConsumableQty(Number(event.target.value))} disabled={pending || unconfirmed !== null} />
             </>}
           </>}
-          <label className="form__label" htmlFor="expedition-retreat">Retreat below health (%)</label>
+          <label className="form__label" htmlFor="expedition-retreat">{t('ui.expedition.retreat_below')}</label>
           <input id="expedition-retreat" className="form__input" type="number" min="0" max="100" step="1" value={belowHpBp / 100} onChange={(event) => setBelowHpBp(Math.round(Number(event.target.value) * 100))} disabled={pending || unconfirmed !== null} />
-          <label className="expedition-check"><input type="checkbox" checked={onlyWhenNoHealing} onChange={(event) => setOnlyWhenNoHealing(event.target.checked)} disabled={pending || unconfirmed !== null} /> Retreat only when no healing remains</label>
+          <label className="expedition-check"><input type="checkbox" checked={onlyWhenNoHealing} onChange={(event) => setOnlyWhenNoHealing(event.target.checked)} disabled={pending || unconfirmed !== null} /> {t('ui.expedition.retreat_no_healing')}</label>
           <section className="rules-preview" aria-labelledby="rules-preview-title">
-            <h3 id="rules-preview-title">Automation rules</h3>
-            {rulePreview.length === 0 ? <p className="muted">No automation rules set.</p>
+            <h3 id="rules-preview-title">{t('ui.expedition.rules_title')}</h3>
+            {rulePreview.length === 0 ? <p className="muted">{t('ui.expedition.rules_none')}</p>
               : <ol>{rulePreview.slice(0, RULES_PREVIEW).map((text, index) => <li key={index}>{text}</li>)}</ol>}
-            {rulePreview.length > RULES_PREVIEW && <p className="muted">+{rulePreview.length - RULES_PREVIEW} more</p>}
-            <a className="button button--secondary button--link" href="#/character/rules">Edit automation rules</a>
+            {rulePreview.length > RULES_PREVIEW && <p className="muted">{t('ui.expedition.rules_more', { count: rulePreview.length - RULES_PREVIEW })}</p>}
+            <a className="button button--secondary button--link" href="#/character/rules">{t('ui.rules.edit_link')}</a>
           </section>
           <EstimateCard state={estimateState} onRetry={() => setEstimateNonce((n) => n + 1)} />
-          {error && <p className="form__error" role="alert">Could not start expedition ({error}).</p>}
-          <button className="button" type="submit" disabled={!canStart}>{pending ? 'Starting…' : unconfirmed ? 'Retry start' : 'Start expedition'}</button>
+          {error && <p className="form__error" role="alert">{t('ui.expedition.start_failed', { error: codeText(error) })}</p>}
+          <button className="button" type="submit" disabled={!canStart}>{pending ? t('ui.expedition.starting') : unconfirmed ? t('ui.expedition.retry_start') : t('ui.expedition.start')}</button>
         </>}
       </form>}
-      {error && currentExpedition?.state === 'running' && <p className="form__error" role="alert">Could not {currentExpedition.recoveryAvailable ? 'return consumables and end the expedition' : 'cancel the expedition'} ({error}).</p>}
+      {error && currentExpedition?.state === 'running' && <p className="form__error" role="alert">{t(currentExpedition.recoveryAvailable ? 'ui.expedition.end_failed' : 'ui.expedition.cancel_failed', { error: codeText(error) })}</p>}
       {cancelOpen && currentExpedition?.state === 'running' && <CancelDialog expedition={currentExpedition} pending={pending} canCommand={canCommand} onClose={() => setCancelOpen(false)} onConfirm={() => void send(unconfirmed ?? cancelExpeditionCommand(currentExpedition.id), 'cancel')} />}
     </section>
   );
@@ -335,27 +338,27 @@ function ExpeditionScreenForActor({ character, canCommand, api, runCommand, refr
 
 function RunningExpedition({ expedition, progress, style, canCancel, retryRecovery, loading, onCancel, onRecover }: { expedition: ExpeditionDto; progress: number; style: CSSProperties; canCancel: boolean; retryRecovery: boolean; loading: boolean; onCancel: () => void; onRecover: () => void }) {
   return <section className="expedition-card" aria-labelledby="expedition-running-title">
-    <div className="expedition-card__top"><div className="progress-ring" style={style} role="img" aria-label={`${Math.floor(progress * 100)} percent of planned time elapsed`}><span>{Math.floor(progress * 100)}%</span></div>
-      <div><h2 id="expedition-running-title" className="screen__subtitle">{label(expedition.activityId)}</h2><p className="muted">{label(expedition.areaId)} · Running</p><p className="muted">{expedition.progress.revealed} revealed segments</p></div></div>
-    <div className="expedition-feed"><h3>Revealed events</h3>{expedition.segments.length === 0 ? <p className="muted">No events revealed yet.</p> : <ol>{expedition.segments.flatMap((segment) => segment.events.map((event, index) => <li key={`${segment.index}-${index}`}>{eventText(event)}</li>))}</ol>}</div>
+    <div className="expedition-card__top"><div className="progress-ring" style={style} role="img" aria-label={t('ui.expedition.progress_label', { percent: Math.floor(progress * 100) })}><span>{Math.floor(progress * 100)}%</span></div>
+      <div><h2 id="expedition-running-title" className="screen__subtitle">{label(expedition.activityId)}</h2><p className="muted">{label(expedition.areaId)} · {t('ui.expedition.running')}</p><p className="muted">{t('ui.expedition.revealed_segments', { count: expedition.progress.revealed })}</p></div></div>
+    <div className="expedition-feed"><h3>{t('ui.expedition.revealed_events')}</h3>{expedition.segments.length === 0 ? <p className="muted">{t('ui.expedition.no_events')}</p> : <ol>{expedition.segments.flatMap((segment) => segment.events.map((event, index) => <li key={`${segment.index}-${index}`}>{eventText(event)}</li>))}</ol>}</div>
     {expedition.recoveryAvailable
-      ? <><p className="muted" role="status">This expedition's saved rules are no longer available. Returning its escrow will end it without rewards or XP.</p>
-        <button className="button" type="button" disabled={!canCancel || loading} onClick={onRecover}>{retryRecovery ? 'Retry return and end expedition' : 'Return consumables and end expedition'}</button></>
-      : <button className="button button--secondary" type="button" disabled={!canCancel || loading} onClick={onCancel}>Cancel expedition</button>}
+      ? <><p className="muted" role="status">{t('ui.expedition.recovery_note')}</p>
+        <button className="button" type="button" disabled={!canCancel || loading} onClick={onRecover}>{retryRecovery ? t('ui.expedition.recovery_retry') : t('ui.expedition.recovery_action')}</button></>
+      : <button className="button button--secondary" type="button" disabled={!canCancel || loading} onClick={onCancel}>{t('ui.expedition.cancel')}</button>}
   </section>;
 }
 
 function CancelDialog({ expedition, pending, canCommand, onClose, onConfirm }: { expedition: ExpeditionDto; pending: boolean; canCommand: boolean; onClose: () => void; onConfirm: () => void }) {
   const preview = expedition.cancelPreview;
   return <div className="dialog-backdrop"><section className="expedition-dialog" role="dialog" aria-modal="true" aria-labelledby="cancel-title">
-    <h2 id="cancel-title">Cancel expedition?</h2>
+    <h2 id="cancel-title">{t('ui.expedition.cancel_title')}</h2>
     {preview ? <>
-      {preview.converted ? <p>This expedition has already finished. Cancel will return the completed result.</p> : <p>Preview uses revealed progress. Unrevealed progress and rewards will be discarded; amounts stay hidden.</p>}
-      <h3>Rewards kept</h3><ul>{preview.rewards.length ? preview.rewards.map((reward, index) => <li key={index}>{assetName(reward.asset)}: {reward.qty}</li>) : <li>None</li>}</ul>
-      <h3>Progress kept</h3><ul>{preview.keptProgress.length ? preview.keptProgress.map((progress) => <li key={progress.actorId}>XP earned: {progress.xpEarned}{progress.died ? ' · character fell' : ''}{progress.deathPenaltyApplied ? ' · death penalty applies' : ''}</li>) : <li>No progress yet</li>}</ul>
-      <h3>Consumables</h3><p>Used: {formatItems(preview.consumablesUsed)} · Returned: {formatItems(preview.consumablesReturned)}</p>
-    </> : <p>Loading cancellation preview…</p>}
-    <div className="expedition-dialog__actions"><button type="button" className="button button--secondary" onClick={onClose} disabled={pending}>Keep running</button><button type="button" className="button" onClick={onConfirm} disabled={!canCommand || pending || !preview}>{pending ? 'Cancelling…' : 'Confirm cancel'}</button></div>
+      {preview.converted ? <p>{t('ui.expedition.cancel_finished')}</p> : <p>{t('ui.expedition.cancel_preview')}</p>}
+      <h3>{t('ui.expedition.rewards_kept')}</h3><ul>{preview.rewards.length ? preview.rewards.map((reward, index) => <li key={index}>{assetName(reward.asset)}: {reward.qty}</li>) : <li>{t('ui.common.none')}</li>}</ul>
+      <h3>{t('ui.expedition.progress_kept')}</h3><ul>{preview.keptProgress.length ? preview.keptProgress.map((progress) => <li key={progress.actorId}>{t('ui.expedition.xp_earned', { xp: progress.xpEarned })}{progress.died ? ` · ${t('ui.expedition.character_fell')}` : ''}{progress.deathPenaltyApplied ? ` · ${t('ui.expedition.death_penalty')}` : ''}</li>) : <li>{t('ui.expedition.no_progress')}</li>}</ul>
+      <h3>{t('ui.expedition.consumables')}</h3><p>{t('ui.expedition.consumables_line', { used: formatItems(preview.consumablesUsed), returned: formatItems(preview.consumablesReturned) })}</p>
+    </> : <p>{t('ui.expedition.cancel_loading')}</p>}
+    <div className="expedition-dialog__actions"><button type="button" className="button button--secondary" onClick={onClose} disabled={pending}>{t('ui.expedition.keep_running')}</button><button type="button" className="button" onClick={onConfirm} disabled={!canCommand || pending || !preview}>{pending ? t('ui.expedition.cancelling') : t('ui.expedition.confirm_cancel')}</button></div>
   </section></div>;
 }
 
@@ -371,8 +374,7 @@ function isTerminalExpedition(expedition: ExpeditionDto): expedition is Omit<Exp
 }
 
 function label(id: string): string {
-  const value = id.includes(':') ? id.slice(id.indexOf(':') + 1) : id;
-  return value.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+  return labelOrHumanized(id);
 }
 function assetName(asset: unknown): string {
   if (typeof asset === 'string') return label(asset);
@@ -384,26 +386,26 @@ function assetName(asset: unknown): string {
   return eventText(asset);
 }
 function formatDuration(minutes: number): string {
-  return minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`;
+  return minutes >= 60 && minutes % 60 === 0 ? t('ui.unit.hours', { n: minutes / 60 }) : t('ui.unit.minutes', { n: minutes });
 }
-function formatItems(items: readonly { item: string; qty: number }[]): string { return items.length ? items.map(({ item, qty }) => `${label(item)} ×${qty}`).join(', ') : 'none'; }
+function formatItems(items: readonly { item: string; qty: number }[]): string { return items.length ? items.map(({ item, qty }) => `${label(item)} ×${qty}`).join(', ') : t('ui.common.none_lower'); }
 function eventText(value: unknown): string {
-  if (value === null) return 'Pending';
+  if (value === null) return t('ui.expedition.event_pending');
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) return value.map(eventText).join(', ');
   if (typeof value === 'object') {
     const record = value as Record<string, unknown>;
     const type = record['type'];
     if (record['text'] !== undefined || record['message'] !== undefined) return String(record['text'] ?? record['message']);
-    if (type === 'encounter') return `Encounter: ${String(record['result'] ?? 'resolved')}`;
-    if (type === 'kill') return `Defeated ${label(String(record['enemy'] ?? 'enemy'))} (+${String(record['xp'] ?? 0)} XP)`;
-    if (type === 'loot') return `Found ${label(String(record['item'] ?? 'item'))} ×${String(record['qty'] ?? 0)}`;
-    if (type === 'gold') return `Found ${String(record['qty'] ?? 0)} gold`;
-    if (type === 'consumable') return `Used ${label(String(record['item'] ?? 'consumable'))} ×${String(record['qty'] ?? 0)}`;
-    if (type === 'hp') return `Health: ${String(record['hp'] ?? '?')}/${String(record['maxHp'] ?? '?')}`;
-    if (type === 'death') return 'Character fell';
-    if (type === 'retreat') return `Retreated: ${label(String(record['reason'] ?? 'unknown'))}`;
-    return type === undefined ? 'Event' : label(String(type));
+    if (type === 'encounter') return t('ui.expedition.event_encounter', { result: String(record['result'] ?? t('ui.expedition.event_resolved')) });
+    if (type === 'kill') return t('ui.expedition.event_kill', { enemy: label(String(record['enemy'] ?? t('ui.expedition.event_enemy_word'))), xp: String(record['xp'] ?? 0) });
+    if (type === 'loot') return t('ui.expedition.event_loot', { item: label(String(record['item'] ?? t('ui.expedition.event_item_word'))), qty: String(record['qty'] ?? 0) });
+    if (type === 'gold') return t('ui.expedition.event_gold', { qty: String(record['qty'] ?? 0) });
+    if (type === 'consumable') return t('ui.expedition.event_consumable', { item: label(String(record['item'] ?? t('ui.expedition.event_consumable_word'))), qty: String(record['qty'] ?? 0) });
+    if (type === 'hp') return t('ui.expedition.event_hp', { hp: String(record['hp'] ?? '?'), max: String(record['maxHp'] ?? '?') });
+    if (type === 'death') return t('ui.expedition.character_fell_event');
+    if (type === 'retreat') return t('ui.expedition.event_retreat', { reason: label(String(record['reason'] ?? t('ui.expedition.event_unknown_word'))) });
+    return type === undefined ? t('ui.expedition.event') : label(String(type));
   }
-  return 'Event';
+  return t('ui.expedition.event');
 }
