@@ -15,8 +15,9 @@ import {
   ItemSchema,
   LootTableSchema,
   SkillSchema,
+  XpCurveSchema,
 } from '@rpg/rpg-schema';
-import type { EncounterTable, Enemy, IdleActivity, Item, LootTable, Skill } from '@rpg/rpg-schema';
+import type { EncounterTable, Enemy, IdleActivity, Item, LootTable, Skill, XpCurve } from '@rpg/rpg-schema';
 import type { CombatContent } from '@rpg/rpg-sim';
 
 /** `games/rpg/content`, resolved from this file. */
@@ -28,6 +29,7 @@ export interface BalanceContent {
   readonly encounterTables: Readonly<Record<string, EncounterTable>>;
   readonly lootTables: Readonly<Record<string, LootTable>>;
   readonly idleActivities: Readonly<Record<string, IdleActivity>>;
+  readonly progression?: XpCurve;
 }
 
 function byId<T extends { id: string }>(list: readonly T[]): Record<string, T> {
@@ -43,6 +45,7 @@ function parseAll<T>(entities: readonly unknown[] | undefined, parse: (x: unknow
 /** Builds the balance inputs from an already compiled bundle. */
 export function balanceContentFromBundle(bundle: ContentBundle): BalanceContent {
   const c = bundle.collections;
+  const progression = c['progression']?.[0];
   return {
     contentHash: bundle.contentHash,
     combat: {
@@ -53,6 +56,12 @@ export function balanceContentFromBundle(bundle: ContentBundle): BalanceContent 
     encounterTables: byId(parseAll(c['encounterTables'], (x) => EncounterTableSchema.parse(x))),
     lootTables: byId(parseAll(c['lootTables'], (x) => LootTableSchema.parse(x))),
     idleActivities: byId(parseAll(c['idleActivities'], (x) => IdleActivitySchema.parse(x))),
+    ...(progression === undefined ? {} : {
+      progression: XpCurveSchema.parse({
+        xpToNext: (progression as { readonly xpToNext?: unknown }).xpToNext,
+        tailGrowthBp: (progression as { readonly tailGrowthBp?: unknown }).tailGrowthBp,
+      }),
+    }),
   };
 }
 
