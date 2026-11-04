@@ -40,6 +40,9 @@ services:
       ROLES: api,live,worker
       APP_ENV: production
       RPG_DEBUG_TOOLS: "0"
+      # Reverse-proxy / tunnel settings (see docs/ops/self-host-tunnel.md). Empty = strict same-origin defaults.
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:

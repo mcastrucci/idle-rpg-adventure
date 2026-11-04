@@ -25,6 +25,8 @@ export { DebugToolsRefusedError, parseRpgDebugToolsConfig } from './debug/index.
 export type { RpgDebugToolsConfig } from './debug/index.ts';
 
 export const SERVER_APP = '@rpg/server';
+/** API path prefixes the web app's SPA fallback must never answer with `index.html` (keeps JSON 404s for API typos). */
+export const RPG_API_PREFIXES = ['/auth', '/characters', '/content', '/debug', '/expeditions', '/health', '/live', '/merchant'] as const;
 /** RPG composition: game data stays here; generic infrastructure lives in server-kit. */
 export function createRpgServer(config: ServerConfig, options: { clock?: Clock; modules?: readonly ServerModule[];
   jobHandlers?: Readonly<Record<string, JobHandler>>; seedSource?: () => number;
@@ -42,10 +44,11 @@ export function createRpgServer(config: ServerConfig, options: { clock?: Clock; 
         format: context.content.format }));
     },
   };
-  return createServer({ config, game: 'rpg', validateContent: validateRpgBundle, ...options, ...(debug ? { clock: debug.clock } : {}),
+  return createServer({ config, game: 'rpg', validateContent: validateRpgBundle,
+    staticReservedPrefixes: RPG_API_PREFIXES, ...options, ...(debug ? { clock: debug.clock } : {}),
     migrationSets: [RPG_MIGRATIONS],
     modules: [content, ...(debug ? [debug.module] : []), createAuthModule({
-      enableHttp: config.roles.includes('api'), enableLive: config.roles.includes('live'),
+      allowedOrigins: config.allowedOrigins, enableHttp: config.roles.includes('api'), enableLive: config.roles.includes('live'),
       createLifecycleHandler: context => event => persistRpgConnectionLifecycle(context.database, event),
       // `live.*` operations go to the instance host; everything else is a character command envelope.
       onCommand: async (payload, identity, context, connection) => await handleRpgLiveSocketCommand(payload, identity, connection, live)

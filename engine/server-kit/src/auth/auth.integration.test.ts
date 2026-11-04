@@ -49,7 +49,7 @@ describe.skipIf(!adminUrl)('guest/email/session authentication against real Post
   async function app(options: AuthModuleOptions = {}): Promise<FastifyInstance> {
     const instance = Fastify({ logger: false });
     await createAuthModule({ sessionTtlMs: 60000, liveLeaseMs: 3000, heartbeatMs: 1000, ...options }).register(instance,
-      { database, clock, content: { format: 1, game: 'test', contentHash: 'a'.repeat(64), world: {}, collections: {} } });
+      { database, clock, allowedOrigins: [], content: { format: 1, game: 'test', contentHash: 'a'.repeat(64), world: {}, collections: {} } });
     // A sibling module uses the shared helper directly, demonstrating no dependency on auth's decorators.
     instance.register(async (sibling) => { sibling.get('/private', async (request) => requireAccount(request, { database, clock })); });
     await instance.ready(); return instance;

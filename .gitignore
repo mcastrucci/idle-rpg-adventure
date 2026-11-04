@@ -5,3 +5,9 @@ coverage/
 .eslintcache
 .DS_Store
 .screenshots/
+
+# Local deployment settings (compose reads .env) and database backups
+.env
+.env.*
+!.env.example
+*.dump
