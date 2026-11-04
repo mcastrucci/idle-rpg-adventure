@@ -2,6 +2,7 @@
 
 - **Status:** Proposed (compiler importer implemented; authoring/device validation remains open)
 - **Date:** 2026-11-01
+- **Evidence:** [`no-code-location.test.ts`](../../games/rpg/tools/content-plugin/src/no-code-location.test.ts) adds a location with one `.tmj` + JSON (data only) to a copy of the real content and validates it through `content-cli`.
 - **Validation:** compiler fixture covers local map import, geometry parity, safety checks and deterministic bundle hashing.
   This does not validate Tiled's GUI authoring workflow or renderer behavior on a device; see spike #12.
 
