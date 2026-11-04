@@ -7,7 +7,7 @@ import { has, t } from './translate.ts';
 export const KNOWN_CODES = [
   'activity_conflict', 'already_gathered', 'already_upgraded', 'auth_request_failed', 'auth_unavailable',
   'boss_room_requires_confirmation', 'busy', 'character_exists', 'command_expired', 'command_failed',
-  'command_id_conflict', 'confirmation_required', 'conquest_required', 'corpse_unavailable', 'email_unavailable',
+  'command_id_conflict', 'confirmation_required', 'conquest_required', 'corpse_unavailable', 'debug_clock_limit', 'email_unavailable',
   'estimate_busy', 'exit_locked', 'expedition_version_unavailable', 'forbidden', 'full_hp',
   'guest_credential_disabled', 'hero_dead', 'idempotency_conflict', 'idle.death.biggest_hit',
   'idle.death.damage_taken', 'idle.death.no_consumables', 'idle.death.out_of_consumables', 'idle.death.outnumbered',
@@ -25,7 +25,7 @@ export const KNOWN_CODES = [
   'not_safe_location', 'operation_route_mismatch', 'origin_forbidden', 'password_capacity', 'rate_limited',
   'region_locked', 'requires.areaCompleted', 'requires.discovered', 'requires.flag', 'requires.game.defeated',
   'requires.game.levelAtLeast', 'requires.hasItem', 'requires.not', 'requires.other', 'retreat_not_allowed',
-  'stale_start_snapshot', 'start.areaNotCompleted', 'store_error', 'unauthorized', 'unknown_area', 'unknown_enemy',
+  'stale_start_snapshot', 'start.areaNotCompleted', 'store_error', 'too_many_unique_items', 'unauthorized', 'unknown_area', 'unknown_enemy',
   'unknown_error', 'unknown_exit', 'unknown_group', 'unknown_hotspot', 'unknown_item', 'unknown_location',
   'unknown_node', 'unsupported_equipment_rolls', 'unsupported_operation', 'version_unavailable',
   'world.noRouteFromReachableArea',

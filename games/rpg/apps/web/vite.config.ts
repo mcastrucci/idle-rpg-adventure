@@ -22,6 +22,8 @@ export default defineConfig({
       '/live': proxied,
       '/merchant': proxied,
       '/content': proxied,
+      // Staging-only debug routes (#132); they answer 404 unless the server runs with RPG_DEBUG_TOOLS.
+      '/debug': proxied,
       '/health': proxied,
     },
   },

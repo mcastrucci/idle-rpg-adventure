@@ -145,6 +145,17 @@ The overlay sets `APP_ENV=staging`, `RPG_DEBUG_TOOLS=1` and `NODE_ENV=staging` (
 this while the tunnel URL is known to people you trust. Return to the safe default with
 `docker compose up -d server` (without the overlay).
 
+### Using the debug panel in the web client
+
+With the staging overlay running, the web client probes `GET /debug/clock` after sign-in. Only a 200 reveals a small
+dashed amber **Debug** (Depuración) button above the tab bar; against the default or production configuration the
+routes answer 404 and the button never appears. It opens a panel that acts on your own character: mark an area as
+conquered, reset world progress (one area or all), set level and XP, grant gold or items, and advance the clock by
++15 min, +1 h or +3 h. Each action shows the server's result or error code. The clock is shared by the whole
+environment (every player and the worker processes), so advance it only when nobody else is testing. The production
+configuration never enables these tools: the server refuses to boot with `RPG_DEBUG_TOOLS=1` in production, and the
+client only hides or shows the panel, the server stays the authority.
+
 ## 7. Backups
 
 ```powershell
