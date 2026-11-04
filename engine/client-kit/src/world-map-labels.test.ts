@@ -58,6 +58,31 @@ describe('placeNodeLabels', () => {
     expect(placement?.lines[0]?.endsWith('…')).toBe(true);
   });
 
+  it('hides labels for wholly offscreen markers and restores them when panned into view', () => {
+    const offscreen = node('Far offscreen', -200, 100);
+    const hidden = placeNodeLabels([offscreen], bounds).get(offscreen.id);
+    expect(hidden?.visible).toBe(false);
+    expect(hidden?.box).toBeNull();
+
+    const onscreen = { ...offscreen, x: 50 };
+    const restored = placeNodeLabels([onscreen], bounds).get(onscreen.id);
+    expect(restored?.visible).toBe(true);
+    expect(restored?.box).not.toBeNull();
+  });
+
+  it('keeps partially visible markers label-eligible', () => {
+    const result = placeNodeLabels([node('Edge marker', -13, 100)], bounds).get('Edge marker');
+    expect(result?.visible).toBe(true);
+  });
+
+  it('does not let an offscreen label displace labels of visible nodes', () => {
+    const visible = node('Nearby place', 25, 100, { priority: 1 });
+    const alone = placeNodeLabels([visible], bounds).get(visible.id);
+    const together = placeNodeLabels([node('Far offscreen', -200, 100, { priority: 10 }), visible], bounds);
+    expect(together.get('Far offscreen')?.visible).toBe(false);
+    expect(together.get(visible.id)).toEqual(alone);
+  });
+
   it('clamps labels inside the viewport at the edges', () => {
     const result = placeNodeLabels([node('Leftmost Place', 4, 100), node('Rightmost Place', 358, 100, { preferBelow: false })], bounds);
     for (const box of visibleBoxes(result)) {
