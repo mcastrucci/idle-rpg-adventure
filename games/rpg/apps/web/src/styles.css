@@ -301,3 +301,8 @@ h1, h2, p, dl, ol { margin: 0; }
   .tabbar__item, .button { transition: color 120ms ease, opacity 120ms ease; }
   .icon-button, .text-button { transition: opacity 120ms ease, background-color 120ms ease; }
 }
+
+/* Safety net: nothing in the app may scroll smoothly under reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  html, body, * { scroll-behavior: auto; }
+}
