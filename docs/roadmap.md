@@ -56,10 +56,12 @@ produce final scene art until spike 2 measures the renderer, texture budget, and
 
 - Monorepo bootstrap (pnpm, TS strict, lint incl. sim import ban, Vitest, CI)
 - **Spike 1** — combat engine + idle precompute + estimates (ADR-0013) — **done**, ADR-0013 Accepted; 200-run estimate latency (5.2 s / 3.9 s vs 2 s) needs the cache of #53; report: [`docs/spikes/spike-1-sim.md`](spikes/spike-1-sim.md)
-- **Spike 2** — mobile rendering PixiJS vs Phaser + Capacitor on real devices (ADR-0010, ADR-0011)
-- **Spike 3** — live instance + economy integrity under adversarial tests (ADR-0012)
+- **Spike 2** — mobile rendering PixiJS vs Phaser + Capacitor on real devices (ADR-0010, ADR-0011) — **open** ([#12](https://github.com/mcastrucci/idle-rpg-adventure/issues/12)): test kit merged (`spikes/render-mobile`, PR #86), real-device results pending. ADR-0010 and ADR-0011 stay Proposed until those results are recorded; desktop/headless runs are not evidence
+- **Spike 3** — live instance + economy integrity under adversarial tests (ADR-0012) — **done**, ADR-0012 Accepted (in-house `InstanceHost`); SIGKILL recovery verified (#113); report: [`docs/spikes/spike-3-live.md`](spikes/spike-3-live.md)
 - Region 1 paper design — [`docs/design/region-1.md`](design/region-1.md) (draft for product review)
-- Close spikes: update ADR statuses
+- Close spikes: update ADR statuses ([#15](https://github.com/mcastrucci/idle-rpg-adventure/issues/15), in progress) — ADR-0012 and ADR-0013 recorded as Accepted; ADR-0010/0011 pending #12 devices; ADR-0014 (Tiled) and ADR-0016 (hosting, provider decision in [#32](https://github.com/mcastrucci/idle-rpg-adventure/issues/32)) remain Proposed. Kept vs discarded spike code: [`docs/spikes/README.md`](spikes/README.md)
+
+**Exit status:** ADR-0012 and ADR-0013 met; ADR-0010 and ADR-0011 outstanding (need #12 device data).
 
 **Exit:** ADR-0010…0013 are Accepted or Rejected with data; repo builds in CI. The rendering and mobile distribution
 decisions require real-device evidence; do not infer those outcomes from a desktop prototype.
