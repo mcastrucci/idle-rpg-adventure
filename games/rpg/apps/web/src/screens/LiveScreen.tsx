@@ -20,6 +20,11 @@ type Props = {
   api: ApiClient;
   live: LiveConnection;
   canCommand: boolean;
+  /**
+   * Whether the screen is the visible route. The app keeps this component mounted while the player visits the map, so a
+   * finished adventure must not outlive the visit: entering again starts from a fresh entry form (#157).
+   */
+  active?: boolean;
   onCharacterRefresh: () => Promise<void>;
 };
 
@@ -48,7 +53,7 @@ type Snapshot = {
 };
 
 /** Interim DOM live adventure entry and scene surface. All scene facts come from the current host view. */
-export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCharacterRefresh }: Props) {
+export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, active = true, onCharacterRefresh }: Props) {
   useLocale();
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [options, setOptions] = useState<LiveOptionsDto | null>(null);
@@ -297,6 +302,13 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
     sessionSnapshotSeen.current = false;
     void load();
   }, [load]);
+  const wasActive = useRef(active);
+  useEffect(() => {
+    const reentered = active && !wasActive.current;
+    wasActive.current = active;
+    // The previous run already ended (its terminal screen was shown); the player left and came back to start another.
+    if (reentered && terminalOutcome !== null && !current) newAdventure();
+  }, [active, current, newAdventure, terminalOutcome]);
   const requestBossRisk = useCallback((exitId: string) => {
     const state = session?.state;
     setRisk(null);

@@ -149,7 +149,7 @@ function WorldTab({ visible, subroute, character, canCommand, api, live, refresh
         onStartIdle={(areaId) => { window.location.hash = `#/expeditions/${encodeURIComponent(areaId)}`; }} />
     </div>
     <div hidden={!inLive} inert={!inLive}>
-      <LiveScreen actorId={character.actorId} initialAreaId={liveAreaId} api={api} live={live} canCommand={canCommand} onCharacterRefresh={refreshCharacter} />
+      <LiveScreen actorId={character.actorId} initialAreaId={liveAreaId} active={visible && inLive} api={api} live={live} canCommand={canCommand} onCharacterRefresh={refreshCharacter} />
     </div>
   </div>;
 }
