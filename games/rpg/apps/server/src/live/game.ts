@@ -116,6 +116,7 @@ interface HeroState {
   corpses: RpgLiveCorpseSnapshot[];
 }
 interface GroupState { id: string; enemies: string[]; boss: boolean; defeated: boolean }
+type RetreatBlockedReason = 'boss' | 'not_in_combat' | 'unknown_group' | null;
 interface CombatDeathEvidence {
   killerId: string;
   readonly damage: Record<string, { sourceId: string; label: string; damage: number }>;
@@ -371,6 +372,14 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
 
   function currentGroups(state: RpgLiveState): GroupState[] {
     return state.visited[state.location]?.groups ?? [];
+  }
+
+  function retreatBlockedReason(state: RpgLiveState): RetreatBlockedReason {
+    if (state.phase !== 'combat') return 'not_in_combat';
+    const group = currentGroups(state).find((g) => g.id === state.combatGroup);
+    if (!group) return 'unknown_group';
+    if (group.boss || locationOf(state.location).tags.has(BOSS_ROOM_TAG)) return 'boss';
+    return null;
   }
 
   /** Open decision #17 (provisional): out of combat, from a `safe` location, the area's start or a cleared boss room. */
@@ -713,8 +722,10 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
         .map(corpse => ({ id: `corpse:${corpse.id}`, type: 'corpse', textKey: 'live.corpse',
           done: state.hotspotsDone.includes(`${here.id}/corpse:${corpse.id}`) })) ?? [];
       const combat = state.combat;
+      const retreatBlockedReasonValue = retreatBlockedReason(state);
       return {
         phase: state.phase, area: state.area, location: state.location,
+        canRetreat: retreatBlockedReasonValue === null, retreatBlockedReason: retreatBlockedReasonValue,
         heroes: state.heroes.map((hero) => {
           const actor = combat?.actors.find((candidate) => candidate.side === 'hero' && candidate.id === hero.actorId);
           return { actorId: hero.actorId, hp: actor?.hp ?? hero.hp, maxHp: actor?.stats.maxHp ?? maxHp(hero), present: hero.present,

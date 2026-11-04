@@ -196,12 +196,17 @@ describe('RPG live plugin: combat', () => {
 
   it('validates combat commands and defers removing a participant until combat ends', () => {
     const state = init();
+    expect(game.view(state)).toMatchObject({ canRetreat: false, retreatBlockedReason: 'not_in_combat' });
     expect(game.applyCommand(state, HERO, { type: 'engage' })).toEqual({ rejected: 'malformed' });
     expect(game.applyCommand(state, HERO, { type: 'travel', exitId: 'x', extra: 1 })).toEqual({ rejected: 'malformed' });
     expect(game.applyCommand(state, HERO, { type: 'setAuto', auto: false })).toEqual({ rejected: 'not_in_combat' });
     expect(game.applyCommand(state, HERO, { type: 'retreat' })).toEqual({ rejected: 'not_in_combat' });
     expect(game.applyCommand(state, ALLY, { type: 'retreat' })).toEqual({ rejected: 'not_present' });
     const engaged = ok(game.applyCommand(state, HERO, { type: 'engage', groupId: SLIMES.id }));
+    expect(game.view(engaged.state)).toMatchObject({ canRetreat: true, retreatBlockedReason: null });
+    const missingGroup = structuredClone(engaged.state);
+    missingGroup.combatGroup = 'group:missing';
+    expect(game.view(missingGroup)).toMatchObject({ canRetreat: false, retreatBlockedReason: 'unknown_group' });
     for (const command of [{ type: 'returnToSanctuary' }, travel('exit:test_grove.glade.entrance'), { type: 'engage', groupId: WARDENS.id },
       { type: 'interact', hotspotId: 'old_stump' }, { type: 'gather', nodeId: 'res:test_grove.herb_patch#0' }]) {
       expect(game.applyCommand(engaged.state, HERO, command)).toEqual({ rejected: 'in_combat' });
@@ -417,6 +422,7 @@ describe('RPG live plugin: exploration (#38)', () => {
     expect(entered.state).toMatchObject({ phase: 'combat', location: R1('seed_vault_heart'), combatGroup: `${R1('seed_vault_heart')}/0` });
     expect(entered.state.visited[R1('seed_vault_heart')]?.groups).toEqual([{ id: `${R1('seed_vault_heart')}/0`,
       enemies: ['enemy:hollow_matriarch'], boss: true, defeated: false }]); // open decision #14: one roll in a boss room
+    expect(game.view(entered.state)).toMatchObject({ canRetreat: false, retreatBlockedReason: 'boss' });
     expect(entered.effects).toMatchObject([{ type: 'discovery', actorId: HERO, areaId: 'area:region_1', locationId: R1('seed_vault_heart') }]);
     expect(game.applyCommand(entered.state, HERO, { type: 'retreat' })).toEqual({ rejected: 'retreat_not_allowed' });
     // A won boss fight credits the fighters and makes the cleared boss room a return point.
@@ -434,6 +440,14 @@ describe('RPG live plugin: exploration (#38)', () => {
     ]));
     expect(step.state.heroes[0]?.world.objectives).toContain('defeated:enemy:hollow_matriarch');
     expect(ok(game.applyCommand(step.state, HERO, { type: 'returnToSanctuary' })).close?.outcome).toBe('returned');
+  });
+
+  it('blocks retreat from an ordinary group in a boss room', () => {
+    const state = start({ area: 'area:region_1', location: R1('seed_vault_heart'), groups: [SLIMES], heroes: [hero()] });
+    const engaged = ok(game.applyCommand(state, HERO, { type: 'engage', groupId: SLIMES.id }));
+    expect(engaged.state.visited[R1('seed_vault_heart')]?.groups[0]?.boss).toBe(false);
+    expect(game.view(engaged.state)).toMatchObject({ canRetreat: false, retreatBlockedReason: 'boss' });
+    expect(game.applyCommand(engaged.state, HERO, { type: 'retreat' })).toEqual({ rejected: 'retreat_not_allowed' });
   });
 
   it('credits only present heroes for a boss victory, including a present hero who died during combat', () => {

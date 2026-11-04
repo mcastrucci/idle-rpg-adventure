@@ -25,6 +25,9 @@ describe('live wire protocol', () => {
       view: { phase: 'exploring', heroes: [], runBag: [{ actorId, items: [{ item: 'item:herb', qty: 2 }], gold: 3 }] },
       participants: [{ actorId, status: 'connected' }] };
     expect(parseLiveServerFrame(snapshot)).toMatchObject({ type: 'live.snapshot', epoch: 2, seq: 8 });
+    expect(parseLiveServerFrame({ ...snapshot, view: { phase: 'combat', canRetreat: false, retreatBlockedReason: 'boss' } }))
+      .toMatchObject({ type: 'live.snapshot', view: { phase: 'combat', canRetreat: false, retreatBlockedReason: 'boss' } });
+    expect(parseLiveServerFrame(snapshot)).toMatchObject({ view: { phase: 'exploring' } }); // older views omit retreat fields
     expect(parseLiveServerFrame({ ...snapshot, view: { phase: 'exploring', heroes: [], runBag: [{ actorId, items: [], gold: 0,
       uniques: [{ itemId: actorId, definition: 'iron_sabre', slot: null, rolls: {} }] }] } })).toMatchObject({ type: 'live.snapshot' });
     // This is the exact victory event emitted by createRpgLiveGame; dropping it would create a public sequence gap.
@@ -94,5 +97,8 @@ describe('live wire protocol', () => {
     expect(parseLiveCurrent({ current: null })).toEqual({ current: null });
     expect(parseLiveCurrent({ current: { instanceId, actorId, view: { phase: 'exploring', heroes: [], groups: [] },
       participants: [{ actorId, status: 'connected' }] } })).toMatchObject({ current: { instanceId, actorId } });
+    expect(parseLiveCurrent({ current: { instanceId, actorId, view: { phase: 'combat', heroes: [], groups: [],
+      canRetreat: true, retreatBlockedReason: null }, participants: [{ actorId, status: 'connected' }] } }))
+      .toMatchObject({ current: { instanceId, actorId, view: { canRetreat: true, retreatBlockedReason: null } } });
   });
 });

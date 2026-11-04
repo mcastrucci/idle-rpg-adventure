@@ -43,8 +43,10 @@ describe('LiveCombat', () => {
       type: 'combat', event: { type: 'TelegraphStarted', actorId: enemyId, skill: 'skill:heavy_strike', tick: 10, resolveAtTick: 15 },
     } as unknown as LiveJson }] });
     expect(screen.getByText('Resolves in 3 ticks')).toBeTruthy();
+    expect(screen.getByText('Target: You')).toBeTruthy();
     expect(screen.getByText('Shield Bash')).toBeTruthy();
     expect(screen.getByText(/Thornback Boar is winding up Heavy Strike/)).toBeTruthy();
+    expect(screen.getByText('80% HP')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Slot 1.*Shield Bash/i }));
     expect(submit).toHaveBeenCalledTimes(1);
     expect(submit).toHaveBeenCalledWith({ type: 'useSkill', skill: 'skill:shield_bash' });
@@ -101,6 +103,73 @@ describe('LiveCombat', () => {
     expect(css).toContain('transition: none');
   });
 
+  it('renders compact party frames with a clear own-hero marker and accessible authoritative HP', () => {
+    const base = view() as unknown as { combat: { actors: Array<Record<string, unknown>> } };
+    const party = [actorId, '2b6f4d1e-8f43-4f1c-9a52-1d6a2f7c9e11', '3b6f4d1e-8f43-4f1c-9a52-1d6a2f7c9e12', '4b6f4d1e-8f43-4f1c-9a52-1d6a2f7c9e13'];
+    const snapshot = view({ combat: { ...base.combat, actors: [
+      ...party.map((id, index) => ({ id, side: 'hero', hp: 60 - index, maxHp: 100, alive: true, effects: [], queued: null, windup: null })),
+      ...base.combat.actors.filter((actor) => actor['side'] === 'enemy'),
+    ] } });
+    const { container } = renderCombat({ snapshot });
+    const partyGrid = container.querySelector('.live-combat__actor-grid--hero');
+    expect(partyGrid?.children).toHaveLength(4);
+    expect(partyGrid?.querySelector('.live-combat__actor--self')).toBeTruthy();
+    expect(screen.getByRole('progressbar', { name: 'You HP 60 of 100' }).getAttribute('aria-valuenow')).toBe('60');
+    expect(screen.getByRole('button', { name: /Combat log/ }).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('keeps ally queues in their frames without presenting them as my pending action', () => {
+    const snapshot = view({ combat: { tick: 12, groupId: 'ogre', actors: [
+      { id: actorId, side: 'hero', hp: 60, maxHp: 100, alive: true, effects: [], auto: false,
+        queued: { kind: 'useSkill', skill: 'skill:cleave', target: null }, windup: null },
+      { id: '2b6f4d1e-8f43-4f1c-9a52-1d6a2f7c9e11', side: 'hero', hp: 50, maxHp: 100, alive: true, effects: [], auto: false,
+        queued: { kind: 'useSkill', skill: 'skill:shield_bash', target: null }, windup: null },
+      { id: enemyId, side: 'enemy', hp: 80, maxHp: 100, alive: true, effects: [], queued: null, windup: null },
+    ] } });
+    const { container } = renderCombat({ snapshot });
+    expect(screen.getByText('Queued: Cleave')).toBeTruthy();
+    expect(container.querySelector('.live-combat__actor-grid--hero')?.textContent).toContain('Shield Bash');
+    expect(screen.queryByText(/Queued: .*Shield Bash/)).toBeNull();
+  });
+
+  it('submits retreat only when the server projection allows it and explains a boss lock', () => {
+    const allowed = view({ canRetreat: true, retreatBlockedReason: null });
+    const { submit, rerender, props } = renderCombat({ snapshot: allowed });
+    const retreat = screen.getByRole('button', { name: 'Retreat' }) as HTMLButtonElement;
+    expect(retreat.disabled).toBe(false);
+    expect(screen.getByText('Retreat returns the party to its previous location, when available, at an HP cost. The encounter remains undefeated.')).toBeTruthy();
+    fireEvent.click(retreat);
+    expect(submit).toHaveBeenCalledWith({ type: 'retreat' });
+
+    const boss = view({ canRetreat: false, retreatBlockedReason: 'boss' });
+    rerender(<LiveCombat {...props} view={boss} />);
+    expect((screen.getByRole('button', { name: 'Retreat' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('Retreat is unavailable during a boss encounter.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retreat' }));
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables retreat while offline, while a command is pending, or when my hero is down', () => {
+    const allowed = view({ canRetreat: true, retreatBlockedReason: null });
+    const { rerender, props } = renderCombat({ snapshot: allowed });
+    const button = () => screen.getByRole('button', { name: 'Retreat' }) as HTMLButtonElement;
+
+    rerender(<LiveCombat {...props} view={allowed} pendingCommandIds={['pending']} />);
+    expect(button().disabled).toBe(true);
+    expect(screen.getByText('Wait for the pending command to be confirmed.')).toBeTruthy();
+
+    rerender(<LiveCombat {...props} view={allowed} connection={offline} />);
+    expect(button().disabled).toBe(true);
+    expect(screen.getByText('Reconnect before retreating.')).toBeTruthy();
+
+    const combat = (allowed as unknown as { combat: { actors: Array<Record<string, unknown>> } }).combat;
+    const down = view({ canRetreat: true, retreatBlockedReason: null, combat: { ...combat,
+      actors: combat.actors.map((actor) => actor['id'] === actorId ? { ...actor, alive: false } : actor) } });
+    rerender(<LiveCombat {...props} view={down} />);
+    expect(button().disabled).toBe(true);
+    expect(screen.getByText('A living hero is required to retreat.')).toBeTruthy();
+  });
+
   it('shows actual own-action queue, rejection, and activation from production event wrappers only', () => {
     const actionEvent = (payload: Record<string, unknown>, seq: number) => ({ epoch: 1, seq, source: 'game' as const,
       event: { type: 'combat', event: payload } as unknown as LiveJson });
@@ -113,7 +182,7 @@ describe('LiveCombat', () => {
       actionEvent({ type: 'combatStarted', groupId: 'ogre', tick: 1 }, 1),
       actionEvent({ type: 'InputRejected', actorId, kind: 'useSkill', reason: 'onCooldown', tick: 12 }, 2),
     ] });
-    expect(screen.getByText(/Queued: You · item Potion/i)).toBeTruthy();
+    expect(screen.getByText(/Queued: item Potion/i)).toBeTruthy();
     expect(screen.getByText(/Your skill was rejected: on cooldown/i)).toBeTruthy();
     rerender(<LiveCombat {...props} events={[...props.events, actionEvent({ type: 'ActionStarted', actorId,
       action: { kind: 'skill', skill: 'skill:shield_bash' }, source: 'auto', tick: 14 }, 3)]} />);
@@ -171,7 +240,7 @@ describe('LiveCombat', () => {
       { epoch: 1, seq: 1, source: 'game' as const, event: { type: 'combatStarted', groupId: 'ogre' } as unknown as LiveJson },
     ] };
     const { rerender } = renderCombat(props);
-    expect(screen.getByText(/Queued: You · Cleave/)).toBeTruthy();
+    expect(screen.getByText(/Queued: Cleave/)).toBeTruthy();
     const updatedView = view({ heroes: [{ ...(view() as unknown as { heroes: Array<Record<string, unknown>> }).heroes[0],
       hp: 65, consumables: [{ item: 'item:potion', qty: 0 }] }], combat: { tick: 14, groupId: 'ogre', actors: [
       { id: actorId, side: 'hero', hp: 65, maxHp: 100, alive: true, effects: [], auto: false, queued: null, windup: null },
