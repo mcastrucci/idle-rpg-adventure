@@ -501,13 +501,54 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
         const started = await q<{ n: number }>(sql`SELECT count(*)::int AS n FROM rpg_expeditions WHERE actor_id = ${player.actorId}::uuid`);
         if (started[0]?.n !== player.model.starts) found.push(`${player.label}: ${started[0]?.n} expeditions persisted, model says ${player.model.starts}`);
       }
+      if (found.length) found.push(`audit snapshot (same REPEATABLE READ transaction):\n${await diagnose(tx, runningIds)}`);
       return found;
     }, { isolationLevel: 'repeatable read' });
     for (const issue of issues) violate(`${label}: ${issue}`);
   }
 
+  /**
+   * Row-level detail for a failed audit, read inside the failing audit's own snapshot. `checkLedgerInvariants` only names the
+   * broken invariant, which is not enough to analyse a one-in-N flake after the fact.
+   */
+  async function diagnose(tx: Parameters<Parameters<Database['db']['transaction']>[0]>[0], runningIds: readonly string[]): Promise<string> {
+    const dump = async (title: string, query: ReturnType<typeof sql>) => {
+      try { return `-- ${title}\n${JSON.stringify((await tx.execute(query)).rows, null, 1)}`; }
+      catch (error) { return `-- ${title}: diagnostic query failed: ${String(error)}`; }
+    };
+    return [
+      `clockMs=${clock.nowMs()} wallMs=${Date.now()} runningExpeditionIds=${JSON.stringify(runningIds)}`,
+      await dump('balance mismatches (side: expected = ledger sum, actual = asset_balances)', sql`
+        WITH changes AS (
+          SELECT actor_id, asset_kind, asset_ref, COALESCE(to_container, 'inventory') AS container, qty AS delta
+            FROM ledger_entries WHERE to_container IS NOT NULL OR (from_container IS NULL AND to_container IS NULL)
+          UNION ALL
+          SELECT actor_id, asset_kind, asset_ref, COALESCE(from_container, 'inventory'), -qty FROM ledger_entries WHERE from_container IS NOT NULL
+        ), expected AS (SELECT actor_id, asset_kind, asset_ref, container, SUM(delta)::integer AS qty FROM changes
+                         GROUP BY 1,2,3,4 HAVING asset_kind IN ('stack','currency') AND SUM(delta) <> 0),
+        actual AS (SELECT actor_id, asset_kind, asset_ref, container, qty FROM asset_balances WHERE qty <> 0)
+        SELECT COALESCE(e.actor_id, a.actor_id) AS actor_id, COALESCE(e.asset_kind, a.asset_kind) AS asset_kind,
+               COALESCE(e.asset_ref, a.asset_ref) AS asset_ref, COALESCE(e.container, a.container) AS container, e.qty AS expected, a.qty AS actual
+          FROM expected e FULL JOIN actual a USING (actor_id, asset_kind, asset_ref, container) WHERE e.qty IS DISTINCT FROM a.qty LIMIT 50`),
+      await dump('batches whose entry_count differs from their entries', sql`
+        SELECT b.source_type, b.source_id, b.entry_count, COALESCE(e.n, 0) AS entries FROM ledger_batches b LEFT JOIN
+          (SELECT source_type, source_id, COUNT(*)::integer AS n FROM ledger_entries GROUP BY 1,2) e USING (source_type, source_id)
+          WHERE COALESCE(e.n, 0) <> b.entry_count LIMIT 50`),
+      await dump('escrow holdings', sql`
+        SELECT actor_id, container, asset_ref, qty FROM asset_balances WHERE container LIKE 'escrow:%' AND qty > 0 ORDER BY container LIMIT 100`),
+      await dump('expeditions (id, actor, status, outcome, revision, settlement batches)', sql`
+        SELECT e.id, e.actor_id, e.status, e.outcome, e.revision, e.ends_at_ms,
+               (SELECT count(*)::int FROM ledger_batches b WHERE b.source_type = 'expedition_settlement' AND split_part(b.source_id, ':', 1) = e.id::text) AS settlements
+          FROM rpg_expeditions e ORDER BY e.created_at DESC LIMIT 60`),
+      await dump('actors with an activity lock', sql`SELECT actor_id, activity_state, activity_id FROM actors WHERE activity_state <> 'none'`),
+      await dump('active live instances', sql`SELECT instance_id, status, participants FROM live_instances WHERE status = 'active'`),
+    ].join('\n');
+  }
+
   async function endRound(label: string) {
-    expect(violations, `economy fuzz violations (replay with ECONOMY_FUZZ_SEED=${SEED}) after ${label}`).toEqual([]);
+    // Print the full detail eagerly and put it into the assertion message: a flaky failure must be diagnosable from the log alone.
+    if (violations.length) console.error(`economy fuzz: ${violations.length} violation(s) after ${label} (seed=${SEED}):\n${violations.join('\n')}`);
+    expect(violations.join('\n'), `economy fuzz violations (replay with ECONOMY_FUZZ_SEED=${SEED}) after ${label}`).toBe('');
   }
 
   // ---- the test -----------------------------------------------------------------------------------------------------
@@ -595,6 +636,11 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
         } finally { await client.query('RESET session_replication_role'); client.release(); }
       }
       expect(violations.some(message => message.includes(fragment)), `${label} not detected: ${JSON.stringify(violations)}`).toBe(true);
+      // A failed audit must carry row-level detail from its own snapshot, and every diagnostic query must itself work.
+      const detail = violations.find(message => message.includes('audit snapshot'));
+      expect(detail, `${label}: no audit snapshot in ${JSON.stringify(violations)}`).toBeDefined();
+      expect(detail).not.toContain('diagnostic query failed');
+      if (label === 'inflated balance') expect(detail).toContain('"expected"');
       violations.length = 0;
     }
     await expectDetected('inflated balance', 'ledger invariant',
