@@ -9,6 +9,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertScenarioBDebugResponse, assertScenarioBEvaluatedWorld, assertRenderedWorldNodeEvidence } from './world-map-touch-guard.mjs';
 
 // Playwright is a machine-level tool here, deliberately not a repository dependency.
 const { chromium } = createRequire(import.meta.url)('playwright');
@@ -85,7 +86,7 @@ const readNodes = () => page.evaluate(() => {
     const r = el.querySelector('.world-map__hit-area').getBoundingClientRect();
     const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
     return {
-      label: el.getAttribute('aria-label'), cx, cy, w: r.width, h: r.height,
+      id: el.getAttribute('data-map-node-id'), label: el.getAttribute('aria-label'), cx, cy, w: r.width, h: r.height,
       // Reachable = touch-hittable: hit area centre lies inside the visible canvas (and so inside the window).
       reachable: cx >= canvas.left && cx <= canvas.right && cy >= canvas.top && cy <= canvas.bottom && cx >= 0 && cx <= innerWidth && cy >= 0 && cy <= innerHeight,
       intersects: r.right > Math.max(0, canvas.left) && r.left < Math.min(innerWidth, canvas.right) && r.bottom > Math.max(0, canvas.top) && r.top < Math.min(innerHeight, canvas.bottom),
@@ -114,7 +115,8 @@ async function debugComplete(areaId) {
     headers: { origin: SERVER_URL },
     data: { command_id: randomUUID(), operation: 'debug.recordWorldProgress', payload: { actorId, completedAreas: [areaId] } },
   });
-  return response.status();
+  const status = response.status();
+  return { status, body: response.ok() ? await response.json() : null };
 }
 async function openWorld() {
   await page.evaluate(() => { location.hash = '#/world'; });
@@ -153,10 +155,19 @@ if (lockedA) await lockedSheetChecks('A', lockedA);
 else check('A locked area sheet shows Locked + reason text', false, 'no locked area visible for a fresh character');
 
 // ===== Scenario B: Region 1 conquered via debug tools (more nodes, Region 2 unlocked) =====
-const debugStatus = await debugComplete('area:region_1');
-console.log(`debug record area:region_1 completion -> HTTP ${debugStatus}`);
+const debugResponse = await debugComplete('area:region_1');
+assertScenarioBDebugResponse(debugResponse, actorId);
+const evaluatedWorld = await page.evaluate(async (id) => {
+  const response = await fetch(`/characters/${encodeURIComponent(id)}/world`, { cache: 'no-store' });
+  let body;
+  try { body = await response.json(); } catch { body = null; }
+  return { status: response.status, body };
+}, actorId);
+assertScenarioBEvaluatedWorld(evaluatedWorld);
+console.log(`debug record area:region_1 completion -> HTTP ${debugResponse.status}; evaluated world confirms Region 1 complete and Region 2 unlocked`);
 await openWorld();
 const nodes0 = await readNodes();
+assertRenderedWorldNodeEvidence(evaluatedWorld.body, nodes0);
 console.log(`Scenario B (region_1 complete): ${nodes0.length} nodes: ${nodes0.map((n) => `${n.label} @(${fmt(n.cx)},${fmt(n.cy)})`).join(' | ')}`);
 check('B all nodes inside the viewport at initial fit (no pan needed)', nodes0.every((n) => n.reachable), `${nodes0.filter((n) => n.reachable).length}/${nodes0.length} reachable`);
 const ov = await overflow();

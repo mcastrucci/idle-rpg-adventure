@@ -267,6 +267,7 @@ export function WorldMap({
             <g
               className="world-map__hub"
               data-map-node
+              data-map-node-id={view.hub.id}
               role="button"
               tabIndex={0}
               aria-label={view.hub.label}
@@ -304,6 +305,7 @@ export function WorldMap({
                   key={area.id}
                   className={`world-map__area${locked ? ' is-locked' : ''}`}
                   data-map-node
+                  data-map-node-id={area.id}
                   role="button"
                   tabIndex={0}
                   aria-label={ariaLabel}
