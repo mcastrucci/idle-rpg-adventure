@@ -31,6 +31,38 @@ export interface InventoryHoldingDto {
   readonly rolls?: unknown;
 }
 
+/** Stats a stat-summary row can describe, in display order (`power` is the headline max over both schools). */
+export const STAT_SUMMARY_KEYS = ['STR', 'AGI', 'INT', 'VIT', 'SPI', 'maxHp', 'physicalPower', 'magicPower', 'armor', 'resist', 'critBp', 'haste',
+  'actionIntervalTicks', 'healPower'] as const;
+export type StatSummaryKey = (typeof STAT_SUMMARY_KEYS)[number];
+
+export interface StatSummaryRowDto {
+  readonly key: StatSummaryKey;
+  /** Value from level and allocated attributes alone (no gear). */
+  readonly base: number;
+  /** `total - base`: what equipment adds (negative for the action interval, where lower is better). */
+  readonly equipment: number;
+  /** The exact value the combat snapshot derives for this character. */
+  readonly total: number;
+  /** Per equipped item: its marginal contribution when items are applied in `items[]` order; contributions sum to `equipment`. */
+  readonly contributions: readonly { readonly itemId: string; readonly value: number }[];
+}
+
+export interface StatSummaryItemDto {
+  /** Holding instance id (`itemId` of the unique holding). */
+  readonly itemId: string;
+  readonly definition: string;
+  readonly nameKey?: string;
+  readonly slot: string;
+}
+
+/** Read-only projection computed with the same helper the combat snapshot uses; absent when gear cannot be simulated yet. */
+export interface StatSummaryDto {
+  readonly level: number;
+  readonly items: readonly StatSummaryItemDto[];
+  readonly rows: readonly StatSummaryRowDto[];
+}
+
 export interface InventorySnapshotDto {
   readonly actorId: string;
   readonly holdings: readonly InventoryHoldingDto[];
@@ -41,6 +73,7 @@ export interface InventorySnapshotDto {
   readonly completedAreas: readonly string[];
   readonly catalog: { readonly contentHash: string; readonly items: readonly InventoryItemDto[] };
   readonly starterKit?: { readonly claimed: boolean; readonly items: readonly string[] };
+  readonly statSummary?: StatSummaryDto;
 }
 
 export interface MerchantOfferDto {
@@ -83,8 +116,39 @@ function object(input: unknown, allowed: readonly string[], required: readonly s
 const safeInt = (value: unknown, min = 0): value is number => Number.isSafeInteger(value) && (value as number) >= min;
 const str = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 
+function parseStatSummary(input: unknown): StatSummaryDto {
+  const root = object(input, ['level', 'items', 'rows'], ['level', 'items', 'rows']);
+  if (!safeInt(root['level'], 1) || !Array.isArray(root['items']) || !Array.isArray(root['rows'])) throw new TypeError('invalid stat summary');
+  const items = root['items'].map(raw => {
+    const item = object(raw, ['itemId', 'definition', 'nameKey', 'slot'], ['itemId', 'definition', 'slot']);
+    if (!str(item['itemId']) || !str(item['definition']) || !str(item['slot']) || (item['nameKey'] !== undefined && !str(item['nameKey']))) {
+      throw new TypeError('invalid stat summary item');
+    }
+    return Object.freeze({ itemId: item['itemId'], definition: item['definition'], slot: item['slot'],
+      ...(item['nameKey'] === undefined ? {} : { nameKey: item['nameKey'] as string }) });
+  });
+  const ids = new Set(items.map(item => item.itemId));
+  const rows = root['rows'].map(raw => {
+    const row = object(raw, ['key', 'base', 'equipment', 'total', 'contributions'], ['key', 'base', 'equipment', 'total', 'contributions']);
+    if (!(STAT_SUMMARY_KEYS as readonly string[]).includes(String(row['key'])) || !safeInt(row['base'], Number.MIN_SAFE_INTEGER) ||
+        !safeInt(row['equipment'], Number.MIN_SAFE_INTEGER) || !safeInt(row['total'], Number.MIN_SAFE_INTEGER) || !Array.isArray(row['contributions'])) {
+      throw new TypeError('invalid stat summary row');
+    }
+    const contributions = row['contributions'].map(entry => {
+      const contribution = object(entry, ['itemId', 'value'], ['itemId', 'value']);
+      if (typeof contribution['itemId'] !== 'string' || !ids.has(contribution['itemId']) || !safeInt(contribution['value'], Number.MIN_SAFE_INTEGER)) {
+        throw new TypeError('invalid stat summary contribution');
+      }
+      return Object.freeze({ itemId: contribution['itemId'], value: contribution['value'] as number });
+    });
+    return Object.freeze({ key: row['key'] as StatSummaryKey, base: row['base'] as number, equipment: row['equipment'] as number,
+      total: row['total'] as number, contributions: Object.freeze(contributions) });
+  });
+  return Object.freeze({ level: root['level'] as number, items: Object.freeze(items), rows: Object.freeze(rows) });
+}
+
 export function parseInventorySnapshotDto(input: unknown): InventorySnapshotDto {
-  const root = object(input, ['actorId', 'holdings', 'actorVersion', 'activityState', 'level', 'attributes', 'completedAreas', 'catalog', 'starterKit'],
+  const root = object(input, ['actorId', 'holdings', 'actorVersion', 'activityState', 'level', 'attributes', 'completedAreas', 'catalog', 'starterKit', 'statSummary'],
     ['actorId', 'holdings', 'actorVersion', 'activityState', 'level', 'attributes', 'completedAreas', 'catalog']);
   if (typeof root['actorId'] !== 'string' || !uuid.test(root['actorId']) || !Array.isArray(root['holdings']) || !safeInt(root['actorVersion']) || !activityStates.includes(String(root['activityState'])) ||
       !safeInt(root['level'], 1) || !Array.isArray(root['completedAreas']) || !root['completedAreas'].every(str)) throw new TypeError('invalid inventory snapshot');
@@ -144,7 +208,8 @@ export function parseInventorySnapshotDto(input: unknown): InventorySnapshotDto 
     activityState: root['activityState'] as InventoryActivityState, level: root['level'] as number,
     attributes: Object.freeze({ ...attributes }) as InventoryAttributes, completedAreas: Object.freeze([...(root['completedAreas'] as string[])]),
     catalog: Object.freeze({ contentHash: catalog['contentHash'], items: Object.freeze(items) }),
-    ...(starterKit === undefined ? {} : { starterKit }) });
+    ...(starterKit === undefined ? {} : { starterKit }),
+    ...(root['statSummary'] === undefined ? {} : { statSummary: parseStatSummary(root['statSummary']) }) });
 }
 
 export function parseMerchantCatalogDto(input: unknown): MerchantCatalogDto {

@@ -10,6 +10,7 @@ import { z } from 'zod';
 
 import { characters } from '../characters/schema.ts';
 import { RPG_GAME_ID } from '../characters/service.ts';
+import { buildStatSummary } from '../characters/stat-summary.ts';
 import { readRpgEvalContext } from '../expeditions/progress.ts';
 
 const UUID = z.uuid().transform(value => value.toLowerCase());
@@ -82,6 +83,7 @@ export async function inventorySnapshot(tx: ActorTransaction, accountId: string,
   const [starterKitBatch] = await tx.select({ sourceId: ledgerBatches.sourceId }).from(ledgerBatches)
     .where(and(eq(ledgerBatches.sourceType, STARTER_KIT_SOURCE), eq(ledgerBatches.sourceId, actor.actorId)));
   const catalogItems = items(content);
+  const statSummary = buildStatSummary(character.level, character.attributes as never, holdings, content);
   return { actorId: actor.actorId, holdings, actorVersion: actor.version, activityState: actor.activityState,
     level: character.level, attributes: character.attributes, completedAreas: [...progress.actor.completedAreas],
     catalog: { contentHash: content.contentHash, items: catalogItems.map(item => ({ id: item.id, kind: item.kind,
@@ -90,7 +92,8 @@ export async function inventorySnapshot(tx: ActorTransaction, accountId: string,
       ...('levelRequired' in item && item.levelRequired !== undefined ? { levelRequired: item.levelRequired } : {}),
       ...(item.kind === 'equipment' && item.stats && Object.keys(item.stats).length ? { stats: item.stats } : {}),
       stackable: item.stackable })) },
-    starterKit: { claimed: Boolean(starterKitBatch), items: [...STARTER_KIT_ITEMS] } };
+    starterKit: { claimed: Boolean(starterKitBatch), items: [...STARTER_KIT_ITEMS] },
+    ...(statSummary === undefined ? {} : { statSummary }) };
 }
 
 /** Public offer catalog is an explicit content allowlist; purchase gates are re-evaluated from persisted progress. */

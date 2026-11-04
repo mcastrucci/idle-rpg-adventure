@@ -20,6 +20,7 @@ import { parseExpeditionDto, parseExpeditionOptionsDto } from '@rpg/protocol';
 
 import { characters } from '../characters/schema.ts';
 import { RPG_GAME_ID } from '../characters/service.ts';
+import { equippedGear } from '../characters/stat-summary.ts';
 import { BASIC_ATTACK } from '../characters/validation.ts';
 import type { CharacterAttributes } from '../characters/validation.ts';
 import { expeditions } from './schema.ts';
@@ -62,16 +63,9 @@ function placedOf(row: typeof expeditions.$inferSelect, timeline: ExpeditionTime
 }
 export function snapshotRpgActor(character: typeof characters.$inferSelect,
   holdings: Awaited<ReturnType<typeof getHoldings>>, content: LoadedContent): RpgActorSnapshot {
-  const items = rpgIdleContentFromBundle(content).combat.items;
-  const equipment = holdings.filter(h => h.container === 'equipped' && h.asset.kind === 'unique').map(holding => {
-    const definition = typeof holding.definition === 'string' ? items[holding.definition] : undefined;
-    if (definition?.kind !== 'equipment') throw new ExpeditionError('invalid_equipped_item', 409);
-    if (holding.rolls !== undefined && JSON.stringify(holding.rolls) !== '{}') {
-      // RPG gear-roll semantics are not authored yet; do not silently simulate with incomplete derived stats.
-      throw new ExpeditionError('unsupported_equipment_rolls', 409);
-    }
-    return { stats: definition.stats };
-  });
+  const gear = equippedGear(holdings, content);
+  if (!gear.ok) throw new ExpeditionError(gear.code, 409);
+  const equipment = gear.gear.map(({ stats }) => ({ stats }));
   return {
     actorId: character.actorId,
     build: { level: character.level, attributes: character.attributes as CharacterAttributes, equipment },

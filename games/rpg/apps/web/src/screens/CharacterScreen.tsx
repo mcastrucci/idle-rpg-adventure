@@ -12,6 +12,7 @@ import { levelProgress } from '../character/progression.ts';
 import { describeRule } from '../rules/describe.ts';
 import { AttributesPanel } from './character/AttributesPanel.tsx';
 import './character/character.css';
+import { StatSummaryPanel } from './character/StatSummaryPanel.tsx';
 import { LoadoutEditor } from './character/LoadoutEditor.tsx';
 import { DeathPanel } from './character/DeathPanel.tsx';
 
@@ -39,6 +40,7 @@ export function CharacterScreen({ character, canCommand, runCharacterCommand, ne
           : `On ${character.activityState === 'live' ? 'a live run' : 'an expedition'}: changes wait until the character returns to the Sanctuary.`}
       </p>
       <AttributesPanel character={character} canCommand={canCommand} runCharacterCommand={runCharacterCommand} newCommandId={newCommandId} />
+      {api && <StatSummaryPanel character={character} api={api} />}
       <LoadoutEditor character={character} canCommand={canCommand} runCharacterCommand={runCharacterCommand} newCommandId={newCommandId} />
       <section className="character-section" aria-labelledby="rules-summary-title">
         <h2 id="rules-summary-title" className="screen__subtitle">Automation rules ({character.automationRules.length}/{MAX_AUTOMATION_RULES})</h2>
