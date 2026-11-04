@@ -272,6 +272,92 @@ describe('App shell', () => {
     live.stop();
   });
 
+  it('enters Region 2 live from the map after returning from Region 1 without the stale "adventure ended" screen (#157)', async () => {
+    const actorId = CHARACTER.actorId;
+    const firstInstance = '66666666-6666-4666-8666-666666666666';
+    const secondInstance = '77777777-7777-4777-8777-777777777777';
+    const sockets: AppSocket[] = [];
+    const starts: Array<{ areaId: string }> = [];
+    let activeId: string | null = null;
+    let activeArea = 'area:region_1';
+    const viewOf = (area: string, location: string) => ({ phase: 'exploring', area, location, heroes: [], groups: [], exits: [], hotspots: [],
+      resources: [], canReturn: true, runBag: [] });
+    const current = () => activeId ? { current: { instanceId: activeId, actorId,
+      view: viewOf(activeArea, activeArea === 'area:region_2' ? 'loc:region_2.fracture_landing' : 'loc:region_1.portal_clearing'),
+      participants: [{ actorId, status: 'connected' }] } } : { current: null };
+    const mapArea = (id: string, label: string, y: number) => ({ id, label, visibility: 'known', position: { x: 0, y }, lockedReasons: [],
+      completion: { discovered: 3, required: 6, completed: id === 'area:region_1', mandatoryBosses: { required: 0, defeated: 0, complete: true, bosses: [] } },
+      danger: { status: 'known', minLevel: 1, maxLevel: 8 }, idle: { unlocked: true, activities: [] }, actions: { enterLive: true, startIdle: true } });
+    const world = { hub: { id: 'area:sanctuary', label: 'area.sanctuary.name', position: { x: 0, y: 0 } },
+      areas: [mapArea('area:region_1', 'The Verdant Hollow', 100), mapArea('area:region_2', 'The Resonant Fracture', 200)],
+      routes: [{ id: 'route:sanctuary-region1', from: 'area:sanctuary', to: 'area:region_1' }, { id: 'route:sanctuary_to_region_2', from: 'area:sanctuary', to: 'area:region_2' }] };
+    const fetch: FetchLike = async (input, init) => {
+      if (input === '/auth/session') return Response.json({ accountId: 'acc', guest: true, email: null, expiresAtMs: 1 });
+      if (input === '/characters') return Response.json([CHARACTER]);
+      if (input === `/characters/${actorId}`) return Response.json({ ...CHARACTER, activityState: activeId ? 'live' : 'none', activityId: activeId });
+      if (input === `/live/current/${actorId}`) return Response.json(current());
+      if (input === `/live/options/${actorId}`) return Response.json({ actorId, supplies: [], areas: [
+        { id: 'area:region_1', label: 'The Verdant Hollow', startLocationId: 'loc:region_1.portal_clearing' },
+        { id: 'area:region_2', label: 'The Resonant Fracture', startLocationId: 'loc:region_2.fracture_landing' }] });
+      if (input === '/live/start' && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { areaId: string };
+        starts.push(body);
+        activeArea = body.areaId; activeId = starts.length === 1 ? firstInstance : secondInstance;
+        return Response.json({ instanceId: activeId });
+      }
+      if (input.endsWith('/world')) return Response.json(world);
+      return Response.json({ error: 'not_found' }, { status: 404 });
+    };
+    const live = new LiveClient({ url: 'ws://test/auth/live', createSocket: () => { const socket = new AppSocket(); sockets.push(socket); return socket; },
+      backoff: () => 1000, pingIntervalMs: 60_000 });
+    render(<App services={{ api: new ApiClient(fetch), live, storage: { getItem: () => null, setItem: () => {} } }} />);
+    const hashChanged = () => act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    fireEvent.click(await screen.findByRole('link', { name: 'World map' })); hashChanged();
+    fireEvent.click(await screen.findByRole('button', { name: /Verdant Hollow/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enter live' })); hashChanged();
+    await screen.findByRole('heading', { name: 'Live adventure' });
+    await waitFor(() => expect(sockets[0]).toBeDefined());
+    const socket = sockets[0] as AppSocket;
+    act(() => { socket.open(); socket.authenticate(); });
+    fireEvent.click(await screen.findByRole('button', { name: 'Start live adventure' }));
+    await waitFor(() => expect(starts).toHaveLength(1));
+    await waitFor(() => expect(socket.sent.some((sent) => sent.includes('live.attach'))).toBe(true));
+    act(() => {
+      socket.receive({ type: 'live.snapshot', instanceId: firstInstance, epoch: 1, seq: 0, view: viewOf('area:region_1', 'loc:region_1.portal_clearing'),
+        participants: [{ actorId, status: 'connected' }] });
+      socket.receive({ type: 'live.attached', instanceId: firstInstance, mode: 'snapshot' });
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Return to Sanctuary' }));
+    await waitFor(() => expect(socket.sent.some((sent) => sent.includes('returnToSanctuary'))).toBe(true));
+    const commandFrame = socket.sent.map((sent) => { try { return JSON.parse(sent) as { command?: { commandId?: string; command?: { type?: string } } }; } catch { return {}; } })
+      .find((frame) => frame.command?.command?.type === 'returnToSanctuary')?.command;
+    activeId = null;
+    act(() => {
+      socket.receive({ type: 'live.ack', instanceId: firstInstance, commandId: commandFrame?.commandId, status: 'applied', duplicate: false });
+      socket.receive({ type: 'live.closed', instanceId: firstInstance, outcome: 'returned', result: { area: 'area:sanctuary' } });
+    });
+    expect(await screen.findByRole('heading', { name: 'Adventure ended: returned.' })).toBeDefined();
+
+    // The player leaves through the back link (not "New adventure") and enters Region 2 from the map.
+    fireEvent.click(screen.getByRole('link', { name: '← World map' })); hashChanged();
+    fireEvent.click(await screen.findByRole('button', { name: /Resonant Fracture/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enter live' })); hashChanged();
+    expect(window.location.hash).toBe('#/world/live/area%3Aregion_2');
+    expect(screen.queryByRole('heading', { name: 'Adventure ended: returned.' })).toBeNull();
+    expect((await screen.findByLabelText('Area') as HTMLSelectElement).value).toBe('area:region_2');
+    fireEvent.click(await screen.findByRole('button', { name: 'Start live adventure' }));
+    await waitFor(() => expect(starts.map((entry) => entry.areaId)).toEqual(['area:region_1', 'area:region_2']));
+    await waitFor(() => expect(socket.sent.some((sent) => sent.includes(secondInstance))).toBe(true));
+    act(() => {
+      socket.receive({ type: 'live.snapshot', instanceId: secondInstance, epoch: 1, seq: 0, view: viewOf('area:region_2', 'loc:region_2.fracture_landing'),
+        participants: [{ actorId, status: 'connected' }] });
+      socket.receive({ type: 'live.attached', instanceId: secondInstance, mode: 'snapshot' });
+    });
+    expect(await screen.findByRole('button', { name: 'Return to Sanctuary' })).toBeDefined();
+    expect(screen.queryByRole('heading', { name: /Adventure ended/ })).toBeNull();
+    live.stop();
+  });
+
   it('selecting a map area has no side effect; explicit live and idle actions route with that area', async () => {
     const paths: string[] = [];
     render(<App services={services([CHARACTER], (path) => paths.push(path))} />);
