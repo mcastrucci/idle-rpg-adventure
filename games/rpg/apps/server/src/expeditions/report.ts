@@ -7,6 +7,8 @@ const safeInt = (value: unknown): value is number => Number.isSafeInteger(value)
 // Keep projections within the public protocol's signed 32-bit integer bound.
 const MAX_REPORT_INT = 2_147_483_647;
 const nonnegative = (value: unknown): number | null => safeInt(value) && value <= MAX_REPORT_INT ? value : null;
+// XP is open-ended (#129): its report fields are bounded by the safe-integer range only, not by the 32-bit gold/loot bound.
+const nonnegativeXp = (value: unknown): number | null => safeInt(value) ? value : null;
 const stringMap = (value: unknown): Record<string, number> | null => {
   if (!isRecord(value)) return null;
   const result: Record<string, number> = {};
@@ -129,10 +131,10 @@ export function projectExpeditionResultReport(row: Row, terminalReport: unknown)
   const xpRows = rows(report?.['xp']);
   const xpRow = xpRows?.find(value => isRecord(value) && value['actorId'] === row.actorId);
   const xp = isRecord(xpRow) ? xpRow : null;
-  const earnedXp = nonnegative(xp?.['xpEarned']);
-  const actualPenalty = nonnegative(xp?.['xpPenaltyLost']);
-  const xpAfter = nonnegative(xp?.['xpAfter']);
-  const xpBefore = nonnegative(xp?.['xpBefore']);
+  const earnedXp = nonnegativeXp(xp?.['xpEarned']);
+  const actualPenalty = nonnegativeXp(xp?.['xpPenaltyLost']);
+  const xpAfter = nonnegativeXp(xp?.['xpAfter']);
+  const xpBefore = nonnegativeXp(xp?.['xpBefore']);
   const xpNet = earnedXp === null || actualPenalty === null ? null : earnedXp - actualPenalty;
   const summaryKills = stringMap(summary?.['kills']);
   const killTotal = summaryKills ? Object.values(summaryKills).reduce((sum, count) => sum + count, 0) : null;

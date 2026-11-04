@@ -18,8 +18,8 @@ Exports: `default` / `rpgContentPlugin`, plus the building blocks (`RPG_CONTENT_
 
 `rpgCollections` mapped to the directories of [content-format §1](../../../../docs/spec/content-format.md): `enemies`,
 `skills`, `items`, `loot-tables`, `encounter-tables`, `resource-nodes`, `idle-activities`; plus `progression` for the XP
-curve (`progression/xp-curve.json`, ID `progression:xp_curve`, contents validated by `XpCurveSchema`). The compiler has
-no singleton documents, so the curve carries an ID.
+curve (`progression/xp-curve.json`, ID `progression:xp_curve`, the `xpToNext` table plus `tailGrowthBp`, validated by
+`XpCurveSchema`; the curve is open-ended, #129). The compiler has no singleton documents, so the curve carries an ID.
 
 ## World extensions
 

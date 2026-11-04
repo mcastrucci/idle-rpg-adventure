@@ -23,10 +23,10 @@ import type { AreaId, LocationId } from '@engine/world';
 import { createCombat, ENGINE_VERSION, rpgIdleContentFromBundle, rollLoot, step } from '@rpg/rpg-sim';
 import type { CombatContent, CombatInput, CombatState, ConsumableStack, HeroSetup, RpgIdleContent } from '@rpg/rpg-sim';
 import type { AutomationRule, ConsumableItem } from '@rpg/rpg-schema';
-import { DEFAULT_DEATH_XP_LOSS_BP, DEFAULT_STAT_FORMULAS, applyXpLoss, deriveStats, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
+import { DEFAULT_STAT_FORMULAS, applyDeathXpLoss, deriveStats, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
 import type { DeriveStatsInput } from '@rpg/rpg-stats';
-import { XpCurveSchema } from '@rpg/rpg-schema';
 
+import { rpgXpCurve } from '../content.ts';
 import type { RpgLiveEffect } from './effects.ts';
 import { BOSS_ROOM_TAG, buildLiveWorld, SAFE_TAG, SECRET_TAG } from './world.ts';
 import type { LiveLocation, LiveWorld } from './world.ts';
@@ -211,9 +211,7 @@ export interface RpgLiveContent {
 export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveState> {
   const idle: RpgIdleContent = rpgIdleContentFromBundle(content);
   const combatContent: CombatContent = idle.combat;
-  const progression = content.collections['progression']?.[0] as { id?: unknown; xpToNext?: unknown } | undefined;
-  if (!progression || progression.id !== 'progression:xp_curve') throw new RangeError('missing live XP curve');
-  const xpCurve = XpCurveSchema.parse({ xpToNext: progression.xpToNext });
+  const xpCurve = rpgXpCurve(content.collections);
   const world: LiveWorld = buildLiveWorld(content.world);
   const formulas = idle.formulas ?? DEFAULT_STAT_FORMULAS;
 
@@ -361,11 +359,11 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       const actorId = hero.actorId;
       // Same helper as idle settlement and the fenced `heroDied` effect, which recomputes it from the persisted row.
       // Everything earned by earlier victories of this instance is already persisted, so only the penalty remains.
-      const loss = applyXpLoss(hero.xp, DEFAULT_DEATH_XP_LOSS_BP, xpCurve);
+      const loss = applyDeathXpLoss(hero.xp, xpCurve);
       hero.xp = loss.totalXp;
       hero.build = { ...hero.build, level: loss.level };
       state.runBag[actorId] = { items: {}, gold: 0, uniques: [] };
-      effects.push({ type: 'heroDied', actorId, areaId: state.area, locationId: state.location, causes, xpToNext: xpCurve.xpToNext });
+      effects.push({ type: 'heroDied', actorId, areaId: state.area, locationId: state.location, causes, xpToNext: xpCurve.xpToNext, xpTailGrowthBp: xpCurve.tailGrowthBp });
       events.push({ type: 'heroDied', actorId, causes, xpLost: loss.xpLost, levelBefore: loss.levelBefore, levelAfter: loss.level });
     }
     state.combatDeaths = {};
@@ -397,7 +395,7 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       onDeath: ['live.death.run_bag_to_corpse', 'live.death.xp_penalty'],
       deathConsequences: state.heroes.filter(hero => hero.present).map(hero => {
         const bag = state.runBag[hero.actorId] ?? { items: {}, gold: 0, uniques: [] };
-        return { actorId: hero.actorId, xpLost: applyXpLoss(hero.xp, DEFAULT_DEATH_XP_LOSS_BP, xpCurve).xpLost,
+        return { actorId: hero.actorId, xpLost: applyDeathXpLoss(hero.xp, xpCurve).xpLost,
           xpBeforeTotal: hero.xp, runBag: { items: Object.entries(bag.items).sort(([a], [b]) => a.localeCompare(b)).map(([item, qty]) => ({ item, qty })),
             gold: bag.gold, uniques: (bag.uniques ?? []).map(item => ({ ...item, rolls: item.rolls as JsonValue })) } };
       }),
@@ -661,7 +659,7 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
           reward.levelAfter = progress.level; reward.xpIntoLevel = progress.xpIntoLevel; reward.xpToNext = progress.xpToNext;
           addLoot(ended, hero.actorId, reward.drops, reward.gold);
           if (reward.xp > 0) effects.push({ type: 'xpGranted', actionId, actorId: hero.actorId, xp: reward.xp,
-            xpToNext: xpCurve.xpToNext });
+            xpToNext: xpCurve.xpToNext, xpTailGrowthBp: xpCurve.tailGrowthBp });
           if (reward.drops.length > 0 || reward.gold > 0) effects.push({ type: 'lootGranted', actionId, actorId: hero.actorId, items: reward.drops, gold: reward.gold });
         }
         events.push({ type: 'combatRewards', groupId: group.id, rewards });
@@ -697,7 +695,17 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
     },
 
     serialize: (state) => ({ ...state, pending: [] }) as unknown as JsonValue,
-    restore: (checkpoint) => ({ ...(structuredClone(checkpoint) as unknown as RpgLiveState), pending: [] }),
+    restore: (checkpoint) => {
+      const state = { ...(structuredClone(checkpoint) as unknown as RpgLiveState), pending: [] };
+      // The checkpoint stores total XP, which is independent of the curve, so instances saved before the open-ended curve
+      // (#129) restore as they are; only the derived level is refreshed (a hero saved at the old cap with overflow XP now
+      // levels up). Normally this is a no-op.
+      for (const hero of state.heroes) {
+        const level = xpProgress(hero.xp, xpCurve).level;
+        if (hero.build.level !== level) hero.build = { ...hero.build, level };
+      }
+      return state;
+    },
     view: (state, viewerActorId) => {
       const here = locationOf(state.location);
       const viewer = viewerActorId === undefined ? undefined : state.heroes.find(hero => hero.actorId === viewerActorId);

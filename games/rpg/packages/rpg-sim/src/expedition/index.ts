@@ -11,6 +11,8 @@ export type { LootDrop, LootRoll } from './loot.ts';
 export { applyBagLoss, bagTotals, coversDeath, rpgIdleMetrics, rpgProgress, settleIdle, summarizeIdle } from './settle.ts';
 /** Retained behavior for persisted RPG idle simulator version 2.0.0. Never edit; append a new version module instead. */
 export { applyBagLossV2, coversDeathV2, rpgIdleMetricsV2, rpgProgressV2, settleIdleV2, summarizeIdleV2 } from './settlement-v2.ts';
+/** Retained behavior for persisted RPG idle simulator version 2.1.0 (#129; bag/summary/metrics are those of 2.0.0). */
+export { rpgProgressV2_1 } from './settlement-v2-1.ts';
 export { DEFAULT_RPG_IDLE_TUNING, deathCauses, idleBudget, maxHpOf, segmentsPerHour, simulateIdle } from './simulate.ts';
 export type { RpgIdleTuning } from './simulate.ts';
 export {

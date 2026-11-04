@@ -13,7 +13,8 @@ import type { ActorTransaction, PostgresInstanceStoreHooks } from '@engine/serve
 import type { LiveEffectsContext } from '@engine/server-kit';
 import type { LedgerDelta } from '@engine/economy';
 import { XpCurveSchema } from '@rpg/rpg-schema';
-import { DEFAULT_DEATH_XP_LOSS_BP, applyXpLoss, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
+import type { XpCurve } from '@rpg/rpg-schema';
+import { DEFAULT_XP_TAIL_GROWTH_BP, applyDeathXpLoss, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
 
 import { recordDiscovery } from '../expeditions/progress.ts';
 import { applyConquestProgress } from '../conquest/service.ts';
@@ -30,13 +31,28 @@ export type RpgLiveEffect =
   | { readonly type: 'bossDefeated'; readonly actorId: string; readonly areaId: string; readonly enemyIds: readonly string[]; readonly completion?: RpgCompletionSnapshot }
   | { readonly type: 'lootGranted'; readonly actionId: string; readonly actorId: string; readonly items: readonly { readonly item: string; readonly qty: number; readonly kind: 'stack' | 'unique_mint' }[]; readonly gold: number }
   | { readonly type: 'consumableUsed'; readonly actionId: string; readonly actorId: string; readonly item: string; readonly qty: number }
-  | { readonly type: 'xpGranted'; readonly actionId: string; readonly actorId: string; readonly xp: number; readonly xpToNext: readonly number[] }
+  | { readonly type: 'xpGranted'; readonly actionId: string; readonly actorId: string; readonly xp: number; readonly xpToNext: readonly number[];
+      /** Open-ended tail of the curve (#129). Absent only on effects emitted before it existed (see {@link effectCurve}). */
+      readonly xpTailGrowthBp?: number }
   | { readonly type: 'heroDied'; readonly actorId: string; readonly areaId: string; readonly locationId: string;
-      readonly causes: readonly { readonly sourceId: string; readonly label: string; readonly damage: number }[]; readonly xpToNext: readonly number[] }
+      readonly causes: readonly { readonly sourceId: string; readonly label: string; readonly damage: number }[]; readonly xpToNext: readonly number[];
+      readonly xpTailGrowthBp?: number }
   | { readonly type: 'corpseRecovered'; readonly actorId: string; readonly corpseId: string; readonly areaId: string; readonly locationId: string };
+
+/**
+ * The curve an XP effect was computed under: the table it carries plus its tail. The tail is optional only so an effect
+ * emitted before #129 still applies; it then falls back to the tail the authored content had at that time (the stored
+ * `(level, xp)` pairs are normalized to the open-ended curve).
+ */
+function effectCurve(effect: { readonly xpToNext: readonly number[]; readonly xpTailGrowthBp?: number }): XpCurve {
+  return XpCurveSchema.parse({ xpToNext: effect.xpToNext, tailGrowthBp: effect.xpTailGrowthBp ?? DEFAULT_XP_TAIL_GROWTH_BP });
+}
 
 function parseEffect(value: JsonValue): RpgLiveEffect {
   const effect = value as Partial<Record<string, unknown>> | null;
+  if (effect !== null && effect !== undefined && effect['xpTailGrowthBp'] !== undefined && !Number.isSafeInteger(effect['xpTailGrowthBp'])) {
+    throw new Error('unknown RPG live effect');
+  }
   const text = (key: string) => typeof effect?.[key] === 'string';
   if (effect?.['type'] === 'discovery' && text('actorId') && text('areaId') && text('locationId')) return effect as unknown as RpgLiveEffect;
   if (effect?.['type'] === 'bossDefeated' && text('actorId') && text('areaId') && Array.isArray(effect['enemyIds'])) {
@@ -107,8 +123,10 @@ export async function applyRpgLiveEffects(tx: ActorTransaction, instance: { read
         break;
       }
       case 'xpGranted': {
-        const curve = XpCurveSchema.parse({ xpToNext: effect.xpToNext });
+        const curve = effectCurve(effect);
         const instanceId = requireInstanceId(instance);
+        // The claim fingerprint deliberately excludes the tail: a victory re-emitted after a restore (possibly by a node
+        // running a different release) must stay a no-op against a claim written before the tail existed.
         const sourceId = `${instanceId}:xp:${actionFingerprint(effect.actionId)}:${effect.actorId}`;
         const fingerprint = createHash('sha256').update(JSON.stringify({ actorId: effect.actorId, xp: effect.xp,
           xpToNext: curve.xpToNext })).digest('hex');
@@ -206,11 +224,12 @@ async function settleHeroDeath(tx: ActorTransaction, instance: { readonly instan
   }
   const [character] = await tx.select().from(characters).where(eq(characters.actorId, actorId)).for('update');
   if (!character) throw new Error('missing live character for death');
-  const curve = XpCurveSchema.parse({ xpToNext: effect.xpToNext });
+  const curve = effectCurve(effect);
   const xpBeforeTotal = totalXpFromLevelProgress(character.level, character.xp, curve);
   // Penalty only: XP from earlier victories is already persisted (`xpGranted`), so nothing else is added or removed here.
-  // The `rpg_live_death` claim above makes this run exactly once per instance and hero.
-  const { xpLost, totalXp: xpAfterTotal } = applyXpLoss(xpBeforeTotal, DEFAULT_DEATH_XP_LOSS_BP, curve);
+  // The `rpg_live_death` claim above makes this run exactly once per instance and hero (its fingerprint excludes the
+  // tail for the same reason as the XP claim). Level-scaled loss with a one-level cap (#129).
+  const { xpLost, totalXp: xpAfterTotal } = applyDeathXpLoss(xpBeforeTotal, curve);
   const after = xpProgress(xpAfterTotal, curve);
   await tx.update(characters).set({ level: after.level, xp: after.xpIntoLevel }).where(eq(characters.actorId, actorId));
 

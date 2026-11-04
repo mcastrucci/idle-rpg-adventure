@@ -18,8 +18,10 @@ Deterministic per [ADR-0004](../../../../docs/adr/0004-deterministic-step-engine
 | `StatFormulaTable`, `DEFAULT_STAT_FORMULAS`, `validateStatFormulaTable` | Formula constants as data. Default is **provisional** (open decision #2). |
 | `actionIntervalTicks(haste, table)` | Haste → ticks between actions (floor 2). |
 | `statDelta(before, after)`, `flattenStats`, `changedStats`, `STAT_DELTA_KEYS` | Compare-vs-equipped previews: `after − before` per displayed number. |
-| `levelForXp`, `xpProgress`, `totalXpAtLevelStart`, `totalXpFromLevelProgress` | XP over the content `XpCurve` (`@rpg/rpg-schema`). |
-| `applyXpLoss(totalXp, lossBp, curve)`, `DEFAULT_DEATH_XP_LOSS_BP` (1000) | Death penalty: lose `lossBp` of the XP required for the next level; may de-level, never below level 1 ([rewards §4](../../../../docs/spec/rewards-and-persistence.md), open decision #8). |
+| `levelForXp`, `xpProgress`, `totalXpAtLevelStart`, `totalXpFromLevelProgress`, `xpToNextAtLevel`, `terminalLevel` | XP over the content `XpCurve` (`@rpg/rpg-schema`), **open-ended** since #129: past the authored table `xpToNext(L) = ⌊xpToNext(L − 1) × tailGrowthBp / 10000⌋`, no maximum level. A curve without `tailGrowthBp` is the legacy capped shape. |
+| `deathXpLossBp(level)`, `applyDeathXpLoss(totalXp, curve)` | Death penalty (#129, live and idle alike): `lossBp(L) = max(200, 1000 − 20 × (L − 1))`, `xpLost = ⌊totalXp × lossBp(L) / 10000⌋`, total never below the start of level `L − 1` nor below 0 ([rewards §4](../../../../docs/spec/rewards-and-persistence.md), open decision #8). |
+| `applyXpLoss(totalXp, lossBp, curve)`, `DEFAULT_DEATH_XP_LOSS_BP` (1000) | **Frozen legacy** penalty (10% of the XP required for the next level) retained for expeditions persisted by `rpg-idle@2.0.0`; pass the capped table curve. Do not use in new code. |
+| `DEFAULT_XP_TAIL_GROWTH_BP` (12500) | Tail of the authored curve at #129 (pinned to the content file by a test); fallback only for persisted data that predates the stored tail. |
 
 `equipment` takes anything with a `stats: StatMap` — `EquipmentItem` from `@rpg/rpg-schema` fits. `StatModifier`
 mirrors the `stat_mod` effect (`{ stat, flat? , deltaBp? }`).
@@ -56,7 +58,8 @@ Choices worth knowing:
   school-less effects. Gear and modifier `power` apply to every school (there is no per-school gear stat yet).
 - **Action interval rounds up**, unlike damage (which floors): a tick is saved only once it is fully earned; flooring
   would make the first haste point always save a tick. The `2`-tick spec floor is enforced by `validateStatFormulaTable`.
-- At the level cap `applyXpLoss` uses the last curve entry as "XP required for next level"; XP over the cap is kept.
+- All thresholds are safe integers. When the next threshold would exceed `Number.MAX_SAFE_INTEGER` (level 132 with the authored curve) the last representable level (`terminalLevel`) behaves like a cap: `xpToNext` is `null` and further XP stays in `xpIntoLevel`; sums that would overflow throw `RangeError`.
+- On a capped (tail-less) curve, `applyXpLoss` uses the last table entry as "XP required for next level"; XP over the cap is kept.
 
 Changing `DEFAULT_STAT_FORMULAS` or these rules changes simulation behaviour: bump the simulator's engine version and
 update golden replays deliberately.

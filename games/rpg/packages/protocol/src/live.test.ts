@@ -44,6 +44,12 @@ describe('live wire protocol', () => {
       event: { type: 'heroDied', actorId, causes: [], xpLost: 10, levelBefore: 2, levelAfter: 1 } })).toMatchObject({ type: 'live.event' });
     expect(parseLiveServerFrame({ ...snapshot, view: { phase: 'exploring', heroes: [{ actorId, level: 2, xp: 103, xpIntoLevel: 3, xpToNext: 250,
       hp: null, maxHp: 30, present: true, consumables: [] }] } })).toMatchObject({ type: 'live.snapshot' });
+    // The curve is open-ended (#129): levels and requirements past the old cap of 6 travel as plain integers.
+    const past = { type: 'combatRewards', groupId: 'g', rewards: [{ actorId, xp: 10, drops: [], gold: 0, levelBefore: 6, levelAfter: 7,
+      xpIntoLevel: 5, xpToNext: 1562 }] };
+    expect(liveXpGainFromEvent(past, actorId)).toEqual({ xp: 10, levelBefore: 6, levelAfter: 7, xpIntoLevel: 5, xpToNext: 1562, leveledUp: true });
+    expect(parseLiveServerFrame({ ...snapshot, view: { phase: 'exploring', heroes: [{ actorId, level: 40, xp: 12_345_678, xpIntoLevel: 4_000,
+      xpToNext: 9_999_999, hp: null, maxHp: 300, present: true, consumables: [] }] } })).toMatchObject({ type: 'live.snapshot' });
     expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 10, source: 'game',
       event: { type: 'gathered', nodeId: 'node:one', drops: [{ item: 'item:herb', qty: 2 }], gold: 3 } })).toMatchObject({ type: 'live.event' });
     expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 11, source: 'game',

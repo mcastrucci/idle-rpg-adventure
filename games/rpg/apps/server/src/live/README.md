@@ -94,7 +94,16 @@ points are not granted on level-up (open decision #13). Clients see the gain in 
 state since `0.4.0`), so `RPG_LIVE_VERSION` is not bumped and in-flight instances keep restoring; an instance created
 by another plugin version is still refused with `IncompatibleInstanceError`.
 
-Actual hero death applies provisional XP loss (`applyXpLoss`, once per instance and hero) to authoritative persisted XP — which already includes every earlier victory of the instance — and moves that actor's run bag to an owner
+Open-ended XP curve (#129): the level cap of 6 is gone, so effects carry the curve they were computed under —
+`xpToNext` (table) and `xpTailGrowthBp` (tail). Still no version bump and no orphaned instances: a checkpoint stores only
+total XP and the hero's derived level, which do not depend on the curve; `restore` re-derives the level from total XP
+(so a hero saved at the old cap with overflow XP resumes at its real level), and the XP / death claims
+(`rpg_live_xp`, `rpg_live_death`) fingerprint the payload **without** the tail, so a victory or death re-emitted after a
+restore stays a no-op against a claim written by an older release. An effect without `xpTailGrowthBp` (emitted before
+the field existed) falls back to `DEFAULT_XP_TAIL_GROWTH_BP`. The persisted death penalty and the in-instance one use
+the same function, so the shown `xpLost` and the stored one agree.
+
+Actual hero death applies the provisional level-scaled XP loss (`applyDeathXpLoss`: `max(200, 1000 − 20 × (L − 1))` bp of total XP, never below the start of level `L − 1`, #129; once per instance and hero) to authoritative persisted XP — which already includes every earlier victory of the instance — and moves that actor's run bag to an owner
 corpse, even if other party members survive. Death/corpse metadata is durable in `rpg_live_deaths`; item holdings remain
 in ledger container `corpse:<deathId>`. A second death invalidates the prior corpse even when it is empty, and sinks its
 holdings through the ledger. Expiry is 24 hours of injected server time; expired holdings are sunk by the next

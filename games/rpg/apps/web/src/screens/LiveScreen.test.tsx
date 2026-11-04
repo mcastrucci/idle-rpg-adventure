@@ -182,6 +182,17 @@ describe('LiveScreen navigation controller', () => {
     await waitFor(() => expect(JSON.parse(socket.sent.at(-1) ?? '{}').command?.command).toMatchObject({ type: 'enterBossRoom', exitId: 'exit:boss', confirm: true }));
     deps.client.stop();
   });
+  it('shows the server-provided XP bar of a hero past the old level cap (open-ended curve, #129)', async () => {
+    const seventh = { actorId, level: 7, xp: 4_531, xpIntoLevel: 781, xpToNext: 1562, hp: null, maxHp: 80, present: true, consumables: [] };
+    const deps = setup({ instanceId, actorId, view: { ...view(), heroes: [seventh] } as unknown as LiveViewDto, participants: [{ actorId, status: 'connected' }] });
+    const socket = await connect(deps);
+    render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={vi.fn(async () => {})} />);
+    await attach(socket, deps.current as NonNullable<typeof deps.current>);
+    expect(await screen.findByText('Level 7')).toBeDefined();
+    expect(screen.getByText('781 / 1562 XP')).toBeDefined();
+    expect(screen.queryByText('Max level')).toBeNull();
+    deps.client.stop();
+  });
   it('shows server-granted XP and a level-up immediately at the victory and refreshes the character once', async () => {
     const hero = (level: number, xpIntoLevel: number) => ({ actorId, level, xp: level === 1 ? xpIntoLevel : 100 + xpIntoLevel, xpIntoLevel,
       xpToNext: level === 1 ? 100 : 250, hp: null, maxHp: level === 1 ? 50 : 56, present: true, consumables: [] });

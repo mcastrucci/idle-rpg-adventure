@@ -169,11 +169,19 @@ describe.skipIf(!adminUrl)('debug/admin tools against real PostgreSQL', () => {
     expect([updated.level, updated.xp]).toEqual([3, 200]);
     expect(updated.attributes).toEqual(character.attributes);
     expect(updated.unspentPoints).toBe(character.unspentPoints);
-    // Curve: 100, 250, 450, 700, 1000 → level 3 needs < 450 within the level; cap is level 6.
+    // Curve: 100, 250, 450, 700, 1000, then x1.25 per level (#129) → level 3 needs < 450 within the level; no level cap.
     expect((await setProgression(session, character.actorId, { level: 3, xp: 450 })).json()).toEqual({ error: 'invalid_progression' });
-    expect((await setProgression(session, character.actorId, { level: 7 })).json()).toEqual({ error: 'invalid_progression' });
+    expect((await setProgression(session, character.actorId, { level: 6, xp: 5_000 })).json()).toEqual({ error: 'invalid_progression' });
     expect((await setProgression(session, character.actorId, { level: 0 })).statusCode).toBe(400);
-    expect((await setProgression(session, character.actorId, { level: 6, xp: 5_000 })).statusCode).toBe(200);
+    const past = await setProgression(session, character.actorId, { level: 7, xp: 1_561 });
+    expect(past.statusCode).toBe(200);
+    expect([past.json<Character>().level, past.json<Character>().xp]).toEqual([7, 1_561]);
+    expect((await setProgression(session, character.actorId, { level: 7, xp: 1_562 })).json()).toEqual({ error: 'invalid_progression' });
+    expect((await setProgression(session, character.actorId, { level: 9_999 })).json()).toEqual({ error: 'invalid_progression' }); // beyond the safe-integer bound
+    const wide = await setProgression(session, character.actorId, { level: 71, xp: 2_400_000_000 }); // beyond 32 bits, < 2,486,920,696
+    expect(wide.statusCode).toBe(200);
+    expect([wide.json<Character>().level, wide.json<Character>().xp]).toEqual([71, 2_400_000_000]);
+    expect((await setProgression(session, character.actorId, { level: 6, xp: 1_249 })).statusCode).toBe(200);
   });
 
   it('records and resets world progress through the trusted seams', async () => {

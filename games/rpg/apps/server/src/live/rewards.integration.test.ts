@@ -238,6 +238,56 @@ describe.skipIf(!adminUrl)('live rewards and ledger integration (real PostgreSQL
     expect(await ledgerIssues(who.actorId)).toEqual([]);
   }, 45_000);
 
+  it('levels past the old cap of 6 on the open-ended curve and absorbs a replay of the same victory (#129)', async () => {
+    const n = await node('reward-level-seven');
+    const who = await player();
+    await database.db.update(characters).set({ level: 6, xp: 1245 }).where(eq(characters.actorId, who.actorId));
+    const instanceId = await startRpgLiveInstance(n.live, database, { actorIds: [who.actorId], location: LOCATION, groups: [SLIME] });
+    const messages: unknown[] = [];
+    await n.live.host().attach(instanceId, who.actorId, who.accountId, connection(messages));
+    const persisted = async () => (await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0];
+    expect(await command(n, who, instanceId, { type: 'engage', groupId: SLIME.id })).toMatchObject({ ack: { status: 'applied' } });
+    await advance(n, instanceId, () => n.live.host().inspect(instanceId)?.ticking === false);
+    // Level 6 -> 7 needs 1250 XP: 1245 + 10 = 1255 -> level 7 with 5 XP into a level that needs 1562.
+    expect(await persisted()).toMatchObject({ level: 7, xp: 5 });
+    const rewardEvent = messages.map(value => value as { type?: string; event?: { type?: string; rewards?: Record<string, unknown>[] } })
+      .find(value => value.type === 'live.event' && value.event?.type === 'combatRewards')?.event;
+    expect(rewardEvent?.rewards?.[0]).toMatchObject({ actorId: who.actorId, xp: 10, levelBefore: 6, levelAfter: 7, xpIntoLevel: 5, xpToNext: 1562 });
+    expect(n.live.host().inspect(instanceId)?.state.heroes[0]).toMatchObject({ xp: 3755, build: { level: 7 } });
+    const progression = content.collections['progression']?.[0] as { xpToNext: readonly number[]; tailGrowthBp: number } | undefined;
+    if (!progression) throw new Error('compiled XP curve is missing');
+    for (const xpTailGrowthBp of [progression.tailGrowthBp, undefined]) { // the new shape and one emitted before the tail existed
+      await database.db.transaction(tx => applyRpgLiveEffects(tx, { instanceId, participants: [{ actorId: who.actorId }] },
+        [JSON.parse(JSON.stringify({ type: 'xpGranted', actionId: `victory:${SLIME.id}`, actorId: who.actorId, xp: 10,
+          xpToNext: progression.xpToNext, xpTailGrowthBp })) as never], clock.nowMs(), { type: 'checkpoint' }));
+    }
+    expect(await persisted()).toMatchObject({ level: 7, xp: 5 });
+    expect(await database.db.select().from(rpgLiveXpEvents).where(eq(rpgLiveXpEvents.instanceId, instanceId))).toHaveLength(1);
+    expect(await command(n, who, instanceId, { type: 'returnToSanctuary' })).toMatchObject({ ack: { status: 'applied' } });
+    expect(await persisted()).toMatchObject({ level: 7, xp: 5 });
+    expect(await ledgerIssues(who.actorId)).toEqual([]);
+  }, 45_000);
+
+  it('persists in-level XP beyond the 32-bit range at level 71 (bigint columns, #129)', async () => {
+    const n = await node('reward-beyond-int32');
+    const who = await player();
+    const INT32_MAX = 2_147_483_647;
+    // Level 71 needs 2,486,920,696 XP to the next level, so the in-level value can legitimately pass INT32_MAX.
+    await database.db.update(characters).set({ level: 71, xp: INT32_MAX - 7 }).where(eq(characters.actorId, who.actorId));
+    const instanceId = await startRpgLiveInstance(n.live, database, { actorIds: [who.actorId], location: LOCATION, groups: [SLIME] });
+    await attach(n, who, instanceId);
+    expect(await command(n, who, instanceId, { type: 'engage', groupId: SLIME.id })).toMatchObject({ ack: { status: 'applied' } });
+    await advance(n, instanceId, () => n.live.host().inspect(instanceId)?.ticking === false);
+    const saved = (await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0];
+    expect(saved).toMatchObject({ level: 71, xp: INT32_MAX + 3 }); // 10 XP from the slimes
+    expect(saved?.xp).toBeGreaterThan(INT32_MAX);
+    expect(await database.db.select().from(rpgLiveXpEvents).where(eq(rpgLiveXpEvents.instanceId, instanceId)))
+      .toMatchObject([{ grantedXp: 10 }]);
+    expect(await command(n, who, instanceId, { type: 'returnToSanctuary' })).toMatchObject({ ack: { status: 'applied' } });
+    expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0]?.xp).toBe(INT32_MAX + 3);
+    expect(await ledgerIssues(who.actorId)).toEqual([]);
+  }, 45_000);
+
   it('keeps the level-up exactly once across a node handover, command retries and duplicate effect delivery', async () => {
     const a = await node('reward-handover-a');
     const b = await node('reward-handover-b');

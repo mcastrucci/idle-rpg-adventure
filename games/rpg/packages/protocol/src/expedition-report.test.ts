@@ -21,6 +21,15 @@ describe('expedition result report protocol', () => {
     expect(Object.isFrozen(parsed.death?.causes)).toBe(true);
   });
 
+  it('accepts XP beyond 32 bits (open-ended curve, #129) but keeps gold and counters 32-bit bounded', () => {
+    const big = 5_000_000_000;
+    const parsed = parseExpeditionResultReportDto({ ...available, xp: { earned: 12, penaltyLost: big, net: -big + 12, beforeTotal: big * 2, afterTotal: big },
+      finalState: { hp: 0, maxHp: 24, xpTotal: big } });
+    expect(parsed.xp).toEqual({ earned: 12, penaltyLost: big, net: -big + 12, beforeTotal: big * 2, afterTotal: big });
+    expect(() => parseExpeditionResultReportDto({ ...available, xp: { ...available.xp, afterTotal: Number.MAX_SAFE_INTEGER + 1 } })).toThrow();
+    expect(() => parseExpeditionResultReportDto({ ...available, gold: { earned: big, lost: 0, secured: 0 } })).toThrow();
+  });
+
   it('preserves null unknown values separately from known empty lists', () => {
     const unavailable = parseExpeditionResultReportDto({
       availability: 'legacy_unavailable', effectiveDurationMs: null, outcome: 'cancelled', enemiesDefeated: null,

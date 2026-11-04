@@ -3,6 +3,17 @@ import { bigint, check, index, integer, jsonb, pgTable, text, timestamp, unique,
 
 import { characters } from '../characters/schema.ts';
 
+/**
+ * Persisted start snapshot of an expedition. `xpCurve` is the authored table and `xpTailGrowthBp` the open-ended tail
+ * (#129) of the curve at start, so settlement never depends on the deployed content. Rows started by
+ * `rpg-idle@2.0.0` have no `xpTailGrowthBp` (their curve was capped; see `policy.ts`).
+ */
+export interface ExpeditionSnapshot {
+  readonly participants: readonly Record<string, unknown>[];
+  readonly xpCurve: readonly number[];
+  readonly xpTailGrowthBp?: number;
+}
+
 /** Full replay input and timeline are private server data; HTTP DTOs are constructed by the expedition service. */
 export const expeditions = pgTable('rpg_expeditions', {
   id: uuid('id').primaryKey(),
@@ -24,7 +35,7 @@ export const expeditions = pgTable('rpg_expeditions', {
   contentHash: text('content_hash').notNull(),
   budget: integer('budget').notNull(),
   config: jsonb('config').$type<Record<string, unknown>>().notNull(),
-  snapshot: jsonb('snapshot').$type<{ participants: readonly Record<string, unknown>[]; xpCurve: readonly number[] }>().notNull(),
+  snapshot: jsonb('snapshot').$type<ExpeditionSnapshot>().notNull(),
   escrow: jsonb('escrow').$type<readonly Record<string, unknown>[]>().notNull(),
   timelineCompressed: text('timeline_compressed').notNull(),
   timelineHash: text('timeline_hash').notNull(),

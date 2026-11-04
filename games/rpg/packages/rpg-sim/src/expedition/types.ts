@@ -186,9 +186,16 @@ export interface RpgProgress {
   /** True when the covered part contains the fatal encounter. */
   readonly died: boolean;
   /**
-   * Whether the server applies the death XP penalty (`applyXpLoss(totalXp + xpEarned, deathXpLossBp, curve)` per hero
-   * that died). Same rule as the bag penalty in `settle`: the fatal encounter is covered and `reason === 'completed'`.
+   * Whether the server applies the death XP penalty (`applyDeathXpLoss(totalXp + xpEarned, curve)` per hero that
+   * died). Same rule as the bag penalty in `settle`: the fatal encounter is covered and `reason === 'completed'`.
    */
   readonly applyDeathPenalty: boolean;
+}
+
+/**
+ * Progress channel of the retained `rpg-idle@2.0.0` contract: it also carried the flat penalty rate the server fed to
+ * the legacy `applyXpLoss` (10% of the next level's requirement). Frozen; see `settlement-v2.ts`.
+ */
+export interface RpgProgressV2 extends RpgProgress {
   readonly deathXpLossBp: number;
 }
