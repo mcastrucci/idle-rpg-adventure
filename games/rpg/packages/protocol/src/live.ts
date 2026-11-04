@@ -125,6 +125,8 @@ export interface LiveCombatActorDto {
 /** Client-safe projection of the current game view. Game-specific view fields remain JSON data. */
 export interface LiveViewDto {
   readonly phase?: string;
+  readonly canRetreat?: boolean;
+  readonly retreatBlockedReason?: 'boss' | 'not_in_combat' | 'unknown_group' | null;
   readonly heroes?: readonly LiveHeroDto[];
   readonly combat?: { readonly tick: number; readonly groupId: string | null; readonly actors: readonly LiveCombatActorDto[] } | null;
   readonly runBag?: readonly LiveRunBagDto[];
@@ -192,6 +194,7 @@ const bossRiskSchema = z.strictObject({ locationId: boundedText,
       uniques: z.array(z.strictObject({ itemId: uuidSchema, definition: boundedText, slot: z.string().max(64).nullable(), rolls: jsonSchema })).max(512) }) })).max(64) });
 const liveViewSchema = z.strictObject({
   phase: z.enum(['exploring', 'combat', 'dead', 'closing']).optional(), area: boundedText.optional(), location: boundedText.optional(),
+  canRetreat: z.boolean().optional(), retreatBlockedReason: z.enum(['boss', 'not_in_combat', 'unknown_group']).nullable().optional(),
   heroes: z.array(z.strictObject({ actorId: uuidSchema, level: z.number().int().nonnegative().optional(), xp: z.number().int().nonnegative().optional(),
     xpIntoLevel: z.number().int().nonnegative().optional(), xpToNext: z.number().int().positive().nullable().optional(),
     hp: z.number().int().nonnegative().nullable(), maxHp: z.number().int().nonnegative(),

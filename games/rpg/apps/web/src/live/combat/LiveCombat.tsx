@@ -51,6 +51,8 @@ interface HeroProjection {
 type CombatView = Omit<LiveViewDto, 'heroes' | 'combat'> & {
   readonly heroes?: readonly HeroProjection[];
   readonly combat?: CombatProjection | null;
+  readonly canRetreat?: boolean;
+  readonly retreatBlockedReason?: 'boss' | 'not_in_combat' | 'unknown_group' | null;
 };
 type EventRow = { readonly epoch: number; readonly seq: number; readonly source: 'game' | 'host'; readonly event: LiveJson };
 type FeedbackState = { readonly actorId: string | null; readonly groupId: string | null; readonly cursor: { readonly epoch: number; readonly seq: number } | null; readonly manual: string; readonly activity: string };
@@ -78,7 +80,8 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, connectio
   const actors = combat?.actors ?? [];
   const skills = [...(me?.skills ?? [])].sort((a, b) => a.slot - b.slot).slice(0, 4);
   const online = connection.status === 'open';
-  const queued = actors.filter((actor) => actor.queued !== null);
+  const ownActor = actors.find((actor) => actor.id === actorId);
+  const ownQueued = actors.filter((actor) => actor.id === actorId && actor.queued !== null);
   const windups = actors.filter((actor) => actor.side === 'enemy' && actor.windup !== null);
   const latestEvents = events.slice(-30).reverse();
   const currentFeedback = feedback.actorId === actorId && feedback.groupId === (combat?.groupId ?? null) ? feedback : null;
@@ -102,16 +105,23 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, connectio
       const windup = actor.windup;
       if (!windup) return null;
       const remaining = Math.max(0, windup.resolveAtTick - combat.tick);
+      const targets = windup.targetIds.map((id) => {
+        const target = actors.find((candidate) => candidate.id === id);
+        return target ? actorLabel(target, actorId) : null;
+      }).filter((name): name is string => name !== null);
       return <aside className="live-combat__telegraph" key={actor.id} role="status" aria-live="polite">
         <strong>{t('ui.combat.winding_up', { actor: actorLabel(actor, actorId), skill: displayLabel(windup.skillLabelKey ?? windup.skill) })}</strong>
         <span>{t('ui.combat.resolves', { ticks: t('ui.unit.ticks', { count: remaining }) })}</span>
+        {targets.length > 0 && <span>{t('ui.combat.targets', { targets: targets.join(', ') })}</span>}
       </aside>;
     })}
 
-    <div className="live-combat__frames" aria-label={t('ui.combat.combatants')}>
+    <div className="live-combat__frames" role="group" aria-label={t('ui.combat.combatants')}>
       {(['hero', 'enemy'] as const).map((side) => <div className="live-combat__side" key={side}>
         <h3>{side === 'hero' ? t('ui.combat.party') : t('ui.combat.enemies')}</h3>
-        {actors.filter((actor) => actor.side === side).map((actor) => <ActorCard key={actor.id} actor={actor} actorId={actorId} />)}
+        <div className={`live-combat__actor-grid live-combat__actor-grid--${side}`}>
+          {actors.filter((actor) => actor.side === side).map((actor) => <ActorCard key={actor.id} actor={actor} actorId={actorId} />)}
+        </div>
       </div>)}
     </div>
 
@@ -125,7 +135,7 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, connectio
         </label>
       </div>
       <div className="live-combat__feedback" aria-live="polite">
-        {queued.length > 0 && <p className="live-combat__queued" role="status">{t('ui.combat.queued', { list: queued.map((actor) => `${actorLabel(actor, actorId)} · ${describeQueued(actor.queued)}`).join('; ') })}</p>}
+        {ownQueued.length > 0 && <p className="live-combat__queued" role="status">{t('ui.combat.queued', { list: ownQueued.map((actor) => describeQueued(actor.queued)).join('; ') })}</p>}
         {pendingCommandIds.length > 0 && <p className="live-combat__pending" role="status">{t('ui.combat.pending')}</p>}
         {currentFeedback?.manual && <p className="live-combat__result" role="status">{currentFeedback.manual}</p>}
         {currentFeedback?.activity && <p className="live-combat__result" role="status">{currentFeedback.activity}</p>}
@@ -150,6 +160,20 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, connectio
         </button>)}
         {(!me || me.consumables.length === 0) && <p>{t('ui.combat.no_consumables')}</p>}
       </div>
+      <div className="live-combat__retreat">
+        <button className="live-combat__retreat-button" type="button"
+          disabled={!online || pendingCommandIds.length > 0 || ownActor?.alive !== true || combatView.canRetreat !== true}
+          aria-describedby="live-combat-retreat-reason"
+          onClick={() => onSubmit({ type: 'retreat' })}>
+          {t('ui.combat.retreat')}
+        </button>
+        <p id="live-combat-retreat-reason" className="live-combat__retreat-reason" role="status">
+          {combatView.canRetreat === true
+            ? pendingCommandIds.length > 0 ? t('ui.combat.retreat_pending') : ownActor?.alive !== true ? t('ui.combat.retreat_down') : !online ? t('ui.combat.retreat_offline') : t('ui.combat.retreat_available')
+            : t(combatView.retreatBlockedReason === 'boss' ? 'ui.combat.retreat_boss'
+              : combatView.retreatBlockedReason === 'unknown_group' ? 'ui.combat.retreat_unknown_group' : 'ui.combat.retreat_not_allowed')}
+        </p>
+      </div>
       <p className="live-combat__timing">{t('ui.combat.timing')}</p>
     </div>
 
@@ -168,11 +192,21 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, connectio
 function ActorCard({ actor, actorId }: { readonly actor: CombatActorProjection; readonly actorId: string }) {
   const name = actorLabel(actor, actorId);
   const hpPercent = actor.maxHp > 0 ? Math.max(0, Math.min(100, actor.hp / actor.maxHp * 100)) : 0;
-  return <article className={`live-combat__actor${actor.alive ? '' : ' live-combat__actor--down'}`}>
-    <div className="live-combat__actor-title"><strong>{name}</strong><span>{actor.alive ? t('ui.combat.hp', { hp: actor.hp, max: actor.maxHp }) : t('ui.combat.down')}</span></div>
-    <div className="live-combat__hp" role="img" aria-label={t('ui.combat.hp_label', { name, hp: actor.hp, max: actor.maxHp })}>
+  const isSelf = actor.id === actorId;
+  const knownMaxHp = Number.isFinite(actor.maxHp) && actor.maxHp > 0;
+  return <article className={`live-combat__actor${actor.alive ? '' : ' live-combat__actor--down'}${isSelf ? ' live-combat__actor--self' : ''}`}
+    aria-label={name}>
+    <div className="live-combat__actor-title">
+      <span className="live-combat__portrait" aria-hidden="true">{initials(name)}</span>
+      <strong>{name}</strong>
+      {isSelf && <span className="live-combat__self-tag">{t('ui.combat.self')}</span>}
+      <span className="live-combat__actor-hp">{actor.alive ? t('ui.combat.hp', { hp: actor.hp, max: actor.maxHp }) : t('ui.combat.down')}</span>
+    </div>
+    <div className="live-combat__hp" role="progressbar" aria-label={t('ui.combat.hp_label', { name, hp: actor.hp, max: actor.maxHp })}
+      aria-valuemin={0} aria-valuemax={knownMaxHp ? actor.maxHp : undefined} aria-valuenow={knownMaxHp ? Math.max(0, Math.min(actor.maxHp, actor.hp)) : undefined}>
       <span style={{ width: `${hpPercent}%` }} />
     </div>
+    {actor.side === 'enemy' && knownMaxHp && <span className="live-combat__hp-percent">{t('ui.combat.hp_percent', { percent: Math.round(hpPercent) })}</span>}
     {actor.effects.length > 0 && <ul className="live-combat__effects" aria-label={t('ui.combat.effects_label', { name })}>
       {actor.effects.map((effect) => <li key={effect.id}>
         {[displayLabel(effect.type),
@@ -183,6 +217,10 @@ function ActorCard({ actor, actorId }: { readonly actor: CombatActorProjection; 
     </ul>}
     {actor.queued && <p className="live-combat__actor-queued">{t('ui.combat.actor_queued', { what: describeQueued(actor.queued) })}</p>}
   </article>;
+}
+
+function initials(value: string): string {
+  return Array.from(value.trim())[0]?.toLocaleUpperCase() ?? '?';
 }
 
 function describeQueued(value: CombatActorProjection['queued']): string {
