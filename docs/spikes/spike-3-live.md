@@ -113,6 +113,56 @@ players created, 600 random operations plus the per-round scenarios). Zero viola
 Every kind of consumer won the last-potion race in the soak (expedition 80, live start 39, storage move 31 of 150 rounds), the
 real worker completed 340 settlement jobs in it, and no run recorded a violation.
 
+## Investigation: "economy invariant violation after round 7" under load (#135)
+
+**Report.** With several `pnpm check` runs sharing one machine (load about 18) the fuzz failed once after round 7 with
+`ECONOMY_FUZZ_SEED=4238871146`; two replays of the seed passed. The violation text was not captured.
+
+**Method.** Four cores. Fuzz loops (seed 4238871146 alternating with random seeds) in parallel next to 6 busy-loop node
+processes, `pgbench -c 8..16` on a separate database and the default `max_connections = 100`. A new failure message prints
+the full violation list immediately and, for a failed audit, a row-level snapshot (balance mismatches, escrow holdings,
+expeditions with settlement counts, activity locks, active live instances) read inside the failing audit's own transaction.
+
+**Result.**
+
+| Phase | Load | Runs | Outcome |
+|---|---|---|---|
+| Before the harness change | 3 fuzz processes + 16 pgbench clients + 6 burners | 3 of seed 4238871146 (first iteration of each runner) | 2 failed after round 7 with `settleJob threw error: sorry, too many clients already` (SQLSTATE 53300); the third was still running when the loop was stopped |
+| After, extreme | same | 3 | all failed: PostgreSQL out of slots (`job queue failure code 53300` in the logs), a "Query read timeout", the 120 s test timeout. No audit snapshot reported a ledger, lock or settlement inconsistency. |
+| After, heavy | 2 fuzz processes + 8 pgbench clients + 6 burners | 22 (11 x seed 4238871146, 11 random seeds), about 1.6 min each | 22 passed |
+
+**Conclusion.** The reproduced "after round 7" failure is a harness artefact, not an economy bug. One fuzz process holds up to
+28 PostgreSQL connections (admin, test, API and worker pools of 10 each plus pg-boss) and a default server allows 100, so a
+few concurrent test suites exhaust the slots. Round 7 of this seed is a settlement race with several due expeditions and many
+concurrent jobs, so it is where the peak lands. The harness counted any thrown error as a violation, so the connection error
+from a direct `settleJob` call failed the run, and replays passed once the neighbours had finished. In none of the failing
+runs did an audit find a broken invariant. What was not shown: that the original flake was this and not something else (its
+output was not kept), so this is the best-supported explanation, not a proof. The audit already reads everything in one
+`REPEATABLE READ` transaction, including the running-expedition set, so a non-snapshot read is ruled out as a cause.
+
+**Changes (test only; no server or engine behaviour changed).**
+
+- A failed audit prints the row-level snapshot above, and `endRound` prints every violation eagerly and puts the full list in
+  the assertion message.
+- Environmental failures (SQLSTATE 53300/57014/57P01/08xxx, connection or query timeouts, found anywhere on the `cause`
+  chain) are classified separately. Direct `settleJob` calls (idempotent, retried by the real job queue) are retried up to 6
+  times with backoff; anything that outlasts the retries is reported as `INFRASTRUCTURE (not an economy invariant breach)`.
+- An opaque HTTP 500 `internal_error` is retried (same `command_id`, which also covers a connection lost after COMMIT) only when
+  database errors were recorded while the request ran and all of them are infrastructure. The server's error log cannot be used
+  for this (it uses the root logger without a request id and logs only a sanitised code), so the test records every rejected
+  query of every `pg` client in the process by wrapping `Client.prototype.query` (drizzle pools, pg-boss and the audit
+  transaction share one `pg` module; a test proves it with `SELECT 1/0` through several paths, and `afterAll` restores the
+  original). A 500 with any non-infrastructure database error (40P01, 40001, 23505, ...) or with no database error at all is a
+  violation at once, with the SQLSTATE and message in the report. It is deliberately strict on overlap: a non-infrastructure error
+  of a concurrent request also condemns the 500. **Residual gap:** a 500 caused by a non-database bug that overlaps an
+  infrastructure error of another request is retried, and is hidden only if the retry succeeds; a deterministic bug fails again.
+- The server log level is `error` so server-side error lines appear in the test output.
+- Deterministic tests cover the classifier, the retry rules for jobs and for 500s (retried on 53300; not retried on 40P01, a plain
+  error, a mixed window or no recorded error) and the recorder.
+
+**Advice for shared machines.** Run integration suites with fewer concurrent files or raise `max_connections`; the retries
+only absorb transient exhaustion.
+
 ## Environment
 
 - Linux x86_64, Node v22.23.4, pnpm 10.28.0, PostgreSQL 16.15 (`127.0.0.1:5432`, database `foundation_test`; each test file

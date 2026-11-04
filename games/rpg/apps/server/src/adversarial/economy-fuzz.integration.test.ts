@@ -131,8 +131,9 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     content = compiled.bundle;
     const path = join(directory, 'bundle.json');
     await writeFile(path, JSON.stringify(content));
-    const base = parseServerConfig({ DATABASE_URL: adminUrl, CONTENT_BUNDLE_PATH: path, LOG_LEVEL: 'silent' });
+    const base = parseServerConfig({ DATABASE_URL: adminUrl, CONTENT_BUNDLE_PATH: path, LOG_LEVEL: 'error' });
     admin = createDatabase(base);
+    restoreClientQuery = recordRejectedQueries((admin.pool as unknown as { Client: { prototype: { query: QueryFunction } } }).Client);
     await admin.pool.query(`CREATE DATABASE "${databaseName}"`);
     const url = new URL(base.databaseUrl); url.pathname = `/${databaseName}`;
     config = { ...base, databaseUrl: url.toString(), roles: ['api', 'live'] };
@@ -147,6 +148,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
   }, 60_000);
 
   afterAll(async () => {
+    restoreClientQuery?.();
     await worker?.close();
     await app?.close();
     await database?.close();
@@ -182,14 +184,117 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     return player;
   }
 
-  async function post(player: Player, url: string, payload: unknown): Promise<Reply> {
-    const response = await app.inject({ method: 'POST', url, headers: bearer(player), payload: payload as never });
-    return { status: response.statusCode, body: response.body.length ? response.json() : null };
+  /**
+   * Environmental failures that say nothing about the economy: PostgreSQL out of connection slots (53300, e.g. several
+   * `pnpm check` runs sharing one server), a client/statement timeout, or a dropped connection. Issue #135: under load
+   * `settleJob` once threw "sorry, too many clients already" and was reported as an invariant violation.
+   */
+  const INFRASTRUCTURE_PATTERN = /too many clients|remaining connection slots|timeout exceeded when trying to connect|Connection terminated|query read timeout|statement timeout|canceling statement|ECONNRESET|ECONNREFUSED|57P01/i;
+  /** Drizzle wraps driver errors ("Failed query: ..."), so the SQLSTATE and the message live somewhere on the `cause` chain. */
+  const isInfrastructureError = (error: unknown): boolean => {
+    for (let current = error, depth = 0; current !== undefined && current !== null && depth < 6; depth++) {
+      const { code, message, cause } = current as { code?: unknown; message?: unknown; cause?: unknown };
+      if (code === '53300' || code === '57014' || code === '57P01' || code === '08006' || code === '08003' || code === '08001') return true;
+      if (INFRASTRUCTURE_PATTERN.test(typeof message === 'string' ? message : String(current))) return true;
+      current = cause;
+    }
+    return false;
+  };
+  const INFRA_ATTEMPTS = 6;
+  const backoff = (attempt: number) => new Promise<void>(resolve => { setTimeout(resolve, 100 * attempt * attempt); });
+
+  /**
+   * Direct service calls (settlement job handlers) are idempotent and retried by the real job queue, so an infrastructure
+   * failure is retried here too. A genuine failure, or an infrastructure failure that outlasts the retries, is reported;
+   * the latter under its own `INFRASTRUCTURE` label so nobody mistakes it for a ledger breach.
+   */
+  async function directCall<T>(name: string, run: () => Promise<T>): Promise<T | undefined> {
+    for (let attempt = 1; ; attempt++) {
+      try { return await run(); }
+      catch (error) {
+        if (!isInfrastructureError(error)) { violate(`${name} threw ${String(error)}`); return undefined; }
+        bump(`infraRetry:${name}`);
+        if (attempt >= INFRA_ATTEMPTS) { violate(`INFRASTRUCTURE (not an economy invariant breach): ${name} failed ${attempt} times: ${String(error)}`); return undefined; }
+        await backoff(attempt);
+      }
+    }
   }
-  async function getJson(player: Player, url: string): Promise<Reply> {
-    const response = await app.inject({ method: 'GET', url, headers: bearer(player) });
-    return { status: response.statusCode, body: response.body.length ? response.json() : null };
+
+  // ---- driver-level error recorder -------------------------------------------------------------------------------------
+  /**
+   * The server answers every unexpected failure with an opaque 500 `internal_error`, and its error log has no request id and
+   * only a sanitised code, so a 500 cannot be tied to its cause through the logs. Instead every rejected query of every `pg`
+   * client in this process (the app's and worker's drizzle pools, pg-boss, the audit transaction: all share one `pg` module
+   * and its `Client.prototype.query`) is recorded here with a sequence number, and a 500 is judged by the errors recorded
+   * while its request was in flight.
+   *
+   * Deliberately strict: windows of concurrent requests overlap, so a non-infrastructure error (deadlock 40P01, serialization
+   * failure 40001, unique violation 23505, ...) from a neighbouring request also condemns a 500 that happened at the same time.
+   * That can only make the fuzz fail more often, never hide a bug.
+   *
+   * Residual gap: a 500 caused by a non-database bug (a thrown invariant) that overlaps an infrastructure error of another
+   * request would be retried. It would pass only if the retry then succeeded; a deterministic bug fails again and is reported.
+   */
+  interface RecordedDbError { readonly seq: number; readonly code: string | undefined; readonly text: string; readonly infrastructure: boolean }
+  const recordedDbErrors: RecordedDbError[] = [];
+  let dbErrorSeq = 0;
+  const describeError = (error: unknown): string => {
+    const parts: string[] = [];
+    for (let current = error, depth = 0; current !== undefined && current !== null && depth < 6; depth++) {
+      const { code, message, cause } = current as { code?: unknown; message?: unknown; cause?: unknown };
+      parts.push(`${typeof code === 'string' ? `[${code}] ` : ''}${typeof message === 'string' ? message : String(current)}`);
+      current = cause;
+    }
+    return parts.join(' <- ');
+  };
+  function recordDbError(error: unknown): void {
+    const code = (error as { code?: unknown } | null)?.code;
+    recordedDbErrors.push({ seq: ++dbErrorSeq, code: typeof code === 'string' ? code : undefined, text: describeError(error), infrastructure: isInfrastructureError(error) });
+    if (recordedDbErrors.length > 5000) recordedDbErrors.shift();
   }
+  type QueryFunction = (this: unknown, ...args: unknown[]) => unknown;
+  let restoreClientQuery: (() => void) | undefined;
+  function recordRejectedQueries(Client: { prototype: { query: QueryFunction } }): () => void {
+    const original = Client.prototype.query;
+    Client.prototype.query = function patched(this: unknown, ...args: unknown[]) {
+      const last = args[args.length - 1];
+      if (typeof last === 'function') {
+        args[args.length - 1] = (error: unknown, ...rest: unknown[]) => { if (error) recordDbError(error); return (last as QueryFunction)(error, ...rest); };
+      }
+      const result = original.apply(this, args);
+      // Observe the rejection without changing the returned promise; a Submittable or callback query returns something else.
+      if (result !== null && typeof result === 'object' && typeof (result as Promise<unknown>).then === 'function') {
+        (result as Promise<unknown>).then(undefined, (error: unknown) => { recordDbError(error); });
+      }
+      return result;
+    };
+    return () => { Client.prototype.query = original; };
+  }
+
+  /**
+   * An opaque 500 is retried (same `command_id`, which applies once or replays, also after a connection lost at COMMIT) only
+   * when at least one database error was recorded while the request ran and every one of them is infrastructure. A 500 with
+   * any other database error, or with none at all, is an economy/server failure and is reported at once with the details.
+   */
+  async function withRetry(send: () => Promise<Reply>): Promise<Reply> {
+    for (let attempt = 1; ; attempt++) {
+      const before = dbErrorSeq;
+      const reply = await send();
+      if (reply.status !== 500 || errorOf(reply.body) !== 'internal_error') return reply;
+      const during = recordedDbErrors.filter(entry => entry.seq > before);
+      if (during.length === 0) { violate(`unexpected 500 internal_error with no database error recorded (a server bug, not infrastructure): ${JSON.stringify(reply.body)}`); return reply; }
+      const other = during.filter(entry => !entry.infrastructure);
+      if (other.length > 0) { violate(`unexpected 500 internal_error; non-infrastructure database error(s) while it ran: ${other.map(entry => `${entry.code ?? 'no SQLSTATE'}: ${entry.text}`).join(' | ')}`); return reply; }
+      bump('infraRetry:http500');
+      if (attempt >= INFRA_ATTEMPTS) { violate(`INFRASTRUCTURE (not an economy invariant breach): 500 persisted after ${attempt} attempts: ${during.map(entry => entry.text).join(' | ')}`); return reply; }
+      await backoff(attempt);
+    }
+  }
+  const toReply = (response: { statusCode: number; body: string; json: () => unknown }): Reply => ({ status: response.statusCode, body: response.body.length ? response.json() : null });
+  const post = (player: Player, url: string, payload: unknown): Promise<Reply> =>
+    withRetry(async () => toReply(await app.inject({ method: 'POST', url, headers: bearer(player), payload: payload as never })));
+  const getJson = (player: Player, url: string): Promise<Reply> =>
+    withRetry(async () => toReply(await app.inject({ method: 'GET', url, headers: bearer(player) })));
 
   /** Classifies one reply: only the listed statuses/error codes are acceptable; anything else is recorded as a failure. */
   function expectReply(name: string, reply: Reply, allowed: { ok: readonly number[]; rejected?: readonly string[]; gate?: boolean; badRequest?: readonly string[] }): boolean {
@@ -414,12 +519,12 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
       if (!player) return [];
       const cancelId = randomUUID();
       const cancelEnvelope = envelope('expedition.cancel', { expeditionId: row.id }, cancelId);
-      const job = () => database.db.transaction(tx => createExpeditionService(tx, clock, content as never).settleJob(row.id, row.revision));
+      const job = () => directCall('settleJob', () => database.db.transaction(tx => createExpeditionService(tx, clock, content as never).settleJob(row.id, row.revision)));
       return [
         getJson(player, `/expeditions/${row.id}`).then(reply => { expectReply('settle.lazyRead', reply, { ok: [200] }); }),
         getJson(player, `/characters/${row.actorId}/expeditions`).then(reply => { expectReply('settle.list', reply, { ok: [200] }); }),
-        job().then(() => { bump('settle.job'); }, (error: unknown) => { violate(`settleJob threw ${String(error)}`); }),
-        job().then(() => { bump('settle.job'); }, (error: unknown) => { violate(`settleJob threw ${String(error)}`); }),
+        job().then(() => { bump('settle.job'); }),
+        job().then(() => { bump('settle.job'); }),
         Promise.all([post(player, `/expeditions/${row.id}/cancel`, cancelEnvelope), post(player, `/expeditions/${row.id}/cancel`, cancelEnvelope)])
           .then(([a, b]) => {
             expectReply('settle.cancel', a, { ok: [200] }); expectReply('settle.cancel', b, { ok: [200] });
@@ -501,13 +606,54 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
         const started = await q<{ n: number }>(sql`SELECT count(*)::int AS n FROM rpg_expeditions WHERE actor_id = ${player.actorId}::uuid`);
         if (started[0]?.n !== player.model.starts) found.push(`${player.label}: ${started[0]?.n} expeditions persisted, model says ${player.model.starts}`);
       }
+      if (found.length) found.push(`audit snapshot (same REPEATABLE READ transaction):\n${await diagnose(tx, runningIds)}`);
       return found;
     }, { isolationLevel: 'repeatable read' });
     for (const issue of issues) violate(`${label}: ${issue}`);
   }
 
+  /**
+   * Row-level detail for a failed audit, read inside the failing audit's own snapshot. `checkLedgerInvariants` only names the
+   * broken invariant, which is not enough to analyse a one-in-N flake after the fact.
+   */
+  async function diagnose(tx: Parameters<Parameters<Database['db']['transaction']>[0]>[0], runningIds: readonly string[]): Promise<string> {
+    const dump = async (title: string, query: ReturnType<typeof sql>) => {
+      try { return `-- ${title}\n${JSON.stringify((await tx.execute(query)).rows, null, 1)}`; }
+      catch (error) { return `-- ${title}: diagnostic query failed: ${String(error)}`; }
+    };
+    return [
+      `clockMs=${clock.nowMs()} wallMs=${Date.now()} runningExpeditionIds=${JSON.stringify(runningIds)}`,
+      await dump('balance mismatches (side: expected = ledger sum, actual = asset_balances)', sql`
+        WITH changes AS (
+          SELECT actor_id, asset_kind, asset_ref, COALESCE(to_container, 'inventory') AS container, qty AS delta
+            FROM ledger_entries WHERE to_container IS NOT NULL OR (from_container IS NULL AND to_container IS NULL)
+          UNION ALL
+          SELECT actor_id, asset_kind, asset_ref, COALESCE(from_container, 'inventory'), -qty FROM ledger_entries WHERE from_container IS NOT NULL
+        ), expected AS (SELECT actor_id, asset_kind, asset_ref, container, SUM(delta)::integer AS qty FROM changes
+                         GROUP BY 1,2,3,4 HAVING asset_kind IN ('stack','currency') AND SUM(delta) <> 0),
+        actual AS (SELECT actor_id, asset_kind, asset_ref, container, qty FROM asset_balances WHERE qty <> 0)
+        SELECT COALESCE(e.actor_id, a.actor_id) AS actor_id, COALESCE(e.asset_kind, a.asset_kind) AS asset_kind,
+               COALESCE(e.asset_ref, a.asset_ref) AS asset_ref, COALESCE(e.container, a.container) AS container, e.qty AS expected, a.qty AS actual
+          FROM expected e FULL JOIN actual a USING (actor_id, asset_kind, asset_ref, container) WHERE e.qty IS DISTINCT FROM a.qty LIMIT 50`),
+      await dump('batches whose entry_count differs from their entries', sql`
+        SELECT b.source_type, b.source_id, b.entry_count, COALESCE(e.n, 0) AS entries FROM ledger_batches b LEFT JOIN
+          (SELECT source_type, source_id, COUNT(*)::integer AS n FROM ledger_entries GROUP BY 1,2) e USING (source_type, source_id)
+          WHERE COALESCE(e.n, 0) <> b.entry_count LIMIT 50`),
+      await dump('escrow holdings', sql`
+        SELECT actor_id, container, asset_ref, qty FROM asset_balances WHERE container LIKE 'escrow:%' AND qty > 0 ORDER BY container LIMIT 100`),
+      await dump('expeditions (id, actor, status, outcome, revision, settlement batches)', sql`
+        SELECT e.id, e.actor_id, e.status, e.outcome, e.revision, e.ends_at_ms,
+               (SELECT count(*)::int FROM ledger_batches b WHERE b.source_type = 'expedition_settlement' AND split_part(b.source_id, ':', 1) = e.id::text) AS settlements
+          FROM rpg_expeditions e ORDER BY e.created_at DESC LIMIT 60`),
+      await dump('actors with an activity lock', sql`SELECT actor_id, activity_state, activity_id FROM actors WHERE activity_state <> 'none'`),
+      await dump('active live instances', sql`SELECT instance_id, status, participants FROM live_instances WHERE status = 'active'`),
+    ].join('\n');
+  }
+
   async function endRound(label: string) {
-    expect(violations, `economy fuzz violations (replay with ECONOMY_FUZZ_SEED=${SEED}) after ${label}`).toEqual([]);
+    // Print the full detail eagerly and put it into the assertion message: a flaky failure must be diagnosable from the log alone.
+    if (violations.length) console.error(`economy fuzz: ${violations.length} violation(s) after ${label} (seed=${SEED}):\n${violations.join('\n')}`);
+    expect(violations.join('\n'), `economy fuzz violations (replay with ECONOMY_FUZZ_SEED=${SEED}) after ${label}`).toBe('');
   }
 
   // ---- the test -----------------------------------------------------------------------------------------------------
@@ -521,7 +667,9 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
       const batch: Promise<unknown>[] = [lastPotionRace()];
       for (let index = 0; index < OPS_PER_ROUND; index++) {
         const player = rng.pick(players.slice(0, BASE_PLAYERS));
-        batch.push(operations[pickOperation()](player).catch((error: unknown) => { violate(`operation threw ${String(error)}`); }));
+        batch.push(operations[pickOperation()](player).catch((error: unknown) => {
+          violate(`${isInfrastructureError(error) ? 'INFRASTRUCTURE (not an economy invariant breach): ' : ''}operation threw ${String(error)}`);
+        }));
       }
       await Promise.all(batch);
       await audit('after concurrent batch');
@@ -539,7 +687,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     await Promise.all(remaining.flatMap(row => {
       const player = players.find(candidate => candidate.actorId === row.actorId);
       if (!player) return [];
-      const job = () => database.db.transaction(tx => createExpeditionService(tx, clock, content as never).settleJob(row.id, row.revision)).catch((error: unknown) => { violate(`settleJob threw ${String(error)}`); });
+      const job = () => directCall('settleJob', () => database.db.transaction(tx => createExpeditionService(tx, clock, content as never).settleJob(row.id, row.revision)));
       return [getJson(player, `/expeditions/${row.id}`).then(reply => { expectReply('drain.lazyRead', reply, { ok: [200] }); }), job(), job()];
     }));
     await liveCloseout();
@@ -570,6 +718,100 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     expect(count('replaySame:identical')).toBeGreaterThan(0);
   }, FUZZ_TIMEOUT_MS);
 
+  it('classifies environmental failures apart from invariant violations and retries idempotent job calls (#135)', async () => {
+    round = 0;
+    violations.length = 0;
+    const exhausted = () => Object.assign(new Error('sorry, too many clients already'), { code: '53300' });
+    expect(isInfrastructureError(exhausted())).toBe(true);
+    expect(isInfrastructureError(new Error('timeout exceeded when trying to connect'))).toBe(true);
+    expect(isInfrastructureError(new Error('Failed query: select 1', { cause: new Error('Query read timeout') }))).toBe(true);
+    expect(isInfrastructureError(new Error('duplicate key value violates unique constraint'))).toBe(false);
+    let calls = 0;
+    // Two exhausted-slot failures, then success: retried silently, no violation.
+    await expect(directCall('selfCheckJob', async () => {
+      if (++calls < 3) throw exhausted();
+      return 'done';
+    })).resolves.toBe('done');
+    expect(violations).toEqual([]);
+    // A real failure is never retried and is reported as a normal violation.
+    calls = 0;
+    await directCall('selfCheckJob', async () => { calls++; throw new Error('settlement mismatch'); });
+    expect(calls).toBe(1);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('selfCheckJob threw');
+    expect(violations[0]).not.toContain('INFRASTRUCTURE');
+    // An outage that outlasts the retries is reported, under its own label.
+    violations.length = 0;
+    await directCall('selfCheckJob', async () => { throw exhausted(); });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('INFRASTRUCTURE (not an economy invariant breach)');
+    violations.length = 0;
+  }, 30_000);
+
+  it('records rejected queries of every pg client in the process (a silent failure to patch would show here)', async () => {
+    const codes = () => recordedDbErrors.map(entry => entry.code);
+    const before = recordedDbErrors.length;
+    await expect(database.pool.query('SELECT 1/0')).rejects.toMatchObject({ code: '22012' });
+    await expect(admin.pool.query('SELECT 1/0')).rejects.toMatchObject({ code: '22012' });
+    await expect(database.db.execute(sql`SELECT 1/0`)).rejects.toBeDefined();
+    await expect(database.db.transaction(async tx => { await tx.execute(sql`SELECT 1/0`); })).rejects.toBeDefined();
+    await new Promise<void>(resolve => { database.pool.query('SELECT 1/0', () => { resolve(); }); });
+    // pool, admin pool, drizzle statement, drizzle transaction client and a callback-style query: five recorded errors.
+    expect(codes().slice(before)).toEqual(['22012', '22012', '22012', '22012', '22012']);
+    // The HTTP app and the worker app use the same pool class, hence the same patched prototype.
+    expect(recordedDbErrors.slice(before).every(entry => !entry.infrastructure)).toBe(true);
+  }, 30_000);
+
+  it('retries a 500 only when the database errors recorded while it ran are all infrastructure (#135)', async () => {
+    round = 0;
+    violations.length = 0;
+    const reply500: Reply = { status: 500, body: { error: 'internal_error' } };
+    const ok: Reply = { status: 201, body: { id: 'x' } };
+    const exhausted = Object.assign(new Error('sorry, too many clients already'), { code: '53300' });
+
+    // (a) a 500 whose recorded cause is connection exhaustion is retried with the same request and then succeeds.
+    let calls = 0;
+    const retried = await withRetry(async () => {
+      if (++calls === 1) { recordDbError(exhausted); return reply500; }
+      return ok;
+    });
+    expect(retried).toBe(ok);
+    expect(calls).toBe(2);
+    expect(violations).toEqual([]);
+
+    // (b) a 500 whose recorded cause is a deadlock, or any other non-infrastructure error, is never retried.
+    for (const cause of [Object.assign(new Error('deadlock detected'), { code: '40P01' }), new Error('boom')]) {
+      calls = 0; violations.length = 0;
+      const reply = await withRetry(async () => { calls++; recordDbError(cause); return reply500; });
+      expect(reply).toBe(reply500);
+      expect(calls).toBe(1);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toContain('non-infrastructure database error');
+      expect(violations[0]).toContain(cause.message);
+    }
+    expect(violations[0]).toContain('boom');
+    // A mixed window (infrastructure plus a deadlock of a neighbour) is condemned too: strict on overlap.
+    calls = 0; violations.length = 0;
+    await withRetry(async () => { calls++; recordDbError(exhausted); recordDbError(Object.assign(new Error('deadlock detected'), { code: '40P01' })); return reply500; });
+    expect(calls).toBe(1);
+    expect(violations[0]).toContain('40P01');
+
+    // (c) a 500 with no recorded database error is a server bug, not infrastructure.
+    calls = 0; violations.length = 0;
+    await withRetry(async () => { calls++; return reply500; });
+    expect(calls).toBe(1);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('no database error recorded');
+
+    // Errors recorded before the request started do not count for it.
+    calls = 0; violations.length = 0;
+    recordDbError(exhausted);
+    await withRetry(async () => { calls++; return reply500; });
+    expect(calls).toBe(1);
+    expect(violations[0]).toContain('no database error recorded');
+    violations.length = 0;
+  }, 30_000);
+
   it('audit self-check: the invariants fail on corrupted balances, orphaned activity locks and double settlement', async () => {
     round = 0;
     violations.length = 0;
@@ -595,6 +837,11 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
         } finally { await client.query('RESET session_replication_role'); client.release(); }
       }
       expect(violations.some(message => message.includes(fragment)), `${label} not detected: ${JSON.stringify(violations)}`).toBe(true);
+      // A failed audit must carry row-level detail from its own snapshot, and every diagnostic query must itself work.
+      const detail = violations.find(message => message.includes('audit snapshot'));
+      expect(detail, `${label}: no audit snapshot in ${JSON.stringify(violations)}`).toBeDefined();
+      expect(detail).not.toContain('diagnostic query failed');
+      if (label === 'inflated balance') expect(detail).toContain('"expected"');
       violations.length = 0;
     }
     await expectDetected('inflated balance', 'ledger invariant',
