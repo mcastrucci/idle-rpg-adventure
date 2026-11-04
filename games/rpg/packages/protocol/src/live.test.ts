@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ZodError } from 'zod';
-import { parseLiveClientRequest, parseLiveCurrent, parseLiveDeathResponse, parseLiveOptions, parseLiveServerFrame,
+import { liveXpGainFromEvent, parseLiveClientRequest, parseLiveCurrent, parseLiveDeathResponse, parseLiveOptions, parseLiveServerFrame,
   parseLiveStartRequest, parseLiveStartResponse } from './live.ts';
 
 const actorId = '11111111-1111-4111-8111-111111111111';
@@ -30,6 +30,20 @@ describe('live wire protocol', () => {
     // This is the exact victory event emitted by createRpgLiveGame; dropping it would create a public sequence gap.
     expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 9, source: 'game',
       event: { type: 'combatRewards', groupId: 'slimes', rewards: [{ actorId, xp: 8, drops: [], gold: 0 }] } })).toMatchObject({ type: 'live.event' });
+    // XP/level fields of the same event and the death penalty summary are additive public fields.
+    const levelled = { type: 'combatRewards', groupId: 'slimes', rewards: [{ actorId, xp: 8, drops: [], gold: 0, levelBefore: 1, levelAfter: 2,
+      xpIntoLevel: 3, xpToNext: 250 }] };
+    expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 9, source: 'game', event: levelled })).toMatchObject({ type: 'live.event' });
+    expect(liveXpGainFromEvent(levelled, actorId)).toEqual({ xp: 8, levelBefore: 1, levelAfter: 2, xpIntoLevel: 3, xpToNext: 250, leveledUp: true });
+    expect(liveXpGainFromEvent(levelled, instanceId)).toBeNull();
+    expect(liveXpGainFromEvent({ type: 'combatRewards', groupId: 'g', rewards: [{ actorId, xp: 8, drops: [], gold: 0 }] }, actorId))
+      .toEqual({ xp: 8, leveledUp: false });
+    expect(liveXpGainFromEvent({ type: 'combatRewards', groupId: 'g', rewards: [{ actorId, xp: 0, drops: [], gold: 0 }] }, actorId)).toBeNull();
+    expect(liveXpGainFromEvent({ type: 'gathered' }, actorId)).toBeNull();
+    expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 9, source: 'game',
+      event: { type: 'heroDied', actorId, causes: [], xpLost: 10, levelBefore: 2, levelAfter: 1 } })).toMatchObject({ type: 'live.event' });
+    expect(parseLiveServerFrame({ ...snapshot, view: { phase: 'exploring', heroes: [{ actorId, level: 2, xp: 103, xpIntoLevel: 3, xpToNext: 250,
+      hp: null, maxHp: 30, present: true, consumables: [] }] } })).toMatchObject({ type: 'live.snapshot' });
     expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 10, source: 'game',
       event: { type: 'gathered', nodeId: 'node:one', drops: [{ item: 'item:herb', qty: 2 }], gold: 3 } })).toMatchObject({ type: 'live.event' });
     expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 11, source: 'game',

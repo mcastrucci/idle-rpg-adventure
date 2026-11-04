@@ -8,7 +8,7 @@ provisionally and recorded in [open-decisions](../../../../../docs/open-decision
 
 ## Files
 
-- `game.ts` — `createRpgLiveGame(content)`, the `LiveGame` plugin `rpg.live` (version `rpg.live@0.4.0+<rpg-sim>`).
+- `game.ts` — `createRpgLiveGame(content)`, the `LiveGame` plugin `rpg.live` (version `rpg.live@0.5.0+<rpg-sim>`).
   Deterministic: randomness only from the host seed through `@engine/sim-core` streams, integer/bp math, no clock/I/O.
 - `world.ts` — content index: explorable areas, RPG locations (exits, hotspots, resource nodes, encounter tables).
 - `effects.ts` — durable effects for discoveries, boss credit, loot, XP and potion use, plus the fenced store hooks for
@@ -73,7 +73,28 @@ and boss defeats still record progress and evaluate conquest in the same checkpo
 discovery waits in the state's outbox until the first durable write. Replaying an effect cannot duplicate rewards,
 progress or the conquest event.
 
-Actual hero death applies provisional XP loss to authoritative persisted XP and moves that actor's run bag to an owner
+### XP and level-ups (owner decision 2026-11-04)
+
+XP is granted at each combat victory, not at return. The victory step emits one `xpGranted` effect per surviving
+present hero (`actionId = victory:<groupId>`); the instance store commits it with the combat-end checkpoint in one
+fenced transaction, updating `rpg_characters.level/xp` through the shared `rpg-stats` helpers, so a level-up is durable
+while the adventure is still running. Exactly-once comes from the durable claim `rpg_live_xp` /
+`<instanceId>:xp:<sha256(actionId)>:<actorId>` (a fingerprint mismatch is an error, a replay is a no-op): duplicate
+command retries, an effect re-emitted from an earlier checkpoint after a node handover or SIGKILL recovery, and
+duplicate delivery cannot grant twice, and the grant commits atomically with the checkpoint that contains it so it
+cannot be lost either. Effects require the caller to hold the instance's activity lock (`live`, this instance).
+`returnToSanctuary` banks only the run bag and never touches XP.
+
+The in-instance hero follows the persisted level immediately in checkpointed state (`hero.build.level`, `hero.xp` =
+total XP), but derived stats are only read when an encounter starts (`startCombat`), so a level-up never changes a fight
+in progress; the next encounter, the hero view's `maxHp` and level-gated exit requirements use the new level. Attribute
+points are not granted on level-up (open decision #13). Clients see the gain in the additive fields of `combatRewards`
+(`rewards[].levelBefore/levelAfter/xpIntoLevel/xpToNext`), in the hero view (`xpIntoLevel`, `xpToNext`) and in
+`heroDied` (`xpLost`, `levelBefore`, `levelAfter`). The checkpoint shape is unchanged (total XP has been part of the
+state since `0.4.0`), so `RPG_LIVE_VERSION` is not bumped and in-flight instances keep restoring; an instance created
+by another plugin version is still refused with `IncompatibleInstanceError`.
+
+Actual hero death applies provisional XP loss (`applyXpLoss`, once per instance and hero) to authoritative persisted XP — which already includes every earlier victory of the instance — and moves that actor's run bag to an owner
 corpse, even if other party members survive. Death/corpse metadata is durable in `rpg_live_deaths`; item holdings remain
 in ledger container `corpse:<deathId>`. A second death invalidates the prior corpse even when it is empty, and sinks its
 holdings through the ledger. Expiry is 24 hours of injected server time; expired holdings are sunk by the next

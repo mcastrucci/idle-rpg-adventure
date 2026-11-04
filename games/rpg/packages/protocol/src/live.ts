@@ -71,7 +71,11 @@ export interface LiveSkillDto {
 export interface LiveHeroDto {
   readonly actorId: string;
   readonly level?: number;
+  /** Total XP of the hero in this adventure (server authoritative, already persisted per victory). */
   readonly xp?: number;
+  /** XP inside the current level, and the XP the level requires (`null` at the level cap). */
+  readonly xpIntoLevel?: number;
+  readonly xpToNext?: number | null;
   readonly hp: number | null;
   readonly maxHp: number;
   readonly present: boolean;
@@ -189,6 +193,7 @@ const bossRiskSchema = z.strictObject({ locationId: boundedText,
 const liveViewSchema = z.strictObject({
   phase: z.enum(['exploring', 'combat', 'dead', 'closing']).optional(), area: boundedText.optional(), location: boundedText.optional(),
   heroes: z.array(z.strictObject({ actorId: uuidSchema, level: z.number().int().nonnegative().optional(), xp: z.number().int().nonnegative().optional(),
+    xpIntoLevel: z.number().int().nonnegative().optional(), xpToNext: z.number().int().positive().nullable().optional(),
     hp: z.number().int().nonnegative().nullable(), maxHp: z.number().int().nonnegative(),
     present: z.boolean(), consumables: z.array(z.strictObject({ item: z.string().min(1).max(128), labelKey: boundedText.optional(), qty: z.number().int().nonnegative() })).max(256),
     skills: z.array(z.strictObject({ id: boundedText, labelKey: boundedText.optional(), slot: positiveCounterSchema,
@@ -238,6 +243,50 @@ export function parseLiveServerFrame(input: unknown): LiveServerFrame {
   return serverFrameSchema.parse(input) as LiveServerFrame;
 }
 
+/** XP a hero gained from one `combatRewards` event. Level fields are absent in events from older servers. */
+export interface LiveXpGainDto {
+  readonly xp: number;
+  readonly levelBefore?: number;
+  readonly levelAfter?: number;
+  readonly xpIntoLevel?: number;
+  /** `null` at the level cap. */
+  readonly xpToNext?: number | null;
+  readonly leveledUp: boolean;
+}
+
+/**
+ * Reads the server-authoritative XP gain of `actorId` out of a validated live event (`combatRewards`, or the
+ * `combatEnded` event that carries the same `rewards`). The server persisted the XP before sending the event.
+ */
+export function liveXpGainFromEvent(event: LiveJson, actorId: string): LiveXpGainDto | null {
+  const body = jsonObject(event);
+  if (body?.['type'] !== 'combatRewards') return null;
+  const rewards = body['rewards'];
+  if (!Array.isArray(rewards)) return null;
+  for (const entry of rewards as readonly LiveJson[]) {
+    const row = jsonObject(entry);
+    if (row?.['actorId'] !== actorId) continue;
+    const xp = row['xp'];
+    if (typeof xp !== 'number' || !Number.isSafeInteger(xp) || xp <= 0) return null;
+    const level = (key: string): number | undefined => {
+      const value = row[key];
+      return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+    };
+    const levelBefore = level('levelBefore'); const levelAfter = level('levelAfter');
+    const into = row['xpIntoLevel']; const next = row['xpToNext'];
+    return { xp, ...(levelBefore === undefined ? {} : { levelBefore }), ...(levelAfter === undefined ? {} : { levelAfter }),
+      ...(typeof into === 'number' && Number.isSafeInteger(into) && into >= 0 ? { xpIntoLevel: into } : {}),
+      ...(next === null ? { xpToNext: null } : typeof next === 'number' && Number.isSafeInteger(next) && next > 0 ? { xpToNext: next } : {}),
+      leveledUp: levelBefore !== undefined && levelAfter !== undefined && levelAfter > levelBefore };
+  }
+  return null;
+}
+
+function jsonObject(value: LiveJson | undefined): { readonly [key: string]: LiveJson } | null {
+  return value !== null && value !== undefined && typeof value === 'object' && !Array.isArray(value)
+    ? value as { readonly [key: string]: LiveJson } : null;
+}
+
 /** Shared authenticated character endpoint contract for latest durable live death summary. */
 export function parseLiveDeathResponse(input: unknown): LiveDeathResponseDto {
   return z.strictObject({ death: deathSummarySchema.nullable() }).parse(input) as LiveDeathResponseDto;
@@ -281,7 +330,7 @@ function parsePublicEvent(input: LiveJson): LiveJson {
     retreated: ['type', 'from', 'to', 'hpCost'],
     bossRoomWarning: ['type', 'exitId', 'risk'], hotspotInteracted: ['type', 'hotspotId', 'hotspotType', 'textKey', 'repeat', 'flagsSet', 'revealedExits'],
     gathered: ['type', 'nodeId', 'resource', 'lootTable', 'drops', 'gold'], consumableUsed: ['type', 'actorId', 'itemId', 'hpBefore', 'hp'],
-    returned: ['type', 'locationId'], heroLeft: ['type', 'actorId'], heroDied: ['type', 'actorId', 'causes'],
+    returned: ['type', 'locationId'], heroLeft: ['type', 'actorId'], heroDied: ['type', 'actorId', 'causes', 'xpLost', 'levelBefore', 'levelAfter'],
     corpseRecovered: ['type', 'actorId', 'repeat'], participant: ['type', 'actorId', 'status'],
   };
   const allowed = new Set(keys[type] ?? []);

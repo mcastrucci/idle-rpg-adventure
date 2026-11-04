@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { LiveBossRiskDto, LiveCurrentResponseDto, LiveJson, LiveOptionsDto, LiveStartRequestDto, LiveViewDto } from '@rpg/protocol';
+import { liveXpGainFromEvent } from '@rpg/protocol';
+import type { LiveBossRiskDto, LiveCurrentResponseDto, LiveJson, LiveOptionsDto, LiveStartRequestDto, LiveViewDto, LiveXpGainDto } from '@rpg/protocol';
 import type { ApiClient } from '../api/http.ts';
 import type { LiveConnection } from '../app/services.ts';
 import { currentLive, liveOptions, startLive } from '../live/api.ts';
@@ -20,12 +21,13 @@ type Props = {
 };
 
 type LoadState = 'loading' | 'ready' | 'error';
+type XpNotice = { readonly key: string; readonly text: string; readonly leveledUp: boolean } | null;
 type Notice = { readonly kind: 'pending' | 'confirmed' | 'rejected' | 'error'; readonly text: string } | null;
 type Snapshot = {
   readonly phase?: string;
   readonly area?: string;
   readonly location?: string;
-  readonly heroes?: readonly { readonly actorId: string; readonly hp: number | null; readonly maxHp: number; readonly present: boolean; readonly consumables: readonly { readonly item: string; readonly qty: number }[] }[];
+  readonly heroes?: readonly { readonly actorId: string; readonly level?: number; readonly xpIntoLevel?: number; readonly xpToNext?: number | null; readonly hp: number | null; readonly maxHp: number; readonly present: boolean; readonly consumables: readonly { readonly item: string; readonly qty: number }[] }[];
   readonly groups?: readonly { readonly id: string; readonly enemies: readonly string[]; readonly boss: boolean; readonly defeated: boolean }[];
   readonly exits?: readonly { readonly id: string; readonly to: string; readonly open: boolean; readonly reasons: readonly string[]; readonly bossRoom: boolean; readonly visited: boolean }[];
   readonly hotspots?: readonly { readonly id: string; readonly type: string; readonly textKey: string; readonly done: boolean }[];
@@ -48,6 +50,7 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
   const [sessionState, setSessionState] = useState<LiveSessionState | null>(null);
   const [serverView, setServerView] = useState<LiveViewDto | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
+  const [xpNotice, setXpNotice] = useState<XpNotice>(null);
   const [risk, setRisk] = useState<LiveBossRiskDto | null>(null);
   const [riskExit, setRiskExit] = useState<string | null>(null);
   const [terminalMessage, setTerminalMessage] = useState<string | null>(null);
@@ -58,6 +61,7 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
   const combatStartCursor = useRef<string | null>(null);
   const processedTerminal = useRef(false);
   const processedDeathSeq = useRef<string | null>(null);
+  const processedXpCursor = useRef<{ epoch: number; seq: number } | null>(null);
   const mounted = useRef(true);
   const refreshSequence = useRef(0);
   const sessionSnapshotSeen = useRef(false);
@@ -162,6 +166,25 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
         pendingCommand.current = null;
       }
     }
+    // XP is granted and persisted by the server at each victory, so the level/XP display and the character cache
+    // refresh as soon as the reward event arrives (never inferred or computed in the browser).
+    const xpCursor = processedXpCursor.current;
+    let newestGain: { row: { epoch: number; seq: number }; gain: LiveXpGainDto } | null = null;
+    let lastRow: { epoch: number; seq: number } | null = null;
+    for (const row of sessionState.recentEvents) {
+      if (xpCursor && (row.epoch < xpCursor.epoch || (row.epoch === xpCursor.epoch && row.seq <= xpCursor.seq))) continue;
+      lastRow = row;
+      if (row.source !== 'game') continue;
+      const gain = liveXpGainFromEvent(row.event, actorId);
+      if (gain) newestGain = { row, gain };
+    }
+    if (lastRow) processedXpCursor.current = { epoch: lastRow.epoch, seq: lastRow.seq };
+    if (newestGain) {
+      const { gain, row } = newestGain;
+      setXpNotice({ key: `${row.epoch}:${row.seq}`, leveledUp: gain.leveledUp,
+        text: `+${gain.xp} XP${gain.leveledUp && gain.levelAfter !== undefined ? ` · Level up! You reached level ${gain.levelAfter}.` : ''}` });
+      void onCharacterRefresh().catch(() => {});
+    }
     const deathRow = sessionState.recentEvents.find((row) => {
       const event = record(row.event);
       return event?.['type'] === 'heroDied' && event['actorId'] === actorId;
@@ -258,6 +281,8 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
     combatStartCursor.current = null;
     processedTerminal.current = false;
     processedDeathSeq.current = null;
+    processedXpCursor.current = null;
+    setXpNotice(null);
     sessionSnapshotSeen.current = false;
     void load();
   }, [load]);
@@ -321,7 +346,16 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, onCh
               <span>{hero.actorId === actorId ? 'You' : isUuid(hero.actorId) ? 'Party member' : displayLabel(hero.actorId)}</span>
               <span>{hero.present ? `${hero.hp === null ? hero.maxHp : hero.hp ?? 'Unknown'} / ${hero.maxHp} HP` : 'Not present'}</span>
             </p>)}
+            {(() => {
+              const me = view.heroes?.find((hero) => hero.actorId === actorId);
+              if (!me || me.level === undefined) return null;
+              return <p className="live-scene__xp">
+                <span>Level {me.level}</span>
+                <span>{me.xpToNext === null || me.xpToNext === undefined ? 'Max level' : `${me.xpIntoLevel ?? 0} / ${me.xpToNext} XP`}</span>
+              </p>;
+            })()}
           </div>
+          {xpNotice && <p className={`live-xp-notice${xpNotice.leveledUp ? ' live-xp-notice--level-up' : ''}`} role="status" aria-live="polite">{xpNotice.text}</p>}
           {exploring && <div className="live-scene__actions">
             <h3>Actions</h3>
             {(view.groups ?? []).filter((group) => !group.defeated).map((group) => <button key={group.id} className="button live-action" type="button"

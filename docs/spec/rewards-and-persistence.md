@@ -22,7 +22,13 @@ COMMIT
 ## 2. Live rewards
 
 - Loot and gathered resources go to `run_bag` (persisted at checkpoints).
-- XP is granted immediately per combat victory (persisted at combat-end checkpoint) *(provisional)*.
+- XP is granted immediately per combat victory and persisted in the same fenced transaction as the combat-end
+  checkpoint, including level-ups during the live adventure (owner decision, 2026-11-04: "we want to allocate XP right
+  away, even level up in live mode; we lose things when we die"). It is not deferred to `returnToSanctuary`, which only
+  moves the run bag. Each victory/hero grant is claimed once (`<instance>:xp:<victory action>:<actor>`), so command
+  retries, node handover and crash recovery cannot grant or lose it. A level-up changes the hero's derived stats from
+  the next encounter onward, never mid-fight. XP amounts, the XP curve and the death penalty below remain provisional
+  (open decisions #2, #8, #13); only the *timing* is decided.
 - `returnToSanctuary` moves `run_bag → inventory` (ledger, source = instance ID).
 
 ## 3. Idle rewards
@@ -33,7 +39,7 @@ Granted only at settlement ([idle-simulation.md §6](idle-simulation.md#6-settle
 
 | Penalty | Live | Idle |
 |---|---|---|
-| XP | Provisional POC implementation: lose `floor(10% × xpToNext[current persisted level])` from authoritative total XP at actual hero death; may delevel and never below level 1 / zero total XP | On a natural failed completion, add XP earned during the expedition first, then lose 10% of the XP required for the hero's next level. The penalty is floored and XP never falls below zero. |
+| XP | Provisional POC implementation: XP from earlier victories is already persisted (§2), so only the penalty applies: lose `floor(10% × xpToNext[current persisted level])` (the last curve entry at the level cap, as in idle) from authoritative total XP at actual hero death, once per death; may delevel and never below level 1 / zero total XP | On a natural failed completion, add XP earned during the expedition first, then lose 10% of the XP required for the hero's next level. The penalty is floored and XP never falls below zero. |
 | Run bag / expedition loot | Provisional POC implementation: actual instance-scoped ledger holdings move to corpse | On a natural failed completion, lose `floor(qty × 5000 / 10000)` of each positive gold/item grant in the bag; the odd unit is kept. |
 | Inventory | Provisional: carried consumables used are gone; rest kept | Used escrowed consumables are consumed; unused escrow is returned. A cancellation before actual end settles only revealed segments and applies no death penalty. A cancel at or after actual end is settled as a natural completion, so a revealed fatal segment still incurs the death penalties. |
 | Equipped gear | Provisional: kept in POC (durability/loss deferred) | Kept |

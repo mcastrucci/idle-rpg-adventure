@@ -18,9 +18,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createCharacterService } from '../characters/service.ts';
 import { characters } from '../characters/schema.ts';
 import { createRpgDatabase, createRpgServer } from '../index.ts';
+import { applyRpgLiveEffects } from './effects.ts';
 import { createRpgLiveHost, startRpgLiveInstance } from './index.ts';
 import type { RpgLiveHost } from './index.ts';
 import { liveDeaths } from './death-schema.ts';
+import { rpgLiveXpEvents } from '../telemetry/schema.ts';
 
 const adminUrl = process.env['TEST_DATABASE_URL'];
 if (process.env['CI'] && !adminUrl) throw new Error('CI must supply TEST_DATABASE_URL for live death PostgreSQL tests');
@@ -490,4 +492,51 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
       .toMatchObject({ level: 1, xp: 0 });
     expect(await issues(who.actorId)).toEqual([]);
   }, 45_000);
+  it('keeps XP persisted at earlier victories, applies the penalty once at death (de-levelling) and ignores a replayed death effect', async () => {
+    const n = await node('death-after-victory');
+    const who = await player('Earner', false);
+    await database.db.update(characters).set({ level: 1, xp: 95 }).where(eq(characters.actorId, who.actorId));
+    const instanceId = await startRpgLiveInstance(n.live, database, { actorIds: [who.actorId], location: ENTRANCE, groups: [SLIME, WARDENS] });
+    await attach(n, who, instanceId);
+    const saved = async () => (await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0];
+    expect((await command(n, who, instanceId, { type: 'engage', groupId: SLIME.id })).ack.status).toBe('applied');
+    await advance(n, instanceId, () => n.live.host().inspect(instanceId)?.ticking === false);
+    expect(await saved()).toMatchObject({ level: 2, xp: 5 }); // the victory is durable before the fatal fight starts
+    expect((await command(n, who, instanceId, { type: 'engage', groupId: WARDENS.id })).ack.status).toBe('applied');
+    await advance(n, instanceId, () => !n.live.host().has(instanceId));
+    // Total 105 loses floor(255 / 10) = 25 -> 80: earned XP stays, only the penalty applies, and the level drops to 1.
+    expect(await saved()).toMatchObject({ level: 1, xp: 80 });
+    const death = await deathRow(who.actorId);
+    expect(death).toMatchObject({ xpBeforeLevel: 2, xpBeforeIntoLevel: 5, xpBeforeTotal: 105, xpLost: 25, xpAfterLevel: 1, xpAfterTotal: 80 });
+    const progression = content.collections['progression']?.[0] as { xpToNext: readonly number[] } | undefined;
+    if (!progression) throw new Error('compiled XP curve is missing');
+    const replay = { type: 'heroDied', actorId: who.actorId, areaId: death.areaId, locationId: death.locationId,
+      // JSONB does not keep key order, and the claim fingerprint hashes the plugin's emitted order.
+      causes: (death.causes as { sourceId: string; label: string; damage: number }[]).map(({ sourceId, label, damage }) => ({ sourceId, label, damage })),
+      xpToNext: progression.xpToNext };
+    await database.db.transaction(tx => applyRpgLiveEffects(tx, { instanceId, participants: [{ actorId: who.actorId }] },
+      [replay as never], clock.nowMs(), { type: 'close' }));
+    expect(await saved()).toMatchObject({ level: 1, xp: 80 });
+    expect(await database.db.select().from(liveDeaths).where(eq(liveDeaths.actorId, who.actorId))).toHaveLength(1);
+    expect(await database.db.select().from(rpgLiveXpEvents).where(eq(rpgLiveXpEvents.instanceId, instanceId))).toHaveLength(1);
+    expect(await issues(who.actorId)).toEqual([]);
+  }, 60_000);
+
+  it('uses the last curve entry as the death-penalty reference at the level cap, like idle settlement', async () => {
+    const n = await node('death-cap');
+    const who = await player('Capped', false);
+    const progression = content.collections['progression']?.[0] as { xpToNext: readonly number[] } | undefined;
+    if (!progression) throw new Error('compiled XP curve is missing');
+    const cap = progression.xpToNext.length + 1;
+    await database.db.update(characters).set({ level: cap, xp: 300 }).where(eq(characters.actorId, who.actorId));
+    const before = (await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0];
+    expect(before).toMatchObject({ level: cap, xp: 300 });
+    await die(n, who, false);
+    // Same helper as idle settlement: at the cap the last requirement (1000) is the reference, so 10% = 100.
+    const death = await deathRow(who.actorId);
+    expect(death).toMatchObject({ xpBeforeLevel: cap, xpBeforeIntoLevel: 300, xpLost: Math.floor((progression.xpToNext.at(-1) ?? 0) / 10),
+      xpAfterLevel: cap, xpAfterIntoLevel: 200 });
+    expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0]).toMatchObject({ level: cap, xp: 200 });
+    expect(await issues(who.actorId)).toEqual([]);
+  }, 60_000);
 });

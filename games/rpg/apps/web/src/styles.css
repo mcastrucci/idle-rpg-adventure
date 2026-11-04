@@ -226,6 +226,9 @@ h1, h2, p, dl, ol { margin: 0; }
 .live-scene__area { color: var(--muted); overflow-wrap: anywhere; }
 .live-scene__actors { display: flex; flex-direction: column; gap: 6px; }
 .live-scene__actors p { display: flex; justify-content: space-between; gap: 10px; min-height: 44px; align-items: center; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); }
+.live-scene__actors .live-scene__xp { background: transparent; min-height: 0; padding: 0 10px; color: var(--muted, inherit); }
+.live-xp-notice { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--ok); border-radius: 8px; }
+.live-xp-notice--level-up { font-weight: 600; }
 .live-scene__actors span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .live-scene__actions, .live-scene__section { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
 .live-scene__actions h3, .live-scene__section h3 { margin: 0; font-size: .9rem; color: var(--muted); }

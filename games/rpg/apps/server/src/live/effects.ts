@@ -13,7 +13,7 @@ import type { ActorTransaction, PostgresInstanceStoreHooks } from '@engine/serve
 import type { LiveEffectsContext } from '@engine/server-kit';
 import type { LedgerDelta } from '@engine/economy';
 import { XpCurveSchema } from '@rpg/rpg-schema';
-import { totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
+import { DEFAULT_DEATH_XP_LOSS_BP, applyXpLoss, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
 
 import { recordDiscovery } from '../expeditions/progress.ts';
 import { applyConquestProgress } from '../conquest/service.ts';
@@ -208,8 +208,10 @@ async function settleHeroDeath(tx: ActorTransaction, instance: { readonly instan
   if (!character) throw new Error('missing live character for death');
   const curve = XpCurveSchema.parse({ xpToNext: effect.xpToNext });
   const xpBeforeTotal = totalXpFromLevelProgress(character.level, character.xp, curve);
-  const xpLost = Math.min(xpBeforeTotal, Math.floor((curve.xpToNext[character.level - 1] ?? 0) / 10));
-  const after = xpProgress(Math.max(0, xpBeforeTotal - xpLost), curve);
+  // Penalty only: XP from earlier victories is already persisted (`xpGranted`), so nothing else is added or removed here.
+  // The `rpg_live_death` claim above makes this run exactly once per instance and hero.
+  const { xpLost, totalXp: xpAfterTotal } = applyXpLoss(xpBeforeTotal, DEFAULT_DEATH_XP_LOSS_BP, curve);
+  const after = xpProgress(xpAfterTotal, curve);
   await tx.update(characters).set({ level: after.level, xp: after.xpIntoLevel }).where(eq(characters.actorId, actorId));
 
   const active = await tx.select().from(liveDeaths).where(and(eq(liveDeaths.actorId, actorId), eq(liveDeaths.status, 'active'))).for('update');
@@ -229,7 +231,7 @@ async function settleHeroDeath(tx: ActorTransaction, instance: { readonly instan
   await tx.insert(liveDeaths).values({ deathId, actorId, instanceId, areaId: effect.areaId, locationId: effect.locationId,
     occurredAt: new Date(nowMs), expiresAt: new Date(nowMs + CORPSE_TTL_MS), status: 'active',
     xpBeforeLevel: character.level, xpBeforeIntoLevel: character.xp, xpBeforeTotal, xpLost, xpAfterLevel: after.level,
-    xpAfterIntoLevel: after.xpIntoLevel, xpAfterTotal: Math.max(0, xpBeforeTotal - xpLost),
+    xpAfterIntoLevel: after.xpIntoLevel, xpAfterTotal,
     causes: effect.causes.slice(0, 3), bagSnapshot });
 }
 

@@ -182,4 +182,43 @@ describe('LiveScreen navigation controller', () => {
     await waitFor(() => expect(JSON.parse(socket.sent.at(-1) ?? '{}').command?.command).toMatchObject({ type: 'enterBossRoom', exitId: 'exit:boss', confirm: true }));
     deps.client.stop();
   });
+  it('shows server-granted XP and a level-up immediately at the victory and refreshes the character once', async () => {
+    const hero = (level: number, xpIntoLevel: number) => ({ actorId, level, xp: level === 1 ? xpIntoLevel : 100 + xpIntoLevel, xpIntoLevel,
+      xpToNext: level === 1 ? 100 : 250, hp: null, maxHp: level === 1 ? 50 : 56, present: true, consumables: [] });
+    const first = { ...view(), heroes: [hero(1, 95)] };
+    const deps = setup({ instanceId, actorId, view: first as unknown as LiveViewDto, participants: [{ actorId, status: 'connected' }] });
+    const socket = await connect(deps);
+    const refresh = vi.fn(async () => {});
+    render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={refresh} />);
+    await attach(socket, deps.current as NonNullable<typeof deps.current>);
+    expect(await screen.findByText('Level 1')).toBeDefined();
+    expect(screen.getByText('95 / 100 XP')).toBeDefined();
+    expect(screen.queryByText(/Level up!/)).toBeNull();
+    const refreshesBefore = refresh.mock.calls.length;
+
+    const rewards = { type: 'combatRewards', groupId: 'group:slime', rewards: [
+      { actorId, xp: 10, drops: [], gold: 0, levelBefore: 1, levelAfter: 2, xpIntoLevel: 5, xpToNext: 250 },
+      { actorId: '33333333-3333-4333-8333-333333333333', xp: 10, drops: [], gold: 0, levelBefore: 4, levelAfter: 5, xpIntoLevel: 1, xpToNext: 450 }] };
+    act(() => {
+      socket.receive({ type: 'live.event', instanceId, epoch: 1, seq: 1, source: 'game', event: rewards });
+      socket.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 1, view: { ...view(), heroes: [hero(2, 5)] }, participants: [{ actorId, status: 'connected' }] });
+    });
+    expect((await screen.findByText(/\+10 XP/)).textContent).toBe('+10 XP · Level up! You reached level 2.');
+    expect(screen.getByText('Level 2')).toBeDefined();
+    expect(screen.getByText('5 / 250 XP')).toBeDefined();
+    await waitFor(() => expect(refresh.mock.calls.length).toBe(refreshesBefore + 1));
+    // A later unrelated frame re-delivers the same event log; the character is not refreshed again.
+    act(() => {
+      socket.receive({ type: 'live.event', instanceId, epoch: 1, seq: 2, source: 'game', event: { type: 'traveled', exitId: 'x', from: 'a', to: 'b' } });
+    });
+    expect(refresh.mock.calls.length).toBe(refreshesBefore + 1);
+    // A reward without a level change is a plain gain; events from older servers (no level fields) still render.
+    act(() => {
+      socket.receive({ type: 'live.event', instanceId, epoch: 1, seq: 3, source: 'game', event: { type: 'combatRewards', groupId: 'g2',
+        rewards: [{ actorId, xp: 6, drops: [], gold: 0 }] } });
+    });
+    expect((await screen.findByText('+6 XP')).className).not.toContain('level-up');
+    await waitFor(() => expect(refresh.mock.calls.length).toBe(refreshesBefore + 2));
+    deps.client.stop();
+  });
 });
