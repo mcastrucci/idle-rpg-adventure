@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 import { labelOrHumanized } from '../../../content/labels.ts';
 import { formatNumber, t } from '../../../i18n/index.ts';
-import { codesOf, eventLine, renderReportCode, suggestionLine } from './serverText.ts';
+import { eventLine, renderReportCode, suggestionLine } from './serverText.ts';
 
 import './expedition-result-report.css';
 
@@ -69,7 +69,7 @@ export function ExpeditionResultReport({ report, state }: Props) {
     </ReportList>
 
     <ReportList title={t('ui.report.events')} unavailable={report.events === null} empty={t('ui.report.events_empty')}>
-      {report.events?.map((event, index) => <li key={`${index}-${event}`}>{eventLine(event, codesOf(report, 'eventCodes')?.[index])}</li>)}
+      {report.events?.map((event, index) => <li key={`${index}-${event}`}>{eventLine(event, report.eventCodes?.[index])}</li>)}
     </ReportList>
 
     {report.death && <section className="expedition-result__death" aria-labelledby="expedition-death-title">
@@ -78,7 +78,7 @@ export function ExpeditionResultReport({ report, state }: Props) {
         : <ul>{report.death.causes.map((cause, index) => <li key={`${cause.key}-${index}`}>{describeCause(cause)}</li>)}</ul>}
       {report.death.suggestions.length > 0 && <>
         <h4>{t('ui.report.death_suggestions')}</h4>
-        <ul>{report.death.suggestions.map((suggestion, index) => <li key={`${index}-${suggestion}`}>{suggestionLine(suggestion, codesOf(report.death, 'suggestionCodes')?.[index])}</li>)}</ul>
+        <ul>{report.death.suggestions.map((suggestion, index) => <li key={`${index}-${suggestion}`}>{suggestionLine(suggestion, report.death?.suggestionCodes?.[index])}</li>)}</ul>
       </>}
     </section>}
     {!report.death && report.outcome === 'failed' && <section className="expedition-result__death" aria-labelledby="expedition-death-title">

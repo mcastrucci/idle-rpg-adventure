@@ -1,3 +1,5 @@
+import type { ExpeditionReportCodeDto } from '@rpg/protocol';
+
 import { labelOrHumanized } from '../../../content/labels.ts';
 import { has, t } from '../../../i18n/index.ts';
 
@@ -44,20 +46,7 @@ export function localizeSuggestion(text: string): string {
 }
 
 /** Wire shape of a server code with scalar params (`docs/spec/i18n-codes.md`). */
-export interface ReportCode {
-  readonly code: string;
-  readonly params?: Readonly<Record<string, string | number>>;
-}
-
-function isReportCode(value: unknown): value is ReportCode {
-  return value !== null && typeof value === 'object' && typeof (value as { code?: unknown }).code === 'string';
-}
-
-/** Reads an optional parallel code array (`eventCodes`, `suggestionCodes`) without requiring the protocol to declare it. */
-export function codesOf(container: unknown, field: string): readonly (ReportCode | undefined)[] | undefined {
-  const value = (container as Record<string, unknown> | null | undefined)?.[field];
-  return Array.isArray(value) ? value.map((entry) => (isReportCode(entry) ? entry : undefined)) : undefined;
-}
+export type ReportCode = ExpeditionReportCodeDto;
 
 const CONTENT_PARAMS = new Set(['enemy', 'item', 'skill']);
 
