@@ -145,12 +145,20 @@ output was not kept), so this is the best-supported explanation, not a proof. Th
 - A failed audit prints the row-level snapshot above, and `endRound` prints every violation eagerly and puts the full list in
   the assertion message.
 - Environmental failures (SQLSTATE 53300/57014/57P01/08xxx, connection or query timeouts, found anywhere on the `cause`
-  chain) are classified separately. Direct `settleJob` calls (idempotent, retried by the real job queue) and opaque HTTP 500
-  `internal_error` replies are retried up to 6 times with backoff; HTTP retries reuse the same `command_id`, which also covers a
-  connection lost after COMMIT. Anything that outlasts the retries is reported as `INFRASTRUCTURE (not an economy invariant
-  breach)`; a persistent 500 or a real error is still a failure. The server log level is `error` so the SQLSTATE of a 500 is in
-  the test output.
-- A deterministic test covers the classifier and the retry rules.
+  chain) are classified separately. Direct `settleJob` calls (idempotent, retried by the real job queue) are retried up to 6
+  times with backoff; anything that outlasts the retries is reported as `INFRASTRUCTURE (not an economy invariant breach)`.
+- An opaque HTTP 500 `internal_error` is retried (same `command_id`, which also covers a connection lost after COMMIT) only when
+  database errors were recorded while the request ran and all of them are infrastructure. The server's error log cannot be used
+  for this (it uses the root logger without a request id and logs only a sanitised code), so the test records every rejected
+  query of every `pg` client in the process by wrapping `Client.prototype.query` (drizzle pools, pg-boss and the audit
+  transaction share one `pg` module; a test proves it with `SELECT 1/0` through several paths, and `afterAll` restores the
+  original). A 500 with any non-infrastructure database error (40P01, 40001, 23505, ...) or with no database error at all is a
+  violation at once, with the SQLSTATE and message in the report. It is deliberately strict on overlap: a non-infrastructure error
+  of a concurrent request also condemns the 500. **Residual gap:** a 500 caused by a non-database bug that overlaps an
+  infrastructure error of another request is retried, and is hidden only if the retry succeeds; a deterministic bug fails again.
+- The server log level is `error` so server-side error lines appear in the test output.
+- Deterministic tests cover the classifier, the retry rules for jobs and for 500s (retried on 53300; not retried on 40P01, a plain
+  error, a mixed window or no recorded error) and the recorder.
 
 **Advice for shared machines.** Run integration suites with fewer concurrent files or raise `max_connections`; the retries
 only absorb transient exhaustion.

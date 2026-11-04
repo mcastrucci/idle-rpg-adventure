@@ -133,6 +133,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     await writeFile(path, JSON.stringify(content));
     const base = parseServerConfig({ DATABASE_URL: adminUrl, CONTENT_BUNDLE_PATH: path, LOG_LEVEL: 'error' });
     admin = createDatabase(base);
+    restoreClientQuery = recordRejectedQueries((admin.pool as unknown as { Client: { prototype: { query: QueryFunction } } }).Client);
     await admin.pool.query(`CREATE DATABASE "${databaseName}"`);
     const url = new URL(base.databaseUrl); url.pathname = `/${databaseName}`;
     config = { ...base, databaseUrl: url.toString(), roles: ['api', 'live'] };
@@ -147,6 +148,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
   }, 60_000);
 
   afterAll(async () => {
+    restoreClientQuery?.();
     await worker?.close();
     await app?.close();
     await database?.close();
@@ -218,19 +220,75 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     }
   }
 
+  // ---- driver-level error recorder -------------------------------------------------------------------------------------
   /**
-   * An opaque 500 `internal_error` may be the same environmental failure (the server hides the cause; its `error` log line
-   * carries the SQLSTATE), including a connection lost after COMMIT. The command contract makes retrying the same
-   * `command_id` safe either way: it applies once or replays the stored response. A persistent 500 is still reported.
+   * The server answers every unexpected failure with an opaque 500 `internal_error`, and its error log has no request id and
+   * only a sanitised code, so a 500 cannot be tied to its cause through the logs. Instead every rejected query of every `pg`
+   * client in this process (the app's and worker's drizzle pools, pg-boss, the audit transaction: all share one `pg` module
+   * and its `Client.prototype.query`) is recorded here with a sequence number, and a 500 is judged by the errors recorded
+   * while its request was in flight.
+   *
+   * Deliberately strict: windows of concurrent requests overlap, so a non-infrastructure error (deadlock 40P01, serialization
+   * failure 40001, unique violation 23505, ...) from a neighbouring request also condemns a 500 that happened at the same time.
+   * That can only make the fuzz fail more often, never hide a bug.
+   *
+   * Residual gap: a 500 caused by a non-database bug (a thrown invariant) that overlaps an infrastructure error of another
+   * request would be retried. It would pass only if the retry then succeeded; a deterministic bug fails again and is reported.
+   */
+  interface RecordedDbError { readonly seq: number; readonly code: string | undefined; readonly text: string; readonly infrastructure: boolean }
+  const recordedDbErrors: RecordedDbError[] = [];
+  let dbErrorSeq = 0;
+  const describeError = (error: unknown): string => {
+    const parts: string[] = [];
+    for (let current = error, depth = 0; current !== undefined && current !== null && depth < 6; depth++) {
+      const { code, message, cause } = current as { code?: unknown; message?: unknown; cause?: unknown };
+      parts.push(`${typeof code === 'string' ? `[${code}] ` : ''}${typeof message === 'string' ? message : String(current)}`);
+      current = cause;
+    }
+    return parts.join(' <- ');
+  };
+  function recordDbError(error: unknown): void {
+    const code = (error as { code?: unknown } | null)?.code;
+    recordedDbErrors.push({ seq: ++dbErrorSeq, code: typeof code === 'string' ? code : undefined, text: describeError(error), infrastructure: isInfrastructureError(error) });
+    if (recordedDbErrors.length > 5000) recordedDbErrors.shift();
+  }
+  type QueryFunction = (this: unknown, ...args: unknown[]) => unknown;
+  let restoreClientQuery: (() => void) | undefined;
+  function recordRejectedQueries(Client: { prototype: { query: QueryFunction } }): () => void {
+    const original = Client.prototype.query;
+    Client.prototype.query = function patched(this: unknown, ...args: unknown[]) {
+      const last = args[args.length - 1];
+      if (typeof last === 'function') {
+        args[args.length - 1] = (error: unknown, ...rest: unknown[]) => { if (error) recordDbError(error); return (last as QueryFunction)(error, ...rest); };
+      }
+      const result = original.apply(this, args);
+      // Observe the rejection without changing the returned promise; a Submittable or callback query returns something else.
+      if (result !== null && typeof result === 'object' && typeof (result as Promise<unknown>).then === 'function') {
+        (result as Promise<unknown>).then(undefined, (error: unknown) => { recordDbError(error); });
+      }
+      return result;
+    };
+    return () => { Client.prototype.query = original; };
+  }
+
+  /**
+   * An opaque 500 is retried (same `command_id`, which applies once or replays, also after a connection lost at COMMIT) only
+   * when at least one database error was recorded while the request ran and every one of them is infrastructure. A 500 with
+   * any other database error, or with none at all, is an economy/server failure and is reported at once with the details.
    */
   async function withRetry(send: () => Promise<Reply>): Promise<Reply> {
-    let reply = await send();
-    for (let attempt = 1; reply.status === 500 && errorOf(reply.body) === 'internal_error' && attempt < INFRA_ATTEMPTS; attempt++) {
+    for (let attempt = 1; ; attempt++) {
+      const before = dbErrorSeq;
+      const reply = await send();
+      if (reply.status !== 500 || errorOf(reply.body) !== 'internal_error') return reply;
+      const during = recordedDbErrors.filter(entry => entry.seq > before);
+      if (during.length === 0) { violate(`unexpected 500 internal_error with no database error recorded (a server bug, not infrastructure): ${JSON.stringify(reply.body)}`); return reply; }
+      const other = during.filter(entry => !entry.infrastructure);
+      if (other.length > 0) { violate(`unexpected 500 internal_error; non-infrastructure database error(s) while it ran: ${other.map(entry => `${entry.code ?? 'no SQLSTATE'}: ${entry.text}`).join(' | ')}`); return reply; }
       bump('infraRetry:http500');
+      if (attempt >= INFRA_ATTEMPTS) { violate(`INFRASTRUCTURE (not an economy invariant breach): 500 persisted after ${attempt} attempts: ${during.map(entry => entry.text).join(' | ')}`); return reply; }
       await backoff(attempt);
-      reply = await send();
     }
-    return reply;
   }
   const toReply = (response: { statusCode: number; body: string; json: () => unknown }): Reply => ({ status: response.statusCode, body: response.body.length ? response.json() : null });
   const post = (player: Player, url: string, payload: unknown): Promise<Reply> =>
@@ -687,6 +745,70 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     await directCall('selfCheckJob', async () => { throw exhausted(); });
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain('INFRASTRUCTURE (not an economy invariant breach)');
+    violations.length = 0;
+  }, 30_000);
+
+  it('records rejected queries of every pg client in the process (a silent failure to patch would show here)', async () => {
+    const codes = () => recordedDbErrors.map(entry => entry.code);
+    const before = recordedDbErrors.length;
+    await expect(database.pool.query('SELECT 1/0')).rejects.toMatchObject({ code: '22012' });
+    await expect(admin.pool.query('SELECT 1/0')).rejects.toMatchObject({ code: '22012' });
+    await expect(database.db.execute(sql`SELECT 1/0`)).rejects.toBeDefined();
+    await expect(database.db.transaction(async tx => { await tx.execute(sql`SELECT 1/0`); })).rejects.toBeDefined();
+    await new Promise<void>(resolve => { database.pool.query('SELECT 1/0', () => { resolve(); }); });
+    // pool, admin pool, drizzle statement, drizzle transaction client and a callback-style query: five recorded errors.
+    expect(codes().slice(before)).toEqual(['22012', '22012', '22012', '22012', '22012']);
+    // The HTTP app and the worker app use the same pool class, hence the same patched prototype.
+    expect(recordedDbErrors.slice(before).every(entry => !entry.infrastructure)).toBe(true);
+  }, 30_000);
+
+  it('retries a 500 only when the database errors recorded while it ran are all infrastructure (#135)', async () => {
+    round = 0;
+    violations.length = 0;
+    const reply500: Reply = { status: 500, body: { error: 'internal_error' } };
+    const ok: Reply = { status: 201, body: { id: 'x' } };
+    const exhausted = Object.assign(new Error('sorry, too many clients already'), { code: '53300' });
+
+    // (a) a 500 whose recorded cause is connection exhaustion is retried with the same request and then succeeds.
+    let calls = 0;
+    const retried = await withRetry(async () => {
+      if (++calls === 1) { recordDbError(exhausted); return reply500; }
+      return ok;
+    });
+    expect(retried).toBe(ok);
+    expect(calls).toBe(2);
+    expect(violations).toEqual([]);
+
+    // (b) a 500 whose recorded cause is a deadlock, or any other non-infrastructure error, is never retried.
+    for (const cause of [Object.assign(new Error('deadlock detected'), { code: '40P01' }), new Error('boom')]) {
+      calls = 0; violations.length = 0;
+      const reply = await withRetry(async () => { calls++; recordDbError(cause); return reply500; });
+      expect(reply).toBe(reply500);
+      expect(calls).toBe(1);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toContain('non-infrastructure database error');
+      expect(violations[0]).toContain(cause.message);
+    }
+    expect(violations[0]).toContain('boom');
+    // A mixed window (infrastructure plus a deadlock of a neighbour) is condemned too: strict on overlap.
+    calls = 0; violations.length = 0;
+    await withRetry(async () => { calls++; recordDbError(exhausted); recordDbError(Object.assign(new Error('deadlock detected'), { code: '40P01' })); return reply500; });
+    expect(calls).toBe(1);
+    expect(violations[0]).toContain('40P01');
+
+    // (c) a 500 with no recorded database error is a server bug, not infrastructure.
+    calls = 0; violations.length = 0;
+    await withRetry(async () => { calls++; return reply500; });
+    expect(calls).toBe(1);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('no database error recorded');
+
+    // Errors recorded before the request started do not count for it.
+    calls = 0; violations.length = 0;
+    recordDbError(exhausted);
+    await withRetry(async () => { calls++; return reply500; });
+    expect(calls).toBe(1);
+    expect(violations[0]).toContain('no database error recorded');
     violations.length = 0;
   }, 30_000);
 
