@@ -17,7 +17,7 @@ export const characterModule: ServerModule = {
   async register(app, context) {
     app.addHook('onRequest', async (request, reply) => {
       reply.header('cache-control', 'no-store');
-      checkOrigin(request);
+      checkOrigin(request, context.allowedOrigins);
     });
     app.get('/characters', async request => {
       const { accountId } = await requireAccount(request, context);

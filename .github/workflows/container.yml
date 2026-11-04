@@ -45,7 +45,7 @@ jobs:
       - name: Boot API, live and worker roles through Compose
         run: docker compose up -d server
 
-      - name: Check readiness, guest authentication and authenticated WebSocket ping/pong
+      - name: Check readiness, web app hosting, guest authentication and authenticated WebSocket ping/pong
         run: pnpm --filter @rpg/server exec node scripts/container-smoke.ts
 
       - name: Wait for Docker health check

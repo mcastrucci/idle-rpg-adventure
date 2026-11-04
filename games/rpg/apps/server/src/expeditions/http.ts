@@ -22,7 +22,7 @@ return {
   async register(app, context) {
     app.addHook('onRequest', async (request, reply) => {
       reply.header('cache-control', 'no-store');
-      checkOrigin(request);
+      checkOrigin(request, context.allowedOrigins);
     });
     const estimates = createEstimateService(context.content, estimateOptions);
     app.addHook('onClose', async () => { await estimates.close(); });

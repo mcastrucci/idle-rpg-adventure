@@ -52,7 +52,7 @@ export function createDebugModule(config: RpgDebugToolsConfig, clock: TimeTravel
 function registerRoutes(app: Parameters<ServerModule['register']>[0], context: ModuleContext, clock: TimeTravelClock): void {
   app.addHook('onRequest', async (request, reply) => {
     reply.header('cache-control', 'no-store');
-    checkOrigin(request);
+    checkOrigin(request, context.allowedOrigins);
   });
 
   app.get('/debug/clock', async request => {

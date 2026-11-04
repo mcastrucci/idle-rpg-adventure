@@ -160,6 +160,26 @@ async function main(): Promise<void> {
   assert(debug.status === 404, `debug/admin routes should be disabled (received HTTP ${debug.status})`);
   process.stdout.write('debug/admin routes disabled\n');
 
+  // The image serves the production web build on the same origin as the API (WEB_DIST_DIR).
+  const page = await fetch(`${baseUrl}/`, { headers: { accept: 'text/html' }, signal: AbortSignal.timeout(timeoutMs) });
+  const html = await page.text();
+  assert(page.status === 200, `GET / returned HTTP ${page.status}`);
+  assert((page.headers.get('content-type') ?? '').startsWith('text/html'), 'GET / did not return HTML');
+  assert(html.includes('<div id="root">'), 'GET / did not return the web app shell');
+  assert(page.headers.get('cache-control') === 'no-cache', 'index.html must be served with no-cache');
+  const deepLink = await fetch(`${baseUrl}/character/rules`, { headers: { accept: 'text/html' }, signal: AbortSignal.timeout(timeoutMs) });
+  assert(deepLink.status === 200 && (await deepLink.text()).includes('<div id="root">'), 'SPA deep link did not fall back to index.html');
+  const assetPath = /<script[^>]+src="(\/assets\/[^"]+\.js)"/.exec(html)?.[1];
+  assert(assetPath !== undefined, 'index.html does not reference a bundled script');
+  const asset = await fetch(`${baseUrl}${assetPath}`, { signal: AbortSignal.timeout(timeoutMs) });
+  assert(asset.status === 200 && (asset.headers.get('content-type') ?? '').startsWith('text/javascript'), 'web bundle was not served as JavaScript');
+  await asset.arrayBuffer();
+  assert((asset.headers.get('cache-control') ?? '').includes('immutable'), 'hashed web bundle must be cached immutably');
+  const apiMiss = await fetch(`${baseUrl}/characters/unknown/route`, { headers: { accept: 'text/html' }, signal: AbortSignal.timeout(timeoutMs) });
+  assert(apiMiss.status === 404 && (apiMiss.headers.get('content-type') ?? '').includes('json'), 'API paths must not fall back to the web app');
+  await apiMiss.arrayBuffer();
+  process.stdout.write('web app served on the API origin ok\n');
+
   const guest = await fetchJson(`${baseUrl}/auth/guest`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ deviceToken: randomBytes(32).toString('base64url') }),
