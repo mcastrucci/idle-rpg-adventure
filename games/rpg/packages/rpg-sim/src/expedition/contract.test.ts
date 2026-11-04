@@ -14,10 +14,9 @@ import {
   timelineHash,
 } from '@engine/expedition-kernel';
 import type { SettleReason, Timeline } from '@engine/expedition-kernel';
-import { DEFAULT_DEATH_XP_LOSS_BP } from '@rpg/rpg-stats';
 import { describe, expect, it } from 'vitest';
 
-import { ESCROW, INVENTORY, applyBagLoss, bagTotals, itemAsset, rpgIdleMetrics, rpgProgress } from './index.ts';
+import { ESCROW, INVENTORY, applyBagLoss, bagTotals, itemAsset, rpgIdleMetrics, rpgProgress, rpgProgressV2 } from './index.ts';
 import type { RpgIdleEvent, RpgIdleState } from './index.ts';
 import { idleFixtures, sims } from './testing/fixtures.ts';
 import { region1 } from './testing/region1.ts';
@@ -169,7 +168,8 @@ describe('progress channel (rpgProgress)', () => {
         expect(p.actors[0]?.xpEarned).toBe(report.xp[f.actors[0]?.actorId ?? ''] ?? 0);
         expect(p.died).toBe(t.outcome === 'failed');
         expect(p.applyDeathPenalty).toBe(t.outcome === 'failed');
-        expect(p.deathXpLossBp).toBe(t.outcome === 'failed' ? DEFAULT_DEATH_XP_LOSS_BP : 0);
+        expect(p).not.toHaveProperty('deathXpLossBp'); // level-scaled since rpg-idle@2.1.0 (#129): a stats rule, not a simulator output
+        expect(rpgProgressV2(t, last, 'completed').deathXpLossBp).toBe(t.outcome === 'failed' ? 1_000 : 0); // frozen 2.0.0 channel
         if (last >= 1) expect(rpgProgress(t, last - 1, 'completed').died).toBe(false);
         expect(rpgProgress(t, last, 'cancelled').applyDeathPenalty).toBe(false);
         for (const s of t.segments) for (const d of s.deltas) expect(d.asset.kind === 'currency' ? d.asset.currency : 'item').not.toMatch(/xp/i);

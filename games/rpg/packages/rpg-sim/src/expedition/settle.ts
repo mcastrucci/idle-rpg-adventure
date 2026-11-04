@@ -16,7 +16,6 @@ import type { AssetRef, LedgerDelta } from '@engine/economy';
 import { assertCutoff, defaultSettle } from '@engine/expedition-kernel';
 import type { SettleReason, Timeline } from '@engine/expedition-kernel';
 import { mulBp } from '@engine/sim-core';
-import { DEFAULT_DEATH_XP_LOSS_BP } from '@rpg/rpg-stats';
 
 import { isGrant, mergeDeltas } from './deltas.ts';
 import type { RpgIdleTuning } from './simulate.ts';
@@ -74,8 +73,9 @@ function add(m: Map<string, number>, key: string, qty: number): void {
 /**
  * XP/progression of segments `0..cutoff` for the server's settlement hook (XP is not a ledger asset, ADR-0007). Every
  * hero seen in the timeline is listed (sorted). On a death, the server applies
- * `applyXpLoss(totalXp + xpEarned, deathXpLossBp, curve)` (`@rpg/rpg-stats`) to each hero with `died` — XP earned on
- * the expedition is added first, then the penalty (rewards §4: "XP earned kept before penalty").
+ * `applyDeathXpLoss(totalXp + xpEarned, curve)` (`@rpg/rpg-stats`, level-scaled, #129) to each hero with `died` — XP
+ * earned on the expedition is added first, then the penalty (rewards §4: "XP earned kept before penalty"). The loss
+ * rate is a stats rule, not a simulator output, so it is not part of the progress channel since `rpg-idle@2.1.0`.
  */
 export function rpgProgress(timeline: IdleTimeline, cutoff: number, reason: SettleReason): RpgProgress {
   assertCutoff(timeline as Timeline<unknown, unknown>, cutoff);
@@ -109,7 +109,7 @@ export function rpgProgress(timeline: IdleTimeline, cutoff: number, reason: Sett
   }));
   const anyDeath = died.size > 0;
   const applyDeathPenalty = anyDeath && reason === 'completed';
-  return { actors, died: anyDeath, applyDeathPenalty, deathXpLossBp: applyDeathPenalty ? DEFAULT_DEATH_XP_LOSS_BP : 0 };
+  return { actors, died: anyDeath, applyDeathPenalty };
 }
 
 /**

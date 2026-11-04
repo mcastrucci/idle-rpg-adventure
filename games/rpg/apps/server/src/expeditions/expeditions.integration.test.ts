@@ -15,7 +15,7 @@ import { checkStart, defaultSettle, placeSegments, settleAt, timelineHash } from
 import type { PlacedTimeline, Timeline } from '@engine/expedition-kernel';
 import { applyBagLoss, createRpgActivityRegistry, DEFAULT_RPG_IDLE_TUNING, mergeDeltas, rpgIdleContentFromBundle, rpgProgress } from '@rpg/rpg-sim';
 import { createRpgPredicateRegistry, XpCurveSchema } from '@rpg/rpg-schema';
-import { applyXpLoss, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
+import { applyDeathXpLoss, totalXpFromLevelProgress, xpProgress } from '@rpg/rpg-stats';
 import { inflateSync } from 'node:zlib';
 import { and, eq } from 'drizzle-orm';
 import plugin from '@rpg/content-plugin';
@@ -461,10 +461,10 @@ describe.skipIf(!adminUrl)('authenticated idle expeditions against real PostgreS
       const timeline = JSON.parse(inflateSync(Buffer.from(finalRow.timelineCompressed, 'base64')).toString('utf8'));
       const progress = rpgProgress(timeline, finalRow.settledCutoff as number, 'completed');
       expect(progress).toMatchObject({ died: true, applyDeathPenalty: true });
-      const xpCurve = XpCurveSchema.parse({ xpToNext: finalRow.snapshot.xpCurve });
+      const xpCurve = XpCurveSchema.parse({ xpToNext: finalRow.snapshot.xpCurve, tailGrowthBp: finalRow.snapshot.xpTailGrowthBp });
       const gained = progress.actors.find(row => row.actorId === character.actorId)?.xpEarned ?? 0;
       const earnedTotalXp = totalXpFromLevelProgress(beforeCharacter.level, beforeCharacter.xp, xpCurve) + gained;
-      const totalXp = applyXpLoss(earnedTotalXp, progress.deathXpLossBp, xpCurve).totalXp;
+      const totalXp = applyDeathXpLoss(earnedTotalXp, xpCurve).totalXp;
       expect(totalXp).toBeLessThan(earnedTotalXp);
       expect(completed.report?.xp).toEqual({ earned: gained, penaltyLost: earnedTotalXp - totalXp, net: gained - (earnedTotalXp - totalXp),
         beforeTotal: totalXpFromLevelProgress(beforeCharacter.level, beforeCharacter.xp, xpCurve), afterTotal: totalXp });

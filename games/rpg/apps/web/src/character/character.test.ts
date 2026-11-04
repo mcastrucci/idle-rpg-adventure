@@ -26,7 +26,8 @@ const THORNBLADE = found(LOADOUT_PRESETS.find((preset) => preset.id === 'thornbl
 
 describe('content mirrors (no client content endpoint yet)', () => {
   it('the XP curve matches progression/xp-curve.json', () => {
-    const curve = XpCurveSchema.parse({ xpToNext: (content('progression/xp-curve.json') as { xpToNext: unknown }).xpToNext });
+    const file = content('progression/xp-curve.json') as { xpToNext: unknown; tailGrowthBp: unknown };
+    const curve = XpCurveSchema.parse({ xpToNext: file.xpToNext, tailGrowthBp: file.tailGrowthBp });
     expect(XP_CURVE).toEqual(curve);
   });
 
@@ -47,12 +48,20 @@ describe('levelProgress', () => {
   it('uses the stored XP within the level', () => {
     expect(levelProgress(1, 0)).toMatchObject({ level: 1, xpIntoLevel: 0, xpToNext: 100, progressBp: 0 });
     expect(levelProgress(2, 125)).toMatchObject({ level: 2, xpIntoLevel: 125, xpToNext: 250, progressBp: 5000 });
-    expect(levelProgress(6, 40)).toMatchObject({ level: 6, xpToNext: null, isMaxLevel: true });
+  });
+
+  it('has no level cap: levels past 6 follow the open-ended curve (#129)', () => {
+    expect(levelProgress(6, 40)).toMatchObject({ level: 6, xpIntoLevel: 40, xpToNext: 1250, progressBp: 320, isMaxLevel: false });
+    expect(levelProgress(7, 781)).toMatchObject({ level: 7, xpToNext: 1562, progressBp: 5000, isMaxLevel: false });
+    expect(levelProgress(8, 0)).toMatchObject({ level: 8, xpToNext: 1952 });
+    expect(levelProgress(40, 5)).toMatchObject({ level: 40, isMaxLevel: false });
+    expect(levelProgress(100, 0)?.xpToNext).toBeGreaterThan(1_000_000_000);
   });
 
   it('returns null when the server values do not fit the curve', () => {
-    expect(levelProgress(9, 0)).toBeNull();
     expect(levelProgress(1, 100)).toBeNull();
+    expect(levelProgress(6, 1250)).toBeNull(); // reaches level 7
+    expect(levelProgress(100_000, 0)).toBeNull(); // beyond the safe-integer bound
   });
 });
 

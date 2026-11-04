@@ -24,7 +24,7 @@ It runs as part of `pnpm check` (and therefore CI). Run it before committing con
 | `encounter-tables/` | encounter tables | `enc:` |
 | `resource-nodes/` | gather nodes | `res:` |
 | `idle-activities/` | idle activities | `idle:` |
-| `progression/xp-curve.json` | the XP curve (exactly one, `progression:xp_curve`) | `progression:` |
+| `progression/xp-curve.json` | the XP curve (exactly one, `progression:xp_curve`): authored `xpToNext` table plus `tailGrowthBp` for the open-ended tail beyond it (#129) | `progression:` |
 
 A file holds one entity or an array of them; file names never matter, only IDs. IDs are never renamed (deprecate with
 `"deprecated": true` instead).

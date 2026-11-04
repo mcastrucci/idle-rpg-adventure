@@ -14,6 +14,7 @@ import {
   ResourceNodeSchema,
   SkillSchema,
   XpCurveSchema,
+  CappedXpCurveSchema,
   isBoss,
   maxLevel,
 } from './index.ts';
@@ -98,7 +99,8 @@ describe('valid examples', () => {
     expect(EncounterTableSchema.parse(wellEncounters).entries[0]?.enemies[0]?.count).toBe(1);
     expect(ResourceNodeSchema.parse(glowcap).gatherTicks).toBe(6);
     expect(IdleActivitySchema.parse(huntActivity).encountersPerHour).toBe(12);
-    expect(maxLevel(XpCurveSchema.parse(xpCurve))).toBe(6);
+    expect(maxLevel(XpCurveSchema.parse(xpCurve))).toBeNull(); // open-ended (#129)
+    expect(maxLevel({ xpToNext: xpCurve.xpToNext })).toBe(6); // capped legacy shape
   });
 });
 
@@ -145,9 +147,21 @@ describe('invalid fixtures fail with useful paths', () => {
   });
 
   it('rejects a non-increasing xp curve', () => {
-    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 250, 250, 700] })).toEqual(['xpToNext.2']);
-    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 90] })).toEqual(['xpToNext.1']);
-    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 150.5] })).toEqual(['xpToNext.1']);
+    const tailGrowthBp = 12_500;
+    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 250, 250, 700], tailGrowthBp })).toEqual(['xpToNext.2']);
+    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 90], tailGrowthBp })).toEqual(['xpToNext.1']);
+    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 150.5], tailGrowthBp })).toEqual(['xpToNext.1']);
+    expect(issuePaths(CappedXpCurveSchema, { xpToNext: [100, 90] })).toEqual(['xpToNext.1']);
+  });
+
+  it('requires a tail that grows the last table entry (#129)', () => {
+    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 250] })).toEqual(['tailGrowthBp']);
+    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 250], tailGrowthBp: 10_000 })).toEqual(['tailGrowthBp']);
+    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 250], tailGrowthBp: 100_001 })).toEqual(['tailGrowthBp']);
+    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 250], tailGrowthBp: 1.5 })).toEqual(['tailGrowthBp']);
+    // 250 x 1.0001 floors back to 250: not strictly increasing.
+    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 250], tailGrowthBp: 10_001 })).toEqual(['tailGrowthBp']);
+    expect(issuePaths(XpCurveSchema, { xpToNext: [100, 250], tailGrowthBp: 10_040 })).toEqual([]);
   });
 
   it(`rejects more than ${MAX_AUTOMATION_RULES} automation rules`, () => {

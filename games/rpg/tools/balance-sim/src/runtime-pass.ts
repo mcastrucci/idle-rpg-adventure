@@ -10,7 +10,7 @@ import { compileContentDirectory, formatErrors } from '@engine/content-compiler'
 import { BP_SCALE, deriveSeed } from '@engine/sim-core';
 import type { Seed } from '@engine/sim-core';
 import rpgContentPlugin from '@rpg/content-plugin';
-import { applyXpLoss, totalXpAtLevelStart } from '@rpg/rpg-stats';
+import { applyDeathXpLoss, totalXpAtLevelStart } from '@rpg/rpg-stats';
 import { AutomationRulesSchema, EquipmentItemSchema, XpCurveSchema } from '@rpg/rpg-schema';
 import type { EquipmentItem } from '@rpg/rpg-schema';
 import {
@@ -161,7 +161,7 @@ function runCell(
     combatTicks += fights.reduce((sum, fight) => sum + fight.ticks, 0);
     grossXp += hero.xpEarned;
     const penalty = progress.applyDeathPenalty
-      ? applyXpLoss(startXp + hero.xpEarned, progress.deathXpLossBp, curve)
+      ? applyDeathXpLoss(startXp + hero.xpEarned, curve)
       : null;
     netXp += penalty === null ? hero.xpEarned : penalty.totalXp - startXp;
     deathXpLost += penalty?.xpLost ?? 0;
@@ -213,9 +213,9 @@ export function runRuntimePassStarterKitComparison(options: { readonly runs?: nu
   if (compiled.bundle.contentHash !== base.contentHash) throw new Error('starter-kit comparison compiled content hash differs from naked baseline');
   const equipment = resolveStarterKit(compiled.bundle.collections['items'] ?? []);
   const content = rpgIdleContentFromBundle(compiled.bundle);
-  const progression = compiled.bundle.collections['progression']?.[0] as { readonly xpToNext?: unknown } | undefined;
+  const progression = compiled.bundle.collections['progression']?.[0] as { readonly xpToNext?: unknown; readonly tailGrowthBp?: unknown } | undefined;
   if (progression === undefined) throw new Error('compiled RPG content has no progression curve');
-  const curve = XpCurveSchema.parse({ xpToNext: progression.xpToNext });
+  const curve = XpCurveSchema.parse({ xpToNext: progression.xpToNext, tailGrowthBp: progression.tailGrowthBp });
   const rows = base.rows.map(naked => {
     const tuning: RpgIdleTuning = naked.model === 'idle-default-regen' ? DEFAULT_RPG_IDLE_TUNING : { ...DEFAULT_RPG_IDLE_TUNING, regenBetweenFightsBp: 0 };
     const geared = runCell(content, curve, naked.level, naked.carriedPotions, tuning, naked.model, base.runsPerCell,
@@ -262,9 +262,9 @@ export function runRuntimePass(options: { readonly runs?: number; readonly seedR
   const activity = content.idleActivities[ACTIVITY];
   if (activity === undefined) throw new Error(`compiled content has no activity ${ACTIVITY}`);
   const plannedBudget = idleBudget(activity, DEFAULT_RPG_IDLE_TUNING, 60, BP_SCALE);
-  const progression = compiled.bundle.collections['progression']?.[0] as { readonly xpToNext?: unknown } | undefined;
+  const progression = compiled.bundle.collections['progression']?.[0] as { readonly xpToNext?: unknown; readonly tailGrowthBp?: unknown } | undefined;
   if (progression === undefined) throw new Error('compiled RPG content has no progression curve');
-  const curve = XpCurveSchema.parse({ xpToNext: progression.xpToNext });
+  const curve = XpCurveSchema.parse({ xpToNext: progression.xpToNext, tailGrowthBp: progression.tailGrowthBp });
   const rows: RuntimePassRow[] = [];
   for (const model of ['idle-default-regen', 'idle-no-regen-counterfactual'] as const) {
     const tuning: RpgIdleTuning = model === 'idle-default-regen'

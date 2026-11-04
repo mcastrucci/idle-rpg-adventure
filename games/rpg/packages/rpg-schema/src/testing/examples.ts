@@ -147,7 +147,7 @@ export const oldWell = {
   hotspots: [{ id: 'inscription', type: 'lore', textKey: 'lore.old_well.inscription' }],
 };
 
-export const xpCurve = { xpToNext: [100, 250, 450, 700, 1000] };
+export const xpCurve = { xpToNext: [100, 250, 450, 700, 1000], tailGrowthBp: 12_500 };
 
 /** Paths (dot-joined) of every issue of a failed parse; `[]` when the parse succeeded. */
 export function issuePaths(schema: z.ZodType, input: unknown): string[] {

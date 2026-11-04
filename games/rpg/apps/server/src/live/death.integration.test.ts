@@ -69,7 +69,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     slimeLoot.guaranteed = [...(slimeLoot.guaranteed ?? []), { item: SWORD, qty: { min: 1, max: 1 } }];
     slimeLoot.gold = { min: 7, max: 7 };
     await writeFile(lootPath, JSON.stringify(tables));
-    // 255 makes the 10% loss demonstrate floor(25.5) = 25 rather than a rounded penalty.
+    // 255 makes the level 2 requirement odd; the level-scaled loss floors (floor(114 x 9.8%) = floor(11.17) = 11, #129).
     const curvePath = join(testContent, 'progression', 'xp-curve.json');
     const curve = JSON.parse(await readFile(curvePath, 'utf8')) as { xpToNext: number[] };
     curve.xpToNext[1] = 255;
@@ -212,9 +212,9 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     const instanceId = await die(n, who, true, true);
     const death = await deathRow(who.actorId);
     expect(death).toMatchObject({ instanceId, areaId: 'area:test_grove', locationId: ENTRANCE, status: 'active', xpBeforeLevel: 2,
-      xpBeforeIntoLevel: 14, xpLost: 25, xpAfterLevel: 1, xpAfterIntoLevel: 89 });
+      xpBeforeIntoLevel: 14, xpLost: 11, xpAfterLevel: 2, xpAfterIntoLevel: 3 });
     const [after] = await database.db.select().from(characters).where(eq(characters.actorId, who.actorId));
-    expect(after).toMatchObject({ level: 1, xp: 89, attributes: before.attributes, unspentPoints: before.unspentPoints,
+    expect(after).toMatchObject({ level: 2, xp: 3, attributes: before.attributes, unspentPoints: before.unspentPoints,
       skillLoadout: before.skillLoadout, automationRules: before.automationRules });
     expect(effectActivityStates).toEqual([{ context: 'close', status: 'none' }]);
     expect(closeActivityStates).toEqual(['none']);
@@ -242,7 +242,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     const owned = await n.app.inject({ method: 'GET', url: `/characters/${who.actorId}/live-death`,
       headers: { authorization: `Bearer ${who.sessionToken}` } });
     expect(owned.statusCode).toBe(200);
-    expect(owned.json()).toMatchObject({ death: { deathId: death.deathId, xpLost: 25, corpse: { status: 'active' } } });
+    expect(owned.json()).toMatchObject({ death: { deathId: death.deathId, xpLost: 11, corpse: { status: 'active' } } });
     expect((await n.app.inject({ method: 'GET', url: `/characters/${who.actorId}/live-death` })).statusCode).toBe(401);
     const stranger = await player('No history', false);
     expect((await n.app.inject({ method: 'GET', url: `/characters/${who.actorId}/live-death`,
@@ -266,7 +266,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     expect((await database.db.select().from(liveInstances).where(eq(liveInstances.instanceId, id)))[0])
       .toMatchObject({ status: 'closed', outcome: 'defeated' });
     expect(await deathRow(who.actorId)).toMatchObject({ instanceId: id, status: 'active', xpBeforeLevel: 1,
-      xpBeforeIntoLevel: 20, xpBeforeTotal: 20, xpLost: 10, xpAfterLevel: 1, xpAfterIntoLevel: 10, xpAfterTotal: 10 });
+      xpBeforeIntoLevel: 20, xpBeforeTotal: 20, xpLost: 2, xpAfterLevel: 1, xpAfterIntoLevel: 18, xpAfterTotal: 18 });
     expect((await database.db.select().from(actors).where(eq(actors.actorId, who.actorId)))[0]?.activityState).toBe('none');
     expect(await issues(who.actorId)).toEqual([]);
   }, 45_000);
@@ -308,7 +308,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     await advance(n, id, () => n.live.host().inspect(id)?.ticking === false, 90_000);
     const death = await deathRow(fallen.actorId);
     expect(death).toMatchObject({ status: 'active', locationId: ENTRANCE, xpBeforeLevel: 2, xpBeforeIntoLevel: 4,
-      xpLost: 25, xpAfterLevel: 1, xpAfterIntoLevel: 79 });
+      xpLost: 10, xpAfterLevel: 1, xpAfterIntoLevel: 94 });
     expect(checkpointActivityStates).toEqual(['live']);
     expect(await database.db.select().from(liveDeaths).where(eq(liveDeaths.actorId, survivor.actorId))).toHaveLength(0);
     expect(n.live.host().inspect(id)?.state.visited[ENTRANCE]?.groups[0]?.defeated).toBe(true);
@@ -352,7 +352,7 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     expect(await command(n, survivor, id, { type: 'retreat' }, retreatId)).toMatchObject({ ack: { status: 'applied' }, duplicate: false });
     const death = await deathRow(fallen.actorId);
     expect(death).toMatchObject({ instanceId: id, status: 'active', xpBeforeLevel: 2, xpBeforeIntoLevel: 4,
-      xpLost: 25, xpAfterLevel: 1, xpAfterIntoLevel: 79 });
+      xpLost: 10, xpAfterLevel: 1, xpAfterIntoLevel: 94 });
     expect((await database.db.select().from(liveDeaths).where(eq(liveDeaths.actorId, fallen.actorId))).filter(row => row.status === 'active'))
       .toHaveLength(1);
     expect((await database.db.select().from(actors).where(eq(actors.actorId, fallen.actorId)))[0])
@@ -504,39 +504,59 @@ describe.skipIf(!adminUrl)('live death and corpse recovery (real PostgreSQL)', (
     expect(await saved()).toMatchObject({ level: 2, xp: 5 }); // the victory is durable before the fatal fight starts
     expect((await command(n, who, instanceId, { type: 'engage', groupId: WARDENS.id })).ack.status).toBe('applied');
     await advance(n, instanceId, () => !n.live.host().has(instanceId));
-    // Total 105 loses floor(255 / 10) = 25 -> 80: earned XP stays, only the penalty applies, and the level drops to 1.
-    expect(await saved()).toMatchObject({ level: 1, xp: 80 });
+    // Total 105 (level 2, loses 9.8%) loses floor(10.29) = 10 -> 95: earned XP stays, only the penalty applies, and the
+    // level drops to 1 (level 2 starts at 100).
+    expect(await saved()).toMatchObject({ level: 1, xp: 95 });
     const death = await deathRow(who.actorId);
-    expect(death).toMatchObject({ xpBeforeLevel: 2, xpBeforeIntoLevel: 5, xpBeforeTotal: 105, xpLost: 25, xpAfterLevel: 1, xpAfterTotal: 80 });
+    expect(death).toMatchObject({ xpBeforeLevel: 2, xpBeforeIntoLevel: 5, xpBeforeTotal: 105, xpLost: 10, xpAfterLevel: 1, xpAfterTotal: 95 });
     const progression = content.collections['progression']?.[0] as { xpToNext: readonly number[] } | undefined;
     if (!progression) throw new Error('compiled XP curve is missing');
     const replay = { type: 'heroDied', actorId: who.actorId, areaId: death.areaId, locationId: death.locationId,
       // JSONB does not keep key order, and the claim fingerprint hashes the plugin's emitted order.
       causes: (death.causes as { sourceId: string; label: string; damage: number }[]).map(({ sourceId, label, damage }) => ({ sourceId, label, damage })),
-      xpToNext: progression.xpToNext };
-    await database.db.transaction(tx => applyRpgLiveEffects(tx, { instanceId, participants: [{ actorId: who.actorId }] },
-      [replay as never], clock.nowMs(), { type: 'close' }));
-    expect(await saved()).toMatchObject({ level: 1, xp: 80 });
+      xpToNext: progression.xpToNext, xpTailGrowthBp: 12_500 };
+    // The claim fingerprint ignores the tail, so the replay is a no-op both with it and in the shape emitted before #129.
+    for (const effect of [replay, { ...replay, xpTailGrowthBp: undefined }]) {
+      await database.db.transaction(tx => applyRpgLiveEffects(tx, { instanceId, participants: [{ actorId: who.actorId }] },
+        [JSON.parse(JSON.stringify(effect)) as never], clock.nowMs(), { type: 'close' }));
+    }
+    expect(await saved()).toMatchObject({ level: 1, xp: 95 });
     expect(await database.db.select().from(liveDeaths).where(eq(liveDeaths.actorId, who.actorId))).toHaveLength(1);
     expect(await database.db.select().from(rpgLiveXpEvents).where(eq(rpgLiveXpEvents.instanceId, instanceId))).toHaveLength(1);
     expect(await issues(who.actorId)).toEqual([]);
   }, 60_000);
 
-  it('uses the last curve entry as the death-penalty reference at the level cap, like idle settlement', async () => {
-    const n = await node('death-cap');
-    const who = await player('Capped', false);
-    const progression = content.collections['progression']?.[0] as { xpToNext: readonly number[] } | undefined;
-    if (!progression) throw new Error('compiled XP curve is missing');
-    const cap = progression.xpToNext.length + 1;
-    await database.db.update(characters).set({ level: cap, xp: 300 }).where(eq(characters.actorId, who.actorId));
-    const before = (await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0];
-    expect(before).toMatchObject({ level: cap, xp: 300 });
+  it('past the old level cap the penalty is the level-scaled share of total XP and costs at most one level (#129)', async () => {
+    const n = await node('death-past-cap');
+    const who = await player('Seventh', false);
+    // This bundle's table is [100, 255, 450, 700, 1000] (x1.25 beyond): level 7 starts at 3755 and level 6 at 2505.
+    await database.db.update(characters).set({ level: 7, xp: 300 }).where(eq(characters.actorId, who.actorId));
     await die(n, who, false);
-    // Same helper as idle settlement: at the cap the last requirement (1000) is the reference, so 10% = 100.
+    // Total 4055 at level 7 (880 bp): floor(4055 x 8.8%) = 356 -> 3699, i.e. level 6 with 1194 XP into the level.
     const death = await deathRow(who.actorId);
-    expect(death).toMatchObject({ xpBeforeLevel: cap, xpBeforeIntoLevel: 300, xpLost: Math.floor((progression.xpToNext.at(-1) ?? 0) / 10),
-      xpAfterLevel: cap, xpAfterIntoLevel: 200 });
-    expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0]).toMatchObject({ level: cap, xp: 200 });
+    expect(death).toMatchObject({ xpBeforeLevel: 7, xpBeforeIntoLevel: 300, xpBeforeTotal: 4055, xpLost: 356,
+      xpAfterLevel: 6, xpAfterIntoLevel: 1194, xpAfterTotal: 3699 });
+    expect((await database.db.select().from(characters).where(eq(characters.actorId, who.actorId)))[0]).toMatchObject({ level: 6, xp: 1194 });
+    expect(await issues(who.actorId)).toEqual([]);
+  }, 60_000);
+
+  it('a level-41 hero loses the 2% floor rate, applied once even when the same death effect is delivered again', async () => {
+    const who = await player('Veteran', false);
+    // Level 41 with 1000 XP into the level (total around 1.2e7, still well inside the 32-bit columns).
+    await database.db.update(characters).set({ level: 41, xp: 1_000 }).where(eq(characters.actorId, who.actorId));
+    const instanceId = randomUUID();
+    const effect = { type: 'heroDied', actorId: who.actorId, areaId: 'area:test_grove', locationId: ENTRANCE,
+      causes: [{ sourceId: 'enemy:test_grove.slime', label: 'live.death.cause.test', damage: 1 }],
+      xpToNext: (content.collections['progression']?.[0] as unknown as { xpToNext: number[] }).xpToNext, xpTailGrowthBp: 12_500 };
+    for (let delivery = 0; delivery < 2; delivery++) {
+      await database.db.transaction(tx => applyRpgLiveEffects(tx, { instanceId, participants: [{ actorId: who.actorId }] },
+        [effect as never], clock.nowMs(), { type: 'close' }));
+    }
+    const death = await deathRow(who.actorId);
+    expect(death).toMatchObject({ xpBeforeLevel: 41, xpBeforeIntoLevel: 1_000 });
+    expect(death.xpLost).toBe(Math.floor((death.xpBeforeTotal * 200) / 10_000));
+    expect(death.xpAfterTotal).toBe(death.xpBeforeTotal - death.xpLost);
+    expect(await database.db.select().from(liveDeaths).where(eq(liveDeaths.actorId, who.actorId))).toHaveLength(1);
     expect(await issues(who.actorId)).toEqual([]);
   }, 60_000);
 });

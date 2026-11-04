@@ -4,9 +4,10 @@ import type { XpProgress } from '@rpg/rpg-stats';
 
 /**
  * GAP (no client content endpoint): mirror of `games/rpg/content/progression/xp-curve.json` (`progression:xp_curve`).
- * Display only; the server owns level and XP. A test pins it to the content file so drift fails CI.
+ * Display only; the server owns level and XP. A test pins it to the content file so drift fails CI. The curve is
+ * open-ended since #129 (`tailGrowthBp`): there is no maximum level.
  */
-export const XP_CURVE: XpCurve = { xpToNext: [100, 250, 450, 700, 1000] };
+export const XP_CURVE: XpCurve = { xpToNext: [100, 250, 450, 700, 1000], tailGrowthBp: 12_500 };
 
 /**
  * Progress inside the current level for the header bar and the Character screen. The server stores

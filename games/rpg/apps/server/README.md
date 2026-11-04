@@ -103,10 +103,17 @@ open-area behavior.
 
 Persisted runs record kernel/simulator versions, content hash, seed, parsed config, participant snapshot, escrow and
 compressed timeline. Settlement policy is selected from the server-owned, append-only registry by the persisted kernel
-version, simulator ID and simulator version. The retained `0.3.0` / `rpg-idle@2.0.0+rpg-sim@1.1.0` adapter uses frozen
-settlement, summary and progression rules plus the persisted escrow; reads and settlement do not depend on the current
-content hash or whether the activity still exists in the current bundle. Add a new policy entry when behavior changes;
-never replace an old tuple. The XP curve is included in the snapshot.
+version, simulator ID and simulator version. The retained `0.3.0` / `rpg-idle@2.0.0+rpg-sim@1.1.0` and
+`rpg-idle@2.1.0+rpg-sim@1.1.0` adapters use frozen settlement, summary and progression rules plus the persisted escrow;
+reads and settlement do not depend on the current content hash or whether the activity still exists in the current
+bundle. Add a new policy entry when behavior changes; never replace an old tuple. The XP curve (table and
+`xpTailGrowthBp`, #129) is included in the snapshot.
+
+Each policy carries its XP rules (`policy.xp`): `2.0.0` (started before #129) keeps the original death penalty — 10% of
+the XP the next level requires, from the capped table, so an in-flight run settles exactly what it started with — while
+`2.1.0` (every new start) applies the level-scaled `applyDeathXpLoss` over the open-ended curve stored in its snapshot.
+Both read and write the character's `(level, xp)` with the open-ended curve (a `2.0.0` snapshot has no tail and uses
+`DEFAULT_XP_TAIL_GROWTH_BP`), so total XP is identical to the capped era and XP above the old cap becomes levels.
 
 If a running expedition has no registered policy, reads and history remain available as a minimal metadata view
 (`segments: []`, no outcome, and `recoveryAvailable: true`); lazy settlement waits for an operator/player recovery

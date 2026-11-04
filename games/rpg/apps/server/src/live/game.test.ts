@@ -73,7 +73,7 @@ describe('RPG live plugin: XP at victory and death', () => {
     const { last } = fight(start95, SLIMES.id);
     const grants = (last.effects ?? []).filter((effect) => (effect as { type?: string }).type === 'xpGranted');
     expect(grants).toEqual([{ type: 'xpGranted', actionId: `victory:${SLIMES.id}`, actorId: HERO, xp: 10,
-      xpToNext: [100, 250, 450, 700, 1000] }]);
+      xpToNext: [100, 250, 450, 700, 1000], xpTailGrowthBp: 12_500 }]);
     const rewards = events(last).find((event) => event.type === 'combatRewards')?.rewards?.[0];
     expect(rewards).toMatchObject({ actorId: HERO, xp: 10, levelBefore: 1, levelAfter: 2, xpIntoLevel: 5, xpToNext: 250 });
     expect(viewHero(last.state)).toMatchObject({ level: 2, xp: 105, xpIntoLevel: 5, xpToNext: 250 });
@@ -108,29 +108,52 @@ describe('RPG live plugin: XP at victory and death', () => {
     expect(viewHero(returned.state)).toMatchObject({ level: 1, xp: 20 });
   });
 
-  it('applies only the death penalty at death (earned XP stays), may de-level, and never goes below level 1 / zero XP', () => {
+  it('keeps levelling past the old cap: the curve is open-ended (#129)', () => {
+    // Level 6 with 1245 XP into the level (total 3745); +10 XP crosses 3750 into level 7 (1562 XP to level 8).
+    const { last } = fight(withSlimes(1245, 6), SLIMES.id);
+    const rewards = events(last).find((event) => event.type === 'combatRewards')?.rewards?.[0];
+    expect(rewards).toMatchObject({ actorId: HERO, xp: 10, levelBefore: 6, levelAfter: 7, xpIntoLevel: 5, xpToNext: 1562 });
+    expect(viewHero(last.state)).toMatchObject({ level: 7, xp: 3755, xpIntoLevel: 5, xpToNext: 1562 });
+  });
+
+  it('applies only the level-scaled death penalty at death (earned XP stays), may lose one level, never goes below level 1 / zero XP', () => {
     // Level 2 with 20 XP into the level (total 120): victory +10 -> 130, then the warden pack kills the hero and the
-    // penalty floor(10% x 250) = 25 leaves total 105, still level 2 (the level starts at total 100).
+    // penalty floor(130 x 9.8%) = 12 (level 2 loses 980 bp) leaves total 118, still level 2 (the level starts at 100).
     const won = fight(withSlimes(20, 2), SLIMES.id).last;
     expect(viewHero(won.state)).toMatchObject({ level: 2, xp: 130 });
     const died = fight(won.state, WARDENS.id).last;
     const dead = events(died).find((event) => event.type === 'heroDied');
-    expect(dead).toMatchObject({ actorId: HERO, xpLost: 25, levelBefore: 2, levelAfter: 2 });
-    expect(viewHero(died.state)).toMatchObject({ level: 2, xp: 105 });
+    expect(dead).toMatchObject({ actorId: HERO, xpLost: 12, levelBefore: 2, levelAfter: 2 });
+    expect(viewHero(died.state)).toMatchObject({ level: 2, xp: 118 });
     expect((died.effects ?? []).filter((effect) => (effect as { type?: string }).type === 'xpGranted')).toEqual([]);
-    expect((died.effects ?? []).filter((effect) => (effect as { type?: string }).type === 'heroDied')).toHaveLength(1);
-    // De-level: total 110 (level 2, 10 into the level) loses 25 -> 85 -> level 1.
-    const delevelled = fight(withSlimes(10, 2), WARDENS.id).last;
-    expect(events(delevelled).find((event) => event.type === 'heroDied')).toMatchObject({ xpLost: 25, levelBefore: 2, levelAfter: 1 });
-    expect(viewHero(delevelled.state)).toMatchObject({ level: 1, xp: 85 });
-    // At the level cap (6) the last curve entry is the reference, exactly like idle settlement: floor(1000 / 10).
-    const capped = fight(withSlimes(200, 6), WARDENS.id).last;
-    expect(events(capped).find((event) => event.type === 'heroDied')).toMatchObject({ xpLost: 100, levelBefore: 6, levelAfter: 6 });
-    expect(viewHero(capped.state)).toMatchObject({ level: 6, xp: 2600 });
+    const deathEffects = (died.effects ?? []).filter((effect) => (effect as { type?: string }).type === 'heroDied');
+    expect(deathEffects).toHaveLength(1);
+    expect(deathEffects[0]).toMatchObject({ xpToNext: [100, 250, 450, 700, 1000], xpTailGrowthBp: 12_500 });
+    // De-level: total 100 (level 2, 0 into the level) loses floor(9.8) = 9 -> 91 -> level 1.
+    const delevelled = fight(withSlimes(0, 2), WARDENS.id).last;
+    expect(events(delevelled).find((event) => event.type === 'heroDied')).toMatchObject({ xpLost: 9, levelBefore: 2, levelAfter: 1 });
+    expect(viewHero(delevelled.state)).toMatchObject({ level: 1, xp: 91 });
+    // Level 6 with 200 into the level (total 2700) loses floor(2700 x 9%) = 243 -> 2457: one level down (level 5 starts at 1500).
+    const sixth = fight(withSlimes(200, 6), WARDENS.id).last;
+    expect(events(sixth).find((event) => event.type === 'heroDied')).toMatchObject({ xpLost: 243, levelBefore: 6, levelAfter: 5 });
+    expect(viewHero(sixth.state)).toMatchObject({ level: 5, xp: 2457 });
+    // Past the old cap: level 7 with 300 into the level (total 4050) loses floor(4050 x 8.8%) = 356 -> 3694 (level 6).
+    const seventh = fight(withSlimes(300, 7), WARDENS.id).last;
+    expect(events(seventh).find((event) => event.type === 'heroDied')).toMatchObject({ xpLost: 356, levelBefore: 7, levelAfter: 6 });
+    expect(viewHero(seventh.state)).toMatchObject({ level: 6, xp: 3694 });
     // Level 1 with 0 XP loses nothing.
     const floor = fight(withSlimes(0), WARDENS.id).last;
     expect(events(floor).find((event) => event.type === 'heroDied')).toMatchObject({ xpLost: 0, levelBefore: 1, levelAfter: 1 });
     expect(viewHero(floor.state)).toMatchObject({ level: 1, xp: 0 });
+  });
+
+  it('restores a checkpoint saved at the old cap with overflow XP at its real level (#129)', () => {
+    // Saved before the open-ended curve: level 6 with 4000 total XP in the state (the new curve says level 7).
+    const state = withSlimes(1000, 6);
+    const legacy = JSON.parse(JSON.stringify(game.serialize(state))) as { heroes: { xp: number; build: { level: number } }[] };
+    legacy.heroes[0] = { ...(legacy.heroes[0] as { xp: number; build: { level: number } }), xp: 4000 };
+    const restored = game.restore(legacy as unknown as JsonValue);
+    expect(viewHero(restored)).toMatchObject({ level: 7, xp: 4000, xpIntoLevel: 250, xpToNext: 1562 });
   });
 });
 

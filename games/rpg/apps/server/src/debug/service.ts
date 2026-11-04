@@ -4,11 +4,12 @@ import { actors, applyLedgerDeltas, getHoldings, requireSanctuaryMutation } from
 import type { ActorTransaction, Clock, LoadedContent } from '@engine/server-kit';
 import { validateWorld } from '@engine/world';
 import { GOLD } from '@rpg/rpg-sim';
-import { createRpgPredicateRegistry, ItemSchema, maxLevel, XpCurveSchema } from '@rpg/rpg-schema';
+import { createRpgPredicateRegistry, ItemSchema } from '@rpg/rpg-schema';
 import type { XpCurve } from '@rpg/rpg-schema';
 import { totalXpFromLevelProgress } from '@rpg/rpg-stats';
 import { z } from 'zod';
 
+import { rpgXpCurve } from '../content.ts';
 import { characters } from '../characters/schema.ts';
 import { createCharacterService, RPG_GAME_ID } from '../characters/service.ts';
 import { rpgActorObjectives, rpgAreaDiscoveries, rpgCompletedAreas } from '../expeditions/schema.ts';
@@ -44,9 +45,7 @@ export class DebugToolError extends Error {
 }
 
 function xpCurve(content: LoadedContent): XpCurve {
-  const row = content.collections['progression']?.find(value => (value as { id?: unknown }).id === 'progression:xp_curve');
-  if (!row) throw new Error('RPG XP curve is missing');
-  return XpCurveSchema.parse({ xpToNext: (row as { xpToNext: unknown }).xpToNext });
+  return rpgXpCurve(content.collections);
 }
 
 /**
@@ -83,7 +82,6 @@ export function createDebugService(tx: ActorTransaction, clock: Clock, content: 
     async setProgression(accountId: string, input: z.output<typeof DebugProgressionSchema>) {
       await requireSanctuaryMutation(tx, input.actorId, accountId, RPG_GAME_ID);
       const curve = xpCurve(content);
-      if (input.level > maxLevel(curve)) throw new DebugToolError('invalid_progression');
       try { totalXpFromLevelProgress(input.level, input.xp, curve); }
       catch { throw new DebugToolError('invalid_progression'); }
       await tx.update(characters).set({ level: input.level, xp: input.xp }).where(eq(characters.actorId, input.actorId));

@@ -1,6 +1,7 @@
 import type { LoadedContent } from '@engine/server-kit';
 import { SceneGeometryMapSchema, validateWorld } from '@engine/world';
 import { createRpgPredicateRegistry, rpgCollections, RpgAreaSchema, RpgLocationSchema, XpCurveSchema } from '@rpg/rpg-schema';
+import type { XpCurve } from '@rpg/rpg-schema';
 
 import { validateRpgReferences } from './references.ts';
 
@@ -44,10 +45,16 @@ export function validateRpgBundle(content: LoadedContent): void {
   }
   const progression = content.collections['progression'];
   if (progression?.length !== 1) throw new Error('expected one RPG XP curve');
-  const curve = progression[0] as { id?: unknown; xpToNext?: unknown };
-  if (curve.id !== 'progression:xp_curve') throw new Error('missing RPG XP curve');
-  XpCurveSchema.parse({ xpToNext: curve.xpToNext });
+  rpgXpCurve(content.collections);
   validateRpgReferences(world.world, content.collections);
+}
+
+/** The authored open-ended XP curve (`progression:xp_curve`: table and `tailGrowthBp`, #129) of a compiled bundle. */
+export function rpgXpCurve(collections: Readonly<Record<string, readonly unknown[]>>): XpCurve {
+  const row = collections['progression']?.find(value => (value as { id?: unknown }).id === 'progression:xp_curve') as
+    { xpToNext?: unknown; tailGrowthBp?: unknown } | undefined;
+  if (!row) throw new Error('missing RPG XP curve');
+  return XpCurveSchema.parse({ xpToNext: row.xpToNext, tailGrowthBp: row.tailGrowthBp });
 }
 
 function exactGeometryIds(location: string, field: string, expectedIds: readonly string[], actualIds: readonly string[]): void {

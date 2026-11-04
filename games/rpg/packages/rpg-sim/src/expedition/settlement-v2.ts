@@ -27,7 +27,7 @@ import type {
   RpgIdleEvent,
   RpgIdleReport,
   RpgIdleState,
-  RpgProgress,
+  RpgProgressV2,
 } from './types.ts';
 
 type IdleTimeline = Timeline<RpgIdleEvent, RpgIdleState>;
@@ -76,7 +76,7 @@ function add(m: Map<string, number>, key: string, qty: number): void {
  * `applyXpLoss(totalXp + xpEarned, deathXpLossBp, curve)` (`@rpg/rpg-stats`) to each hero with `died` — XP earned on
  * the expedition is added first, then the penalty (rewards §4: "XP earned kept before penalty").
  */
-export function rpgProgressV2(timeline: IdleTimeline, cutoff: number, reason: SettleReason): RpgProgress {
+export function rpgProgressV2(timeline: IdleTimeline, cutoff: number, reason: SettleReason): RpgProgressV2 {
   assertCutoff(timeline as Timeline<unknown, unknown>, cutoff);
   const xp = new Map<string, number>();
   const kills = new Map<string, Map<string, number>>();

@@ -26,8 +26,13 @@ import type { RpgActorSnapshot, RpgIdleConfig, RpgIdleEvent, RpgIdleReport, RpgI
  *
  * 2.0.0 (kernel 0.3, #77): the activity is the kernel-owned `activityId` (config field `activity` dropped); equipment
  * drops are `unique_mint` deltas instead of stacks.
+ *
+ * 2.1.0 (#129): death XP penalty is level-scaled and applied by the server through `applyDeathXpLoss`
+ * (`@rpg/rpg-stats`) on an open-ended XP curve; `rpgProgress` no longer reports a flat `deathXpLossBp`. Timelines,
+ * bag settlement and summaries are unchanged, so the golden hashes of 2.1.0 equal those of 2.0.0 (the version key
+ * still changes, because the persisted settlement contract did).
  */
-export const RPG_IDLE_VERSION = 'rpg-idle@2.0.0';
+export const RPG_IDLE_VERSION = 'rpg-idle@2.1.0';
 
 /**
  * Stored simulator version: the idle model version **and** the combat engine version it runs, so a combat engine bump
