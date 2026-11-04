@@ -247,11 +247,16 @@ describe.skipIf(!adminUrl)('matched-input survival/death economy accounting (rea
     });
     expect(await command(fallen, deathInstance, { type: 'useConsumable', itemId: POTION }))
       .toMatchObject({ ack: { status: 'applied' }, duplicate: false });
-    await advance(deathInstance, () => (runtime()?.heroes.find(hero => hero.actorId === fallen.hero.actorId)?.used[POTION] ?? 0) === 1);
-    expect(await balance(fallen.hero.actorId, POTION, 'inventory')).toBe(1);
+    await advance(deathInstance, () => {
+      const actor = runtime()?.combat?.actors.find(candidate => candidate.id === fallen.hero.actorId);
+      return actor?.consumables.find(stack => stack.item === POTION)?.qty === 1;
+    });
+    // Combat consumption is reflected in the instance immediately; its ledger debit is deferred until combat closes.
+    expect(await balance(fallen.hero.actorId, POTION, 'inventory')).toBe(2);
     await advance(deathInstance, () => !live.host().has(deathInstance));
     const [closed] = await database.db.select().from(liveInstances).where(eq(liveInstances.instanceId, deathInstance));
     expect(closed).toMatchObject({ status: 'closed', outcome: 'defeated' });
+    expect(await balance(fallen.hero.actorId, POTION, 'inventory')).toBe(1);
 
     const deaths = await database.db.select().from(liveDeaths).where(eq(liveDeaths.actorId, fallen.hero.actorId));
     const death = deaths.at(-1);

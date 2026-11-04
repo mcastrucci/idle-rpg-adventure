@@ -38,9 +38,10 @@ transport delivery.
 - Gather quantity is read from the durable run bag and must match the authored one-to-two glowcap yield.
 - Safe return moves the survival arm's run bag to inventory. Death moves the fallen arm's run bag into its corpse;
   recovery moves the same quantity into a new run bag, and explicit return banks that quantity.
-- The fallen arm's selected supplies decrease by one potion after a real use. Its other selected potion remains in
-  inventory; the stored potion and all equipped starter items remain unchanged. The survival arm's two selected
-  potions remain unused.
+- The fallen arm's combat state decreases its selected supplies from two potions to one after a real use. The ledger
+  inventory remains at two while combat is active; the consumable effect and its ledger debit commit at combat close.
+  After the death settles, one potion remains in inventory and one is consumed. The stored potion and all equipped
+  starter items remain unchanged. The survival arm's two selected potions remain unused.
 - Each arm sells only its banked glowcaps. The material quantity becomes zero and the public authored sale value credits
   exactly two gold per glowcap. Replaying a sale command or a corpse recovery command does not add another effect.
 - The death row records a positive loss from the controlled 80 XP starting state. The test checks the persisted XP
