@@ -188,10 +188,15 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
    * `settleJob` once threw "sorry, too many clients already" and was reported as an invariant violation.
    */
   const INFRASTRUCTURE_PATTERN = /too many clients|remaining connection slots|timeout exceeded when trying to connect|Connection terminated|query read timeout|statement timeout|canceling statement|ECONNRESET|ECONNREFUSED|57P01/i;
+  /** Drizzle wraps driver errors ("Failed query: ..."), so the SQLSTATE and the message live somewhere on the `cause` chain. */
   const isInfrastructureError = (error: unknown): boolean => {
-    const code = (error as { code?: unknown } | null)?.code;
-    return code === '53300' || code === '57014' || code === '57P01' || code === '08006' || code === '08003' || code === '08001' ||
-      INFRASTRUCTURE_PATTERN.test(String((error as { message?: unknown } | null)?.message ?? error));
+    for (let current = error, depth = 0; current !== undefined && current !== null && depth < 6; depth++) {
+      const { code, message, cause } = current as { code?: unknown; message?: unknown; cause?: unknown };
+      if (code === '53300' || code === '57014' || code === '57P01' || code === '08006' || code === '08003' || code === '08001') return true;
+      if (INFRASTRUCTURE_PATTERN.test(typeof message === 'string' ? message : String(current))) return true;
+      current = cause;
+    }
+    return false;
   };
   const INFRA_ATTEMPTS = 6;
   const backoff = (attempt: number) => new Promise<void>(resolve => { setTimeout(resolve, 100 * attempt * attempt); });
@@ -661,6 +666,7 @@ describe.skipIf(!adminUrl)('seeded concurrent economy fuzz against real PostgreS
     const exhausted = () => Object.assign(new Error('sorry, too many clients already'), { code: '53300' });
     expect(isInfrastructureError(exhausted())).toBe(true);
     expect(isInfrastructureError(new Error('timeout exceeded when trying to connect'))).toBe(true);
+    expect(isInfrastructureError(new Error('Failed query: select 1', { cause: new Error('Query read timeout') }))).toBe(true);
     expect(isInfrastructureError(new Error('duplicate key value violates unique constraint'))).toBe(false);
     let calls = 0;
     // Two exhausted-slot failures, then success: retried silently, no violation.
