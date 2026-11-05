@@ -1,4 +1,4 @@
-export { codeText, hasCode, KNOWN_CODES } from './codes.ts';
+export { codeText, errorText, hasCode, KNOWN_CODES } from './codes.ts';
 export { decimalSeparator, formatDateTime, formatFixed, formatNumber } from './format.ts';
 export {
   DEFAULT_LOCALE, detectLocale, FALLBACK_LOCALE, getLocale, isLocale, LOCALE_STORAGE_KEY, LOCALES, readStoredLocale,
