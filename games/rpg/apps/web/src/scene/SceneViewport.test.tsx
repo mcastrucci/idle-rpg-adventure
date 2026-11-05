@@ -39,6 +39,14 @@ describe('SceneViewport', () => {
     expect(calls).toEqual(['load:location:a', 'transition:location:b']);
   });
 
+  it('uses the Region 1 background resolver by default', async () => {
+    const { renderer } = fakeRenderer();
+    render(<SceneViewport locationId="loc:region_1.old_well" createRenderer={() => renderer} />);
+    await flush();
+    const spec = vi.mocked(renderer.loadScene).mock.calls[0]?.[0];
+    expect(spec).toMatchObject({ id: 'loc:region_1.old_well', background: { key: 'loc:region_1.old_well:bg', width: 1086, height: 1448 }, layers: [], regions: [] });
+  });
+
   it('is decorative: hidden from assistive technology and without text', async () => {
     const { renderer } = fakeRenderer();
     const { container } = render(<SceneViewport locationId="location:a" createRenderer={() => renderer} buildScene={buildScene} />);

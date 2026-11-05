@@ -3,7 +3,7 @@ import { createSceneRenderer } from '@engine/client-kit';
 import type { SceneRenderer, SceneRendererMode, SceneSpec } from '@engine/client-kit';
 
 import { t, useLocale } from '../i18n/index.ts';
-import { sceneForLocation } from './placeholderScene.ts';
+import { sceneForRegionLocation } from './regionScenes.ts';
 import './scene-viewport.css';
 
 type Props = {
@@ -21,7 +21,7 @@ const REDUCE_MOTION = '(prefers-reduced-motion: reduce)';
  * navigation and actions stay the accessible source of truth. Falls back to nothing (plus a short note) when WebGL
  * is unavailable.
  */
-export function SceneViewport({ locationId, createRenderer = createSceneRenderer, buildScene = sceneForLocation }: Props) {
+export function SceneViewport({ locationId, createRenderer = createSceneRenderer, buildScene = sceneForRegionLocation }: Props) {
   useLocale();
   const host = useRef<HTMLDivElement>(null);
   const shown = useRef(false);
