@@ -357,7 +357,7 @@ function parsePublicEvent(input: LiveJson): LiveJson {
     combatEnded: ['type', 'outcome', 'groupId', 'rewards'], combatRewards: ['type', 'groupId', 'rewards'],
     retreated: ['type', 'from', 'to', 'hpCost'],
     bossRoomWarning: ['type', 'exitId', 'risk'], hotspotInteracted: ['type', 'hotspotId', 'hotspotType', 'textKey', 'repeat', 'flagsSet', 'revealedExits'],
-    gathered: ['type', 'nodeId', 'resource', 'lootTable', 'drops', 'gold'], consumableUsed: ['type', 'actorId', 'itemId', 'hpBefore', 'hp'],
+    gathered: ['type', 'nodeId', 'resource', 'lootTable', 'drops', 'gold', 'actorId'], consumableUsed: ['type', 'actorId', 'itemId', 'hpBefore', 'hp'],
     returned: ['type', 'locationId'], heroLeft: ['type', 'actorId'], heroDied: ['type', 'actorId', 'causes', 'xpLost', 'levelBefore', 'levelAfter'],
     corpseRecovered: ['type', 'actorId', 'repeat'], participant: ['type', 'actorId', 'status'],
   };
