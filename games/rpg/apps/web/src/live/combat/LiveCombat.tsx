@@ -1,5 +1,6 @@
 import type { LiveJson, LiveViewDto } from '@rpg/protocol';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 import { displayLabel } from '../../content/labels.ts';
 import { t, useLocale } from '../../i18n/index.ts';
@@ -63,16 +64,23 @@ interface Props {
   readonly pendingCommandIds: readonly string[];
   readonly connection: LiveState;
   readonly onSubmit: (command: LiveJson) => string;
+  /** Hero level/XP line the host screen draws above the party frames in the status strip. */
+  readonly stripLead?: ReactNode;
 }
 
 const EFFECT_UNIT_KEYS: Readonly<Record<EffectProjection['unit'], string>> = {
   ticks: 'ui.combat.unit.ticks', actions: 'ui.combat.unit.actions', attacks: 'ui.combat.unit.attacks',
 };
 
-/** DOM combat controls and status view; the server remains the only combat authority. */
-export function LiveCombat({ view, events, actorId, pendingCommandIds, connection, onSubmit }: Props) {
+/**
+ * DOM combat controls and status view; the server remains the only combat authority.
+ *
+ * It renders four parts that the live frame's grid places by `grid-area` (the root is `display: contents`): the enemy
+ * HUD over the scene band, the party status strip, the fixed-geometry action panel and the log row. Every row has a
+ * reserved height and clips or scrolls inside itself, so telegraphs, queue changes and feedback never move a control.
+ */
+export function LiveCombat({ view, events, actorId, pendingCommandIds, connection, onSubmit, stripLead }: Props) {
   useLocale();
-  const [logOpen, setLogOpen] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>({ actorId: null, groupId: null, cursor: null, manual: '', activity: '' });
   const combatView = view as CombatView;
   const combat = combatView.combat;
@@ -83,7 +91,7 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, connectio
   const ownActor = actors.find((actor) => actor.id === actorId);
   const ownQueued = actors.filter((actor) => actor.id === actorId && actor.queued !== null);
   const windups = actors.filter((actor) => actor.side === 'enemy' && actor.windup !== null);
-  const latestEvents = events.slice(-30).reverse();
+  const enemies = actors.filter((actor) => actor.side === 'enemy');
   const currentFeedback = feedback.actorId === actorId && feedback.groupId === (combat?.groupId ?? null) ? feedback : null;
 
   useEffect(() => {
@@ -93,102 +101,145 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, connectio
 
   if (!combat) return <section className="live-combat" aria-label={t('ui.combat.title')}>{t('ui.combat.none')}</section>;
 
-  return <section className="live-combat" aria-label={t('ui.combat.title')}>
-    <header className="live-combat__header">
-      <div><h2>{t('ui.combat.title')}</h2><p>{t('ui.combat.tick', { tick: combat.tick })}</p></div>
-      <span className={`live-combat__connection live-combat__connection--${online ? 'online' : 'offline'}`} role="status">
-        {online ? t('ui.combat.connected') : t('ui.combat.offline')}
-      </span>
-    </header>
+  const retreatReason = combatView.canRetreat === true
+    ? pendingCommandIds.length > 0 ? t('ui.combat.retreat_pending') : ownActor?.alive !== true ? t('ui.combat.retreat_down') : !online ? t('ui.combat.retreat_offline') : t('ui.combat.retreat_available')
+    : t(combatView.retreatBlockedReason === 'boss' ? 'ui.combat.retreat_boss'
+      : combatView.retreatBlockedReason === 'unknown_group' ? 'ui.combat.retreat_unknown_group' : 'ui.combat.retreat_not_allowed');
 
-    <div className="live-combat__telegraphs">
-      {windups.map((actor) => {
-        const windup = actor.windup;
-        if (!windup) return null;
-        const remaining = Math.max(0, windup.resolveAtTick - combat.tick);
-        const targets = windup.targetIds.map((id) => {
-          const target = actors.find((candidate) => candidate.id === id);
-          return target ? actorLabel(target, actorId) : null;
-        }).filter((name): name is string => name !== null);
-        return <aside className="live-combat__telegraph" key={actor.id} role="status" aria-live="polite">
-          <strong>{t('ui.combat.winding_up', { actor: actorLabel(actor, actorId), skill: displayLabel(windup.skillLabelKey ?? windup.skill) })}</strong>
-          <span>{t('ui.combat.resolves', { ticks: t('ui.unit.ticks', { count: remaining }) })}</span>
-          {targets.length > 0 && <span>{t('ui.combat.targets', { targets: targets.join(', ') })}</span>}
-        </aside>;
-      })}
+  return <section className="live-combat" aria-label={t('ui.combat.title')}>
+    <div className="live-combat__hud">
+      <h2 className="visually-hidden">{t('ui.combat.title')}</h2>
+      <div className="live-combat__enemies" role="group" aria-label={t('ui.combat.enemies')} data-count={Math.min(4, enemies.length)} style={{ '--enemies': Math.max(1, Math.min(4, enemies.length)) } as CSSProperties}>
+        <div className="live-combat__actor-grid live-combat__actor-grid--enemy">
+          {enemies.map((actor) => <ActorCard key={actor.id} actor={actor} actorId={actorId} />)}
+        </div>
+      </div>
     </div>
 
-    <div className="live-combat__controls">
-      <div className="live-combat__control-heading">
-        <h3>{t('ui.combat.your_actions')}</h3>
-        <label className="live-combat__auto">
-          <input type="checkbox" checked={actors.find((actor) => actor.id === actorId)?.auto ?? me?.automation?.enabled ?? false}
-            disabled={!online} onChange={(event) => onSubmit({ type: 'setAuto', auto: event.currentTarget.checked })} />
-          {t('ui.combat.auto')}
-        </label>
+    <div className="live-combat__strip">
+      <div className="live-combat__strip-head">
+        {stripLead}
+        <span className={`live-combat__connection live-combat__connection--${online ? 'online' : 'offline'}`} role="status">
+          {online ? t('ui.combat.connected') : t('ui.combat.offline')}
+        </span>
+        <span className="visually-hidden">{t('ui.combat.tick', { tick: combat.tick })}</span>
       </div>
-      <div className="live-combat__feedback" aria-live="polite">
-        {ownQueued.length > 0 && <p className="live-combat__queued" role="status">{t('ui.combat.queued', { list: ownQueued.map((actor) => describeQueued(actor.queued)).join('; ') })}</p>}
-        {pendingCommandIds.length > 0 && <p className="live-combat__pending" role="status">{t('ui.combat.pending')}</p>}
-        {currentFeedback?.manual && <p className="live-combat__result" role="status">{currentFeedback.manual}</p>}
-        {currentFeedback?.activity && <p className="live-combat__result" role="status">{currentFeedback.activity}</p>}
+      <div className="live-combat__frames" role="group" aria-label={t('ui.combat.combatants')}>
+        <h3 className="visually-hidden">{t('ui.combat.party')}</h3>
+        <div className="live-combat__actor-grid live-combat__actor-grid--hero">
+          {actors.filter((actor) => actor.side === 'hero').map((actor) => <ActorCard key={actor.id} actor={actor} actorId={actorId} />)}
+        </div>
       </div>
-      <div className="live-combat__skills" aria-label={t('ui.combat.slots_label')}>
-        {Array.from({ length: 4 }, (_, index) => {
-          const skill = skills[index];
-          return <button className="live-combat__action" type="button" key={skill?.id ?? `slot-${index + 1}`} disabled={!online || !skill || (skill?.cooldownRemainingTicks ?? 0) > 0}
-            onClick={() => skill && onSubmit({ type: 'useSkill', skill: skill.id })}>
-            <span>{t('ui.combat.slot', { n: index + 1 })}</span><strong>{skill ? displayLabel(skill.labelKey ?? skill.id) : t('ui.common.empty')}</strong>
-            {skill && <small>{t('ui.combat.skill_info', {
-              state: skill.cooldownRemainingTicks > 0 ? t('ui.combat.cooldown_remaining', { ticks: skill.cooldownRemainingTicks }) : t('ui.combat.ready'),
-              ticks: skill.cooldownTicks,
-            })}</small>}
-          </button>;
+    </div>
+
+    <div className="live-combat__panel">
+      {windups.length > 1 && <span className="live-combat__telegraph-more" aria-hidden="true">{t('ui.combat.more_windups', { count: windups.length - 1 })}</span>}
+      <div className="live-combat__telegraphs" data-empty={t('ui.combat.no_telegraph')}>
+        {windups.map((actor) => {
+          const windup = actor.windup;
+          if (!windup) return null;
+          const remaining = Math.max(0, windup.resolveAtTick - combat.tick);
+          const targets = windup.targetIds.map((id) => {
+            const target = actors.find((candidate) => candidate.id === id);
+            return target ? actorLabel(target, actorId) : null;
+          }).filter((name): name is string => name !== null);
+          return <aside className="live-combat__telegraph" key={actor.id} role="status" aria-live="polite">
+            <strong>{t('ui.combat.winding_up', { actor: actorLabel(actor, actorId), skill: displayLabel(windup.skillLabelKey ?? windup.skill) })}</strong>
+            <span className="live-combat__telegraph-detail">
+              <span>{t('ui.combat.resolves', { ticks: t('ui.unit.ticks', { count: remaining }) })}</span>
+              {targets.length > 0 && <span>{t('ui.combat.targets', { targets: targets.join(', ') })}</span>}
+            </span>
+          </aside>;
         })}
       </div>
-      <div className="live-combat__items" aria-label={t('ui.combat.consumables')}>
-        {me?.consumables.map((item) => <button className="live-combat__item" type="button" key={item.item} disabled={!online || item.qty <= 0}
-          onClick={() => onSubmit({ type: 'useConsumable', itemId: item.item })}>
-          {t('ui.combat.use', { name: displayLabel(item.item) })} <span>{t('ui.combat.stock', { qty: item.qty })}</span>
-        </button>)}
-        {(!me || me.consumables.length === 0) && <p>{t('ui.combat.no_consumables')}</p>}
-      </div>
-      <div className="live-combat__retreat">
+
+      <div className="live-combat__controls">
+        <h3 className="visually-hidden">{t('ui.combat.your_actions')}</h3>
+        <div className="live-combat__queue">
+          {ownQueued.length > 0
+            ? <p className="live-combat__queued" role="status">{t('ui.combat.queued', { list: ownQueued.map((actor) => describeQueued(actor.queued)).join('; ') })}</p>
+            : <p className="live-combat__queued live-combat__queued--idle">{t('ui.combat.queue_idle')}</p>}
+          <label className="live-combat__auto">
+            <input type="checkbox" checked={actors.find((actor) => actor.id === actorId)?.auto ?? me?.automation?.enabled ?? false}
+              disabled={!online} onChange={(event) => onSubmit({ type: 'setAuto', auto: event.currentTarget.checked })} />
+            {t('ui.combat.auto')}
+          </label>
+        </div>
+        <div className="live-combat__skills" role="group" aria-label={t('ui.combat.slots_label')} aria-describedby="live-combat-timing">
+          {Array.from({ length: 4 }, (_, index) => {
+            const skill = skills[index];
+            return <button className="live-combat__action" type="button" key={skill?.id ?? `slot-${index + 1}`} disabled={!online || !skill || (skill?.cooldownRemainingTicks ?? 0) > 0}
+              onClick={() => skill && onSubmit({ type: 'useSkill', skill: skill.id })}>
+              <span className="visually-hidden">{t('ui.combat.slot', { n: index + 1 })}</span><strong>{skill ? displayLabel(skill.labelKey ?? skill.id) : t('ui.common.empty')}</strong>
+              {skill && <small>{t('ui.combat.skill_info', {
+                state: skill.cooldownRemainingTicks > 0 ? t('ui.combat.cooldown_remaining', { ticks: skill.cooldownRemainingTicks }) : t('ui.combat.ready'),
+                ticks: skill.cooldownTicks,
+              })}</small>}
+            </button>;
+          })}
+        </div>
+        <div className="live-combat__feedback" aria-live="polite">
+          {pendingCommandIds.length > 0 && <p className="live-combat__pending" role="status">{t('ui.combat.pending')}</p>}
+          {currentFeedback?.manual && <p className="live-combat__result" role="status">{currentFeedback.manual}</p>}
+          {currentFeedback?.activity && <p className="live-combat__result" role="status">{currentFeedback.activity}</p>}
+        </div>
+        <div className="live-combat__items" role="group" aria-label={t('ui.combat.consumables')}>
+          {me?.consumables.map((item) => <button className="live-combat__item" type="button" key={item.item} disabled={!online || item.qty <= 0}
+            aria-label={`${t('ui.combat.use', { name: displayLabel(item.item) })} ${t('ui.combat.stock', { qty: item.qty })}`}
+            onClick={() => onSubmit({ type: 'useConsumable', itemId: item.item })}>
+            <span className="live-combat__item-name" aria-hidden="true">{displayLabel(item.item)}</span><span className="live-combat__item-qty" aria-hidden="true">×{item.qty}</span>
+          </button>)}
+          {(!me || me.consumables.length === 0) && <p>{t('ui.combat.no_consumables')}</p>}
+        </div>
         <button className="live-combat__retreat-button" type="button"
           disabled={!online || pendingCommandIds.length > 0 || ownActor?.alive !== true || combatView.canRetreat !== true}
           aria-describedby="live-combat-retreat-reason"
           onClick={() => onSubmit({ type: 'retreat' })}>
           {t('ui.combat.retreat')}
         </button>
-        <p id="live-combat-retreat-reason" className="live-combat__retreat-reason" role="status">
-          {combatView.canRetreat === true
-            ? pendingCommandIds.length > 0 ? t('ui.combat.retreat_pending') : ownActor?.alive !== true ? t('ui.combat.retreat_down') : !online ? t('ui.combat.retreat_offline') : t('ui.combat.retreat_available')
-            : t(combatView.retreatBlockedReason === 'boss' ? 'ui.combat.retreat_boss'
-              : combatView.retreatBlockedReason === 'unknown_group' ? 'ui.combat.retreat_unknown_group' : 'ui.combat.retreat_not_allowed')}
-        </p>
+        <p id="live-combat-retreat-reason" className="live-combat__retreat-reason" role="status" title={retreatReason}>{retreatReason}</p>
+        <p id="live-combat-timing" className="live-combat__timing visually-hidden">{t('ui.combat.timing')}</p>
       </div>
-      <p className="live-combat__timing">{t('ui.combat.timing')}</p>
     </div>
 
-    <div className="live-combat__frames" role="group" aria-label={t('ui.combat.combatants')}>
-      {(['hero', 'enemy'] as const).map((side) => <div className="live-combat__side" key={side}>
-        <h3>{side === 'hero' ? t('ui.combat.party') : t('ui.combat.enemies')}</h3>
-        <div className={`live-combat__actor-grid live-combat__actor-grid--${side}`}>
-          {actors.filter((actor) => actor.side === side).map((actor) => <ActorCard key={actor.id} actor={actor} actorId={actorId} />)}
-        </div>
-      </div>)}
-    </div>
+    <LiveLog events={events} actorId={actorId} actors={actors} buttonKey="ui.combat.log" listKey="ui.combat.log_label" />
+  </section>;
+}
 
-    <div className="live-combat__log">
-      <button type="button" className="live-combat__log-toggle" aria-expanded={logOpen} onClick={() => setLogOpen((open) => !open)}>
-        {t('ui.combat.log', { count: events.length })}
-      </button>
-      {logOpen && <ol aria-label={t('ui.combat.log_label')}>
+/**
+ * Collapsed log row with an overlay drawer. The drawer is absolutely positioned over the frame, so opening it never
+ * moves a row; the toggle keeps its place underneath and the drawer's own close button returns focus to it.
+ */
+export function LiveLog({ events, actorId, actors = [], buttonKey, listKey }: {
+  readonly events: readonly EventRow[];
+  readonly actorId: string;
+  readonly actors?: readonly CombatActorProjection[];
+  readonly buttonKey: string;
+  readonly listKey: string;
+}) {
+  useLocale();
+  const [open, setOpen] = useState(false);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const close = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open) close.current?.focus();
+    else if (wasOpen.current) toggle.current?.focus();
+    wasOpen.current = open;
+  }, [open]);
+  const latestEvents = events.slice(-30).reverse();
+  return <div className="live-log">
+    <button type="button" ref={toggle} className="live-log__toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      {t(buttonKey, { count: events.length })}
+    </button>
+    {open && <section className="live-log__drawer" onKeyDown={(event) => { if (event.key === 'Escape') setOpen(false); }}>
+      <button type="button" ref={close} className="live-log__close" onClick={() => setOpen(false)}>{t('ui.common.close')}</button>
+      <ol aria-label={t(listKey)}>
         {latestEvents.map((row) => <li key={`${row.epoch}:${row.seq}`}>{formatEvent(row.event, actorId, actors)}</li>)}
         {latestEvents.length === 0 && <li>{t('ui.combat.log_empty')}</li>}
-      </ol>}
-    </div>
-  </section>;
+      </ol>
+    </section>}
+  </div>;
 }
 
 function ActorCard({ actor, actorId }: { readonly actor: CombatActorProjection; readonly actorId: string }) {
@@ -208,16 +259,18 @@ function ActorCard({ actor, actorId }: { readonly actor: CombatActorProjection; 
       aria-valuemin={0} aria-valuemax={knownMaxHp ? actor.maxHp : undefined} aria-valuenow={knownMaxHp ? Math.max(0, Math.min(actor.maxHp, actor.hp)) : undefined}>
       <span style={{ width: `${hpPercent}%` }} />
     </div>
-    {actor.side === 'enemy' && knownMaxHp && <span className="live-combat__hp-percent">{t('ui.combat.hp_percent', { percent: Math.round(hpPercent) })}</span>}
-    {actor.effects.length > 0 && <ul className="live-combat__effects" aria-label={t('ui.combat.effects_label', { name })}>
-      {actor.effects.map((effect) => <li key={effect.id}>
-        {[displayLabel(effect.type),
-          effect.amount !== undefined ? `${effect.amount}${effect.school ? ` ${displayLabel(effect.school)}` : ''}` : null,
-          effect.stat ? displayLabel(effect.stat) : null,
-          t('ui.combat.remaining', { remaining: effect.remaining, unit: t(EFFECT_UNIT_KEYS[effect.unit]) })].filter((part) => part !== null).join(' · ')}
-      </li>)}
-    </ul>}
-    {actor.queued && <p className="live-combat__actor-queued">{t('ui.combat.actor_queued', { what: describeQueued(actor.queued) })}</p>}
+    <div className="live-combat__actor-meta">
+      {actor.side === 'enemy' && knownMaxHp && <span className="live-combat__hp-percent">{t('ui.combat.hp_percent', { percent: Math.round(hpPercent) })}</span>}
+      {actor.effects.length > 0 && <ul className="live-combat__effects" aria-label={t('ui.combat.effects_label', { name })}>
+        {actor.effects.map((effect) => <li key={effect.id}>
+          {[displayLabel(effect.type),
+            effect.amount !== undefined ? `${effect.amount}${effect.school ? ` ${displayLabel(effect.school)}` : ''}` : null,
+            effect.stat ? displayLabel(effect.stat) : null,
+            t('ui.combat.remaining', { remaining: effect.remaining, unit: t(EFFECT_UNIT_KEYS[effect.unit]) })].filter((part) => part !== null).join(' · ')}
+        </li>)}
+      </ul>}
+      {actor.queued && <p className="live-combat__actor-queued">{t('ui.combat.actor_queued', { what: describeQueued(actor.queued) })}</p>}
+    </div>
   </article>;
 }
 

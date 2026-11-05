@@ -32,6 +32,13 @@ export interface BackgroundArt {
 
 export type ArtIndex = ReadonlyMap<string, BackgroundArt>;
 
+/** One manifest sprite (`hero_max`, `enemy:<content id>`): a 512x512 PNG that costs 1 MiB of RGBA texture memory. */
+export interface SpriteArt {
+  readonly id: string;
+  readonly url: string;
+}
+export type SpriteIndex = ReadonlyMap<string, SpriteArt>;
+
 /** `baseUrl` is the public URL of the manifest's folder, with a trailing slash. */
 export function buildArtIndex(manifests: readonly { readonly baseUrl: string; readonly manifest: ArtManifest }[]): ArtIndex {
   const index = new Map<string, BackgroundArt>();
@@ -55,7 +62,14 @@ export function buildArtIndex(manifests: readonly { readonly baseUrl: string; re
   return index;
 }
 
-// Named imports let the bundler drop the sprite and mockup data of the manifests.
+/** Sprite entries are only indexed by ID and URL: nothing is fetched until a combat scene renders the `<img>`. */
+export function buildSpriteIndex(manifests: readonly { readonly baseUrl: string; readonly sprites: readonly { readonly id: string; readonly image: string }[] }[]): SpriteIndex {
+  const index = new Map<string, SpriteArt>();
+  for (const { baseUrl, sprites } of manifests) for (const sprite of sprites) index.set(sprite.id, { id: sprite.id, url: `${baseUrl}${sprite.image}` });
+  return index;
+}
+
+// Named imports let the bundler drop the mockup and verification data of the manifests (sprites are kept for combat).
 const backgrounds = import.meta.glob<ArtManifest['backgrounds']>('../../public/assets/*/manifest.json', { eager: true, import: 'backgrounds' });
 const layouts = import.meta.glob<NonNullable<ArtManifest['layout']>>('../../public/assets/*/manifest.json', { eager: true, import: 'layout' });
 
@@ -64,6 +78,13 @@ export const ART_INDEX: ArtIndex = buildArtIndex(Object.entries(backgrounds).map
   const folder = /public\/(assets\/[^/]+)\/manifest\.json$/.exec(path)?.[1] ?? '';
   const layout = layouts[path];
   return { baseUrl: `${import.meta.env.BASE_URL}${folder}/`, manifest: { backgrounds: list, ...(layout ? { layout } : {}) } };
+}));
+
+const spriteLists = import.meta.glob<readonly { readonly id: string; readonly image: string }[]>('../../public/assets/*/manifest.json', { eager: true, import: 'sprites' });
+
+export const SPRITE_INDEX: SpriteIndex = buildSpriteIndex(Object.entries(spriteLists).map(([path, sprites]) => {
+  const folder = /public\/(assets\/[^/]+)\/manifest\.json$/.exec(path)?.[1] ?? '';
+  return { baseUrl: `${import.meta.env.BASE_URL}${folder}/`, sprites };
 }));
 
 /** Decodes off the main thread when the browser can; the renderer owns, and releases, the result. */

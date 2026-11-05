@@ -1,0 +1,22 @@
+/* Sprite layer over the scene band. The container query unit (cqmin) keeps sprites square and in proportion in any band. */
+.combat-scene { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; container-type: size; }
+.scene-viewport[hidden] ~ .combat-scene { display: none; }
+.combat-scene__slot { position: absolute; left: calc(var(--x) * 1%); bottom: calc(var(--bottom) * 1%); width: calc(var(--size) * 1cqmin); aspect-ratio: 1; transform: translateX(-50%); }
+.combat-scene__sprite { display: block; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 94%; }
+.combat-scene__silhouette { display: grid; place-items: end center; padding: 4%; border-radius: 40% 40% 12% 12%; background: linear-gradient(to top, #0b0a10e6, #0b0a1066); box-shadow: inset 0 0 0 2px #e2b55233; }
+.combat-scene__silhouette span { max-width: 100%; padding: 2px 4px; overflow: hidden; color: var(--text); font-size: .7rem; line-height: 1.1; text-align: center; text-overflow: ellipsis; text-shadow: 0 1px 2px #000; white-space: nowrap; }
+.combat-scene__slot--hero .combat-scene__sprite--attack { animation: combat-lunge-right .62s ease-out both; }
+.combat-scene__slot--enemy .combat-scene__sprite--attack { animation: combat-lunge-left .62s ease-out both; }
+.combat-scene__sprite--hit { animation: combat-hit .62s ease-out both; }
+.combat-scene__sprite--defeat { animation: combat-defeat .7s ease-out both; }
+@keyframes combat-lunge-right { 45% { transform: translateX(9%) scale(1.04); } }
+@keyframes combat-lunge-left { 45% { transform: translateX(-9%) scale(1.04); } }
+@keyframes combat-hit { 20%,60% { filter: brightness(1.8) sepia(.3); transform: translateX(-2%); } 40%,80% { transform: translateX(2%); } }
+@keyframes combat-defeat { to { opacity: .35; filter: grayscale(.8); transform: translateY(8%) rotate(9deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .combat-scene__slot--hero .combat-scene__sprite--attack,
+  .combat-scene__slot--enemy .combat-scene__sprite--attack,
+  .combat-scene__sprite--hit,
+  .combat-scene__sprite--defeat { animation: none; }
+  .combat-scene__sprite--defeat { opacity: .35; filter: grayscale(.8); transform: translateY(8%) rotate(9deg); }
+}

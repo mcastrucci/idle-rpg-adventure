@@ -10,8 +10,10 @@ import { displayLabel } from '../content/labels.ts';
 import { codeText, t, useLocale } from '../i18n/index.ts';
 import type { Params } from '../i18n/index.ts';
 import { DeathPanel, ProvisionalLiveRiskNotice } from './character/DeathPanel.tsx';
-import { LiveCombat } from '../live/combat/LiveCombat.tsx';
-import { MATRIARCH_LOCATION, MatriarchCombatScene } from '../scene/MatriarchCombatScene.tsx';
+import { LiveCombat, LiveLog } from '../live/combat/LiveCombat.tsx';
+import { useLiveFrameMode } from '../live/frame/useLiveFrameMode.ts';
+import '../live/frame/live-frame.css';
+import { CombatScene } from '../scene/CombatScene.tsx';
 import { SceneViewport } from '../scene/SceneViewport.tsx';
 
 type Props = {
@@ -30,6 +32,9 @@ type Props = {
 };
 
 type LoadState = 'loading' | 'ready' | 'error';
+/** How long a confirmation or XP toast stays over the scene. */
+const TOAST_MS = 1500;
+const XP_TOAST_MS = 8000;
 type XpNotice = { readonly key: string; readonly xp: number; readonly levelAfter?: number | undefined; readonly leveledUp: boolean } | null;
 /** A status line stored as a catalog key plus params, so it is translated when rendered. */
 type Notice = { readonly kind: 'pending' | 'confirmed' | 'rejected' | 'error'; readonly key: string; readonly params?: Params | undefined } | null;
@@ -332,10 +337,27 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, acti
   const authoritativeView = sessionState?.view ?? serverView;
   const combatEvents = sessionState?.recentEvents ?? sessionState?.events ?? [];
   const view = project(authoritativeView);
-  const matriarchRoom = view?.location === MATRIARCH_LOCATION;
   const exploring = view?.phase === 'exploring';
+  // The combat parts need the server's combat projection; a combat phase without one shows the exploring panel (no actions).
+  const inCombat = view?.phase === 'combat' && Boolean(authoritativeView?.combat);
   const busy = (sessionState?.pendingCount ?? 0) > 0;
   const readyForActions = canCommand && Boolean(sessionState?.attached);
+  // While an adventure is attached the screen is one fixed `100dvh` frame (#176); the entry form, loading, errors and the
+  // end-of-adventure summary stay ordinary scrolling pages.
+  const frame = Boolean(current && view);
+  useLiveFrameMode(active && frame);
+  // A confirmation is only announced (the combat feedback row and the scene already show the effect); XP gains are a
+  // transient toast over the scene; rejections, errors and pending actions stay until replaced.
+  useEffect(() => {
+    if (notice?.kind !== 'confirmed') return undefined;
+    const timer = setTimeout(() => setNotice((value) => value === notice ? null : value), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  useEffect(() => {
+    if (!xpNotice) return undefined;
+    const timer = setTimeout(() => setXpNotice((value) => value === xpNotice ? null : value), XP_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [xpNotice]);
   // One rule and one command per exit/hotspot, shared by its DOM button and its scene region (#154): the canvas only
   // reports a tap, the server decides the result.
   const exitEnabled = (exit: NonNullable<Snapshot['exits']>[number]) => readyForActions && !busy && exit.open && !(exit.bossRoom && exit.visited);
@@ -355,13 +377,19 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, acti
   };
   const combatConnection = sessionState?.attached ? sessionState.connection
     : live.state.status === 'open' ? { ...live.state, status: 'connecting' as const } : live.state;
-  const combatPanel = view?.phase === 'combat' && <LiveCombat view={authoritativeView ?? {}} events={combatEvents}
-    actorId={actorId} pendingCommandIds={sessionState?.pendingCommandIds ?? []}
-    connection={combatConnection} onSubmit={submit} />;
+  const me = view?.heroes?.find((hero) => hero.actorId === actorId);
+  const xpLine = me && me.level !== undefined ? <HeroXpLine hero={me} /> : null;
+  const connectionProblem = !canCommand || Boolean(sessionState?.error) || Boolean(currentError);
+  const connectionNotes = <div className={`live-screen__connection${connectionProblem ? '' : ' live-screen__connection--quiet'}`} role="status" aria-live="polite">
+    {!canCommand && <span>{t('ui.live.connection_unavailable')}</span>}
+    {sessionState?.attached && <span className={connectionProblem ? undefined : 'visually-hidden'}>{t('ui.live.connected')}</span>}
+    {sessionState?.error && <span>{t('ui.live.session_error', { error: codeText(sessionState.error) })}</span>}
+    {currentError && <span>{t('ui.live.host_view_error', { error: liveErrorText(currentError) })}</span>}
+  </div>;
 
-  return <section className="screen live-screen" aria-labelledby="live-screen-title">
-    <a className="back-link" href="#/world">{t('ui.live.back')}</a>
-    <div className="live-screen__heading">
+  return <section className={`screen live-screen${frame ? ' live-screen--frame' : ''}`} aria-labelledby="live-screen-title">
+    {!frame && <a className="back-link" href="#/world">{t('ui.live.back')}</a>}
+    <div className={frame ? 'visually-hidden' : 'live-screen__heading'}>
       <h1 className="screen__title" id="live-screen-title">{t('ui.live.title')}</h1>
       <p className="screen__subtitle">{t('ui.live.subtitle')}</p>
     </div>
@@ -374,94 +402,104 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, acti
       setSupply={(item, qty) => { pendingStart.current = null; setSelectedSupplies((value) => ({ ...value, [item]: qty })); }}
       disabled={!canCommand || startBusy} busy={startBusy} error={startError ? `${codeText(startError.code)}${startError.sameCommand ? ` · ${t('ui.live.retry_same_note')}` : ''}` : null} onStart={() => void begin()} onRetry={() => void begin()} />}
 
-    {current && <>
-      <div className="live-screen__connection" role="status" aria-live="polite">
-        {!canCommand && <span>{t('ui.live.connection_unavailable')}</span>}
-        {sessionState?.attached && <span>{t('ui.live.connected')}</span>}
-        {sessionState?.error && <span>{t('ui.live.session_error', { error: codeText(sessionState.error) })}</span>}
-        {currentError && <span>{t('ui.live.host_view_error', { error: liveErrorText(currentError) })}</span>}
-      </div>
-      {view && <>
-        {!matriarchRoom && combatPanel}
+    {current && !view && connectionNotes}
+    {current && view && <div className="live-frame" data-mode={inCombat ? 'combat' : 'explore'}>
+      <header className="live-frame__crumb">
+        <a className="back-link live-frame__back" href="#/world" aria-label={t('ui.live.back')}>← {t('ui.live.back_short')}</a>
+        <nav className="live-frame__crumbs" aria-label={t('ui.live.breadcrumb')}>
+          <span className="live-frame__area"><span>{view.area ? displayLabel(view.area) : t('ui.live.unknown')}</span><span className="live-frame__sep" aria-hidden="true">›</span></span>
+          <h2 className="live-frame__location" id="live-scene-title-frame">{view.location ? displayLabel(view.location) : t('ui.live.current_location')}</h2>
+        </nav>
+        <span className={`live-frame__link${readyForActions ? ' live-frame__link--online' : ''}`} aria-hidden="true" />
+      </header>
 
-        <section className="live-scene" aria-labelledby="live-scene-title">
-          <h2 id="live-scene-title">{view.location ? displayLabel(view.location) : t('ui.live.current_location')}</h2>
-          <p className="live-scene__area">{t('ui.live.area', { area: view.area ? displayLabel(view.area) : t('ui.live.unknown') })}</p>
-          <div className="matriarch-scene-frame">
-            <SceneViewport locationId={view.location} scene={view.scene} regionEnabled={regionEnabled} onRegionTap={onRegionTap} />
-            {matriarchRoom && <MatriarchCombatScene locationId={view.location} actorId={actorId}
-              combat={authoritativeView?.combat ?? null} events={combatEvents}
-              live={Boolean(sessionState?.attached) && combatConnection.status === 'open'} />}
-          </div>
-          {matriarchRoom && combatPanel}
-          <div className="live-scene__actors" aria-label={t('ui.live.party_status')}>
-            {(view.heroes ?? []).map((hero) => <p key={hero.actorId}>
-              <span>{hero.actorId === actorId ? t('ui.common.you') : isUuid(hero.actorId) ? t('ui.common.party_member') : displayLabel(hero.actorId)}</span>
-              <span>{hero.present ? t('ui.live.hero_hp', { hp: hero.hp === null ? hero.maxHp : hero.hp ?? t('ui.live.unknown'), max: hero.maxHp }) : t('ui.live.not_present')}</span>
-            </p>)}
-            {(() => {
-              const me = view.heroes?.find((hero) => hero.actorId === actorId);
-              if (!me || me.level === undefined) return null;
-              return <p className="live-scene__xp">
-                <span>{t('ui.live.level', { level: me.level })}</span>
-                <span>{me.xpToNext === null || me.xpToNext === undefined ? t('ui.live.max_level') : t('ui.live.xp_progress', { xp: me.xpIntoLevel ?? 0, next: me.xpToNext })}</span>
-              </p>;
-            })()}
-          </div>
+      <div className="live-frame__scene">
+        <SceneViewport locationId={view.location} scene={view.scene} regionEnabled={regionEnabled} onRegionTap={onRegionTap} />
+        <CombatScene locationId={view.location} actorId={actorId} combat={authoritativeView?.combat ?? null} events={combatEvents}
+          live={Boolean(sessionState?.attached) && combatConnection.status === 'open'} />
+        <div className="live-frame__notices">
+          {connectionNotes}
           {xpNotice && <p className={`live-xp-notice${xpNotice.leveledUp ? ' live-xp-notice--level-up' : ''}`} role="status" aria-live="polite">{xpNotice.leveledUp && xpNotice.levelAfter !== undefined ? t('ui.live.xp_level_up', { xp: xpNotice.xp, level: xpNotice.levelAfter }) : t('ui.live.xp_gain', { xp: xpNotice.xp })}</p>}
-          {exploring && <div className="live-scene__actions">
-            <h3>{t('ui.live.actions')}</h3>
-            {(view.groups ?? []).filter((group) => !group.defeated).map((group) => <button key={group.id} className="button live-action" type="button"
-              disabled={!readyForActions || busy} onClick={() => submit({ type: 'engage', groupId: group.id })}>
-              {t(group.boss ? 'ui.live.engage_boss' : 'ui.live.engage', { enemies: group.enemies.map(displayLabel).join(', ') })}
-            </button>)}
-            {(view.exits ?? []).map((exit) => exit.bossRoom ? <button key={exit.id} className="button live-action" type="button"
-              disabled={!exitEnabled(exit)}
-              onClick={() => activateExit(exit)}>
-              {t(exit.open ? 'ui.live.boss_review' : 'ui.live.boss_locked', { to: displayLabel(exit.to) })}
-              {!exit.open && exit.reasons.length > 0 && <small>{exit.reasons.map(displayLabel).join(', ')}</small>}
-            </button> : <button key={exit.id} className="button live-action" type="button" disabled={!exitEnabled(exit)}
-              onClick={() => activateExit(exit)}>
-              {t(exit.open ? 'ui.live.travel' : 'ui.live.route_locked', { to: displayLabel(exit.to) })}
-              {!exit.open && exit.reasons.length > 0 && <small>{exit.reasons.map(displayLabel).join(', ')}</small>}
-            </button>)}
-            {(view.hotspots ?? []).map((hotspot) => <button key={hotspot.id} className="button live-action" type="button"
-              disabled={!hotspotEnabled(hotspot)} onClick={() => activateHotspot(hotspot)}>
-              {hotspot.id.startsWith('corpse:') ? t('ui.live.recover_corpse') : t('ui.live.interact', { name: displayLabel(hotspot.textKey) })}
-              {hotspot.done && <small>{t('ui.live.already_done')}</small>}
-            </button>)}
-          </div>}
-          {(view.groups?.length ?? 0) > 0 && <section className="live-scene__section" aria-labelledby="live-groups-title">
-            <h3 id="live-groups-title">{t('ui.live.groups')}</h3><ul>{view.groups?.map((group) => <li key={group.id}>{t('ui.live.group_line', { name: displayLabel(group.id.replace(/\/\d+$/, '')), state: group.defeated ? t('ui.live.defeated') : group.enemies.map(displayLabel).join(', ') })}</li>)}</ul>
-          </section>}
-          {(view.resources?.length ?? 0) > 0 && <section className="live-scene__section" aria-labelledby="live-resources-title">
-            <h3 id="live-resources-title">{t('ui.live.resources')}</h3>{view.resources?.map((resource) => <button className="button live-action" type="button" key={resource.nodeId}
-              disabled={!exploring || !readyForActions || busy || resource.gathered} onClick={() => submit({ type: 'gather', nodeId: resource.nodeId })}>
-              {displayLabel(resource.resource)} · {resource.gathered ? t('ui.live.gathered') : t('ui.live.gather')}
-            </button>)}
-          </section>}
-          {exploring && (view.heroes?.find((hero) => hero.actorId === actorId)?.consumables.length ?? 0) > 0 && <section className="live-scene__section" aria-labelledby="live-supplies-title">
-            <h3 id="live-supplies-title">{t('ui.live.supplies')}</h3>
-            {view.heroes?.find((hero) => hero.actorId === actorId)?.consumables.map((item) => <button className="button live-action" type="button" key={item.item}
-              disabled={!readyForActions || busy || item.qty <= 0} onClick={() => submit({ type: 'useConsumable', itemId: item.item })}>
-              {t('ui.live.use_stock', { name: displayLabel(item.item), qty: item.qty })}
-            </button>)}
-          </section>}
-          <section className="live-scene__section" aria-labelledby="live-runbag-title">
-            <h3 id="live-runbag-title">{t('ui.live.run_bag')}</h3>
-            <RunBag bags={view.runBag ?? []} actorId={actorId} />
-          </section>
-          {exploring && <button type="button" className="button live-return" disabled={!readyForActions || busy || !view.canReturn}
-            onClick={() => submit({ type: 'returnToSanctuary' })}>
-            {view.canReturn ? t('ui.live.return') : t('ui.live.return_unavailable')}
-          </button>}
-        </section>
-      </>}
-      {sessionState?.pendingCount ? <div className="live-action-status" role="status" aria-live="polite">
-        <p>{notice ? t(notice.key, notice.params) : t('ui.live.action_sent')}</p>
-        {canCommand && sessionState.attached && <button type="button" className="button button--secondary" onClick={retryPending}>{t('ui.live.retry_pending')}</button>}
-      </div> : notice && <p className={`live-action-status live-action-status--${notice.kind}`} role={notice.kind === 'rejected' || notice.kind === 'error' ? 'alert' : 'status'}>{t(notice.key, notice.params)}</p>}
-    </>}
+          {sessionState?.pendingCount ? <div className="live-action-status" role="status" aria-live="polite">
+            <p>{notice ? t(notice.key, notice.params) : t('ui.live.action_sent')}</p>
+            {canCommand && sessionState.attached && <button type="button" className="button button--secondary" onClick={retryPending}>{t('ui.live.retry_pending')}</button>}
+          </div> : notice && <p className={`live-action-status live-action-status--${notice.kind}${notice.kind === 'confirmed' ? ' visually-hidden' : ''}`} role={notice.kind === 'rejected' || notice.kind === 'error' ? 'alert' : 'status'}>{t(notice.key, notice.params)}</p>}
+        </div>
+      </div>
+
+      {inCombat
+        ? <LiveCombat view={authoritativeView ?? {}} events={combatEvents} actorId={actorId} pendingCommandIds={sessionState?.pendingCommandIds ?? []}
+          connection={combatConnection} onSubmit={submit} stripLead={xpLine} />
+        : <div className="live-explore">
+          <div className="live-explore__strip">
+            <div className="live-strip__head">{xpLine}</div>
+            <div className="live-strip__heroes" role="group" aria-label={t('ui.live.party_status')}>
+              {(view.heroes ?? []).map((hero) => {
+                const hp = hero.present ? hero.hp === null ? hero.maxHp : hero.hp : 0;
+                const percent = hero.maxHp > 0 ? Math.max(0, Math.min(100, hp / hero.maxHp * 100)) : 0;
+                return <p key={hero.actorId} className={`live-strip__hero${hero.actorId === actorId ? ' live-strip__hero--self' : ''}`}>
+                  <span className="live-strip__hero-line">
+                    <span>{hero.actorId === actorId ? t('ui.common.you') : isUuid(hero.actorId) ? t('ui.common.party_member') : displayLabel(hero.actorId)}</span>
+                    <span>{hero.present ? t('ui.live.hero_hp', { hp: hero.hp === null ? hero.maxHp : hero.hp ?? t('ui.live.unknown'), max: hero.maxHp }) : t('ui.live.not_present')}</span>
+                  </span>
+                  <span className="live-strip__hp" aria-hidden="true"><span style={{ width: `${percent}%` }} /></span>
+                </p>;
+              })}
+            </div>
+          </div>
+          <div className="live-explore__panel">
+            <div className="live-explore__list">
+              {exploring && <div className="live-scene__actions">
+                <h3>{t('ui.live.actions')}</h3>
+                {(view.groups ?? []).filter((group) => !group.defeated).map((group) => <button key={group.id} className="button live-action" type="button"
+                  disabled={!readyForActions || busy} onClick={() => submit({ type: 'engage', groupId: group.id })}>
+                  {t(group.boss ? 'ui.live.engage_boss' : 'ui.live.engage', { enemies: group.enemies.map(displayLabel).join(', ') })}
+                </button>)}
+                {(view.exits ?? []).map((exit) => exit.bossRoom ? <button key={exit.id} className="button live-action" type="button"
+                  disabled={!exitEnabled(exit)}
+                  onClick={() => activateExit(exit)}>
+                  {t(exit.open ? 'ui.live.boss_review' : 'ui.live.boss_locked', { to: displayLabel(exit.to) })}
+                  {!exit.open && exit.reasons.length > 0 && <small>{exit.reasons.map(displayLabel).join(', ')}</small>}
+                </button> : <button key={exit.id} className="button live-action" type="button" disabled={!exitEnabled(exit)}
+                  onClick={() => activateExit(exit)}>
+                  {t(exit.open ? 'ui.live.travel' : 'ui.live.route_locked', { to: displayLabel(exit.to) })}
+                  {!exit.open && exit.reasons.length > 0 && <small>{exit.reasons.map(displayLabel).join(', ')}</small>}
+                </button>)}
+                {(view.hotspots ?? []).map((hotspot) => <button key={hotspot.id} className="button live-action" type="button"
+                  disabled={!hotspotEnabled(hotspot)} onClick={() => activateHotspot(hotspot)}>
+                  {hotspot.id.startsWith('corpse:') ? t('ui.live.recover_corpse') : t('ui.live.interact', { name: displayLabel(hotspot.textKey) })}
+                  {hotspot.done && <small>{t('ui.live.already_done')}</small>}
+                </button>)}
+              </div>}
+              {(view.resources?.length ?? 0) > 0 && <section className="live-scene__section" aria-labelledby="live-resources-title">
+                <h3 id="live-resources-title">{t('ui.live.resources')}</h3>{view.resources?.map((resource) => <button className="button live-action" type="button" key={resource.nodeId}
+                  disabled={!exploring || !readyForActions || busy || resource.gathered} onClick={() => submit({ type: 'gather', nodeId: resource.nodeId })}>
+                  {displayLabel(resource.resource)} · {resource.gathered ? t('ui.live.gathered') : t('ui.live.gather')}
+                </button>)}
+              </section>}
+              {exploring && (me?.consumables.length ?? 0) > 0 && <section className="live-scene__section" aria-labelledby="live-supplies-title">
+                <h3 id="live-supplies-title">{t('ui.live.supplies')}</h3>
+                {me?.consumables.map((item) => <button className="button live-action" type="button" key={item.item}
+                  disabled={!readyForActions || busy || item.qty <= 0} onClick={() => submit({ type: 'useConsumable', itemId: item.item })}>
+                  {t('ui.live.use_stock', { name: displayLabel(item.item), qty: item.qty })}
+                </button>)}
+              </section>}
+              {(view.groups?.length ?? 0) > 0 && <section className="live-scene__section" aria-labelledby="live-groups-title">
+                <h3 id="live-groups-title">{t('ui.live.groups')}</h3><ul>{view.groups?.map((group) => <li key={group.id}>{t('ui.live.group_line', { name: displayLabel(group.id.replace(/\/\d+$/, '')), state: group.defeated ? t('ui.live.defeated') : group.enemies.map(displayLabel).join(', ') })}</li>)}</ul>
+              </section>}
+              <section className="live-scene__section" aria-labelledby="live-runbag-title">
+                <h3 id="live-runbag-title">{t('ui.live.run_bag')}</h3>
+                <RunBag bags={view.runBag ?? []} actorId={actorId} />
+              </section>
+            </div>
+            {exploring && <button type="button" className="button live-return" disabled={!readyForActions || busy || !view.canReturn}
+              onClick={() => submit({ type: 'returnToSanctuary' })}>
+              {view.canReturn ? t('ui.live.return') : t('ui.live.return_unavailable')}
+            </button>}
+          </div>
+          <LiveLog events={combatEvents} actorId={actorId} buttonKey="ui.live.log" listKey="ui.live.log_label" />
+        </div>}
+    </div>}
 
     {terminalOutcome !== null && <div className="live-terminal" role="status"><h2>{t('ui.live.ended', { outcome: codeText(terminalOutcome) })}</h2><p>{t('ui.live.ended_note')}</p>
       {!current && <button type="button" className="button" onClick={newAdventure}>{t('ui.live.new_adventure')}</button>}
@@ -478,8 +516,20 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, acti
       </section>
     </div>}
     {currentError && !current && terminalOutcome === null && <div role="alert"><p>{t('ui.live.attach_failed', { error: liveErrorText(currentError) })}</p><button type="button" className="button" onClick={() => void refreshCurrent(true)}>{t('ui.live.retry_connection')}</button></div>}
-    <DeathPanel actorId={actorId} api={api} live={live} />
+    {!frame && <DeathPanel actorId={actorId} api={api} live={live} />}
   </section>;
+}
+
+/** Hero level and XP progress as one compact line: the strip's lead in both exploring and combat. */
+function HeroXpLine({ hero }: { hero: NonNullable<Snapshot['heroes']>[number] }) {
+  const next = hero.xpToNext;
+  const into = hero.xpIntoLevel ?? 0;
+  const percent = next === null || next === undefined || next <= 0 ? 100 : Math.max(0, Math.min(100, into / next * 100));
+  return <p className="live-strip__xp">
+    <span>{t('ui.live.level', { level: hero.level ?? 0 })}</span>
+    <span className="live-strip__xp-bar" aria-hidden="true"><span style={{ width: `${percent}%` }} /></span>
+    <span>{next === null || next === undefined ? t('ui.live.max_level') : t('ui.live.xp_progress', { xp: into, next })}</span>
+  </p>;
 }
 
 function EntryForm({ options, selectedArea, setSelectedArea, supplies, setSupply, disabled, busy, error, onStart, onRetry }: {
