@@ -1,0 +1,39 @@
+{
+  "frames": {
+    "hollow_matriarch_idle": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 512
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 512
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 512
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.94
+      }
+    }
+  },
+  "meta": {
+    "app": "Idle RPG Adventure asset delivery",
+    "version": "1",
+    "image": "hollow_matriarch.png",
+    "format": "RGBA8888",
+    "size": {
+      "w": 512,
+      "h": 512
+    },
+    "scale": "1"
+  }
+}

@@ -1,0 +1,335 @@
+{
+  "version": 1,
+  "backgroundExport": {
+    "native": true,
+    "resize": false,
+    "format": "WebP",
+    "lossless": false,
+    "quality": 85,
+    "targetMaxBytes": 450000,
+    "source": "unchanged native PNG"
+  },
+  "backgrounds": [
+    {
+      "id": "loc:region_1.portal_clearing",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/portal-clearing.png",
+      "webp": "backgrounds/webp/portal-clearing.webp",
+      "webpBytes": 394760,
+      "within450KB": true,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "7e520c90b3fd884f8bf302dabb0c39b3d7b65c6f95b02c8dd067cded256eca1c",
+      "preview": "previews-360/portal-clearing.jpg"
+    },
+    {
+      "id": "loc:region_1.irrigation_terraces",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/irrigation-terraces.png",
+      "webp": "backgrounds/webp/irrigation-terraces.webp",
+      "webpBytes": 513452,
+      "within450KB": false,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "43ae7d51733092ddc248546e49a2cf4339fbf6ed1f6c2bad22425c28af27089f",
+      "preview": "previews-360/irrigation-terraces.jpg"
+    },
+    {
+      "id": "loc:region_1.seed_vault_heart",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/seed-vault-heart.png",
+      "webp": "backgrounds/webp/seed-vault-heart.webp",
+      "webpBytes": 415500,
+      "within450KB": true,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "a787426ff6641d18f2bdfe74aeaadec8e10be7eea4fdb65c13225ffaacb4b037",
+      "preview": "previews-360/seed-vault-heart.jpg"
+    },
+    {
+      "id": "loc:region_1.overgrown_causeway",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/overgrown-causeway.png",
+      "webp": "backgrounds/webp/overgrown-causeway.webp",
+      "webpBytes": 382628,
+      "within450KB": true,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "c2182e7be13a80269e69723278b1b68a53871534038b6cb2a0113ba897e59db9",
+      "preview": "previews-360/overgrown-causeway.jpg"
+    },
+    {
+      "id": "loc:region_1.old_well",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/old-well.png",
+      "webp": "backgrounds/webp/old-well.webp",
+      "webpBytes": 393780,
+      "within450KB": true,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "5b903387380eacf719cb3880d12912a6d0d9c94645b57a7357ee16601b611271",
+      "preview": "previews-360/old-well.jpg"
+    },
+    {
+      "id": "loc:region_1.tangle_orchard",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/tangle-orchard.png",
+      "webp": "backgrounds/webp/tangle-orchard.webp",
+      "webpBytes": 425076,
+      "within450KB": true,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "cc53a0e37ac2569efec2f42153598b759e44e2e44f41baf1e0af879e30cf146d",
+      "preview": "previews-360/tangle-orchard.jpg"
+    },
+    {
+      "id": "loc:region_1.glowcap_grotto",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/glowcap-grotto.png",
+      "webp": "backgrounds/webp/glowcap-grotto.webp",
+      "webpBytes": 337158,
+      "within450KB": true,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "1b267c7846c4b81f241c13871e67480696fc3b3cdc9500ea5c11e3a657940d26",
+      "preview": "previews-360/glowcap-grotto.jpg"
+    },
+    {
+      "id": "loc:region_1.lantern_ruins",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/lantern-ruins.png",
+      "webp": "backgrounds/webp/lantern-ruins.webp",
+      "webpBytes": 411110,
+      "within450KB": true,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "f78c4d698f3a23222b35b2226c1e9f6ab0a9b6ca02458fe9bbeaab8a4f7b222d",
+      "preview": "previews-360/lantern-ruins.jpg"
+    },
+    {
+      "id": "loc:region_1.pump_station",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/pump-station.png",
+      "webp": "backgrounds/webp/pump-station.webp",
+      "webpBytes": 373720,
+      "within450KB": true,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "8b2104ac0d549aecc8b091ca22a144c355aab9280ab3638ff94ace1dab9a3d61",
+      "preview": "previews-360/pump-station.jpg"
+    },
+    {
+      "id": "loc:region_1.vault_antechamber",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/vault-antechamber.png",
+      "webp": "backgrounds/webp/vault-antechamber.webp",
+      "webpBytes": 273638,
+      "within450KB": true,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "b2fc6a135f1995731ad58cddac7c1b2d6c383ddcb2d391e7c4624bc4c8b5c87e",
+      "preview": "previews-360/vault-antechamber.jpg"
+    },
+    {
+      "id": "loc:region_1.sunken_greenhouse",
+      "nativeSize": [
+        1086,
+        1448
+      ],
+      "source": "backgrounds/source/sunken-greenhouse.png",
+      "webp": "backgrounds/webp/sunken-greenhouse.webp",
+      "webpBytes": 427380,
+      "within450KB": true,
+      "rgbaGpuBytesWithoutMipmaps": 6290112,
+      "sha256": "7ef31e2adb0b10bdc1e5e472c6687e389658eea3d4f1e2ccdce3fdab1225e0c5",
+      "preview": "previews-360/sunken-greenhouse.jpg"
+    }
+  ],
+  "sprites": [
+    {
+      "id": "hero_max",
+      "image": "sprites/hero_max.png",
+      "atlas": "sprites/hero_max.json",
+      "nativeSize": [
+        1254,
+        1254
+      ],
+      "atlasSize": [
+        512,
+        512
+      ],
+      "fileBytes": 194968,
+      "rgbaGpuBytesWithoutMipmaps": 1048576,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "sha256": "886fb70574abdbfb6f4f6f9b6c897720feadfdc1da18dc3f58268a834baf090a",
+      "kind": "presentation-hero-appearance",
+      "serverActorId": null
+    },
+    {
+      "id": "enemy:glowcap_mite",
+      "image": "sprites/glowcap_mite.png",
+      "atlas": "sprites/glowcap_mite.json",
+      "nativeSize": [
+        1254,
+        1254
+      ],
+      "atlasSize": [
+        512,
+        512
+      ],
+      "fileBytes": 140397,
+      "rgbaGpuBytesWithoutMipmaps": 1048576,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "sha256": "65d682f65ddbb3f98937675e65b56e566b5b1cbb66a67e0420a71fdcc28ad5e8",
+      "kind": "enemy-content-asset"
+    },
+    {
+      "id": "enemy:thornback_boar",
+      "image": "sprites/thornback_boar.png",
+      "atlas": "sprites/thornback_boar.json",
+      "nativeSize": [
+        1254,
+        1254
+      ],
+      "atlasSize": [
+        512,
+        512
+      ],
+      "fileBytes": 236204,
+      "rgbaGpuBytesWithoutMipmaps": 1048576,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "sha256": "27fa13e5f1ec910afec652fdb3daea22c495b947768a41ec900f5c6de419fec5",
+      "kind": "enemy-content-asset"
+    },
+    {
+      "id": "enemy:hollow_creeper",
+      "image": "sprites/hollow_creeper.png",
+      "atlas": "sprites/hollow_creeper.json",
+      "nativeSize": [
+        1254,
+        1254
+      ],
+      "atlasSize": [
+        512,
+        512
+      ],
+      "fileBytes": 227287,
+      "rgbaGpuBytesWithoutMipmaps": 1048576,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "sha256": "14dccc2dcef331996d88679a0c57d81902f7afec9d959cce07351e90924ee853",
+      "kind": "enemy-content-asset"
+    },
+    {
+      "id": "enemy:sentinel_lantern",
+      "image": "sprites/sentinel_lantern.png",
+      "atlas": "sprites/sentinel_lantern.json",
+      "nativeSize": [
+        1254,
+        1254
+      ],
+      "atlasSize": [
+        512,
+        512
+      ],
+      "fileBytes": 161540,
+      "rgbaGpuBytesWithoutMipmaps": 1048576,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "sha256": "766b31ceeec2d0a6947190275f643bd45bb98dc05728ceaa6bbc35261c5300b9",
+      "kind": "enemy-content-asset"
+    },
+    {
+      "id": "enemy:rusted_tiller",
+      "image": "sprites/rusted_tiller.png",
+      "atlas": "sprites/rusted_tiller.json",
+      "nativeSize": [
+        1254,
+        1254
+      ],
+      "atlasSize": [
+        512,
+        512
+      ],
+      "fileBytes": 316503,
+      "rgbaGpuBytesWithoutMipmaps": 1048576,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "sha256": "04105bc732a8006843350c03ef3b4862b4f6f80c7237f923c2b886f33ef1cbe0",
+      "kind": "enemy-content-asset"
+    },
+    {
+      "id": "enemy:hollow_matriarch",
+      "image": "sprites/hollow_matriarch.png",
+      "atlas": "sprites/hollow_matriarch.json",
+      "nativeSize": [
+        1254,
+        1254
+      ],
+      "atlasSize": [
+        512,
+        512
+      ],
+      "fileBytes": 268210,
+      "rgbaGpuBytesWithoutMipmaps": 1048576,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "sha256": "660ed8406cf20c6d577f02fd1ef77cf5ee61c757ddacceac37cd4fb77c156a2f",
+      "kind": "enemy-content-asset"
+    }
+  ],
+  "mockup": {
+    "html": "mockup/index.html",
+    "raster": "mockup/fixed-combat-reference.png",
+    "baselineCss": [
+      360,
+      780
+    ],
+    "browserGeometryVerified": false
+  },
+  "verification": {
+    "dimensionAndBudgetChecks": true,
+    "alphaVerified": true,
+    "mockupBehavior": "Happy DOM passed: queue/cooldown/Auto/potion/log/stress strings",
+    "browserGeometry": false,
+    "deviceValidation": false,
+    "pixiIntegration": false
+  }
+}

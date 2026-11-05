@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#17131f">
+<title>Verdant Hollow — Realtime Combat Mockup</title>
+<style>
+:root{color-scheme:dark;--ink:#f8edd7;--muted:#b9aec4;--panel:#211a2b;--panel2:#302339;--line:#70543e;--gold:#f0c66f;--violet:#a988df;--green:#82d19a;--red:#ef7e83;--px:4px}
+*{box-sizing:border-box}
+html,body{margin:0;min-width:320px;min-height:100%;background:#110e18;color:var(--ink);font-family:ui-monospace,"Cascadia Code","Segoe UI Mono",monospace}
+body{display:flex;justify-content:center;align-items:flex-start}
+button{font:inherit;color:inherit}
+.game{width:min(100vw,360px);height:780px;overflow:hidden;display:grid;grid-template-rows:22px 288px 112px 48px 44px 104px 32px 44px 18px 44px 24px;background:#17131f;border-inline:1px solid #4e3b4f;position:relative}
+.crumb{display:flex;align-items:center;gap:6px;padding:0 9px;background:#211a2b;border-bottom:1px solid #45334a;white-space:nowrap;overflow:hidden;font-size:9px;letter-spacing:.04em;color:#e3d4ad}.crumb b{color:#927db2;font-size:9px}.crumb strong{color:var(--gold);font-weight:700}
+.scene{position:relative;overflow:hidden;background:#302444 url('../backgrounds/webp/seed-vault-heart.webp') center/cover no-repeat;isolation:isolate}
+.scene:before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(21,14,32,.28),rgba(21,13,25,.03) 45%,rgba(17,12,22,.58));z-index:-1}
+.boss-status{position:absolute;z-index:3;top:8px;left:9px;right:9px;padding:5px 7px 6px;background:rgba(25,18,31,.92);border:1px solid #94734f;box-shadow:2px 2px 0 #1b1522;display:grid;grid-template-columns:1fr auto;gap:3px 8px}
+.boss-name{font-size:11px;color:#ffe3a6;font-weight:800;letter-spacing:.04em}.boss-pct{font-size:10px;color:#f3cc8d;font-weight:700}.boss-track{grid-column:1/-1;height:7px;background:#4b2839;border:1px solid #9b5c61;overflow:hidden}.boss-track i{display:block;width:65%;height:100%;background:linear-gradient(90deg,#bd5264,#ed8b72);box-shadow:inset 0 1px #ffc19a}
+.actor{position:absolute;bottom:3px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(2px 3px 0 rgba(15,9,21,.65))}.hero{left:10px;width:120px;height:169px;object-position:bottom}.boss{right:3px;width:202px;height:226px;object-position:bottom}.taunt{position:absolute;left:112px;top:111px;background:#493054;border:1px solid #d4ad68;color:#ffe7a1;padding:4px 6px;font-size:9px;box-shadow:2px 2px #1d1327}.taunt:after{content:"";position:absolute;left:-5px;bottom:5px;width:7px;height:7px;background:inherit;border-left:1px solid #d4ad68;border-bottom:1px solid #d4ad68;transform:rotate(45deg)}
+.party{padding:5px 7px;background:#211a2b;border-block:1px solid #59404f;display:grid;grid-template:1fr 1fr / 1fr 1fr;gap:4px}
+.frame{min-width:0;position:relative;padding:4px 5px 3px;background:linear-gradient(135deg,#35283d,#251d30);border:1px solid #69516b;box-shadow:1px 1px #100d16;display:grid;grid-template-columns:20px minmax(0,1fr) auto;grid-template-rows:13px 7px 12px;gap:1px 4px;align-items:center}
+.frame.active{border:2px solid var(--gold);padding:3px 4px 2px;box-shadow:inset 0 0 0 1px #6a4a3c,1px 1px #100d16}
+.role{width:19px;height:19px;display:grid;place-items:center;grid-row:1/3;color:var(--gold);font-size:12px;background:#49354c;border:1px solid #897050}.name{font-weight:800;font-size:10px;line-height:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.role-name{font-size:9px;color:#dfd0e5;line-height:10px;font-weight:700}.hp{grid-column:2/4;height:7px;border:1px solid #557255;background:#17241d;overflow:hidden}.hp i{display:block;height:100%;width:var(--hp);background:linear-gradient(90deg,#40885f,#87d49a)}.effects{grid-column:1/-1;display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden;white-space:nowrap;color:#d3c3db;font-size:8px}.effects span{border-left:2px solid var(--violet);padding-left:3px;line-height:10px}.frame.active .effects span:first-child{border-color:var(--gold)}
+.telegraph{padding:0 8px;background:#302337;border-bottom:1px solid #60434b;display:grid;grid-template-columns:5px minmax(0,1fr) 36px;gap:7px;align-items:center;min-width:0}.telegraph .bar{height:30px;background:repeating-linear-gradient(135deg,#e47d6d 0 4px,#a65062 4px 8px);border:1px solid #ffc28a;animation:pulse 1s steps(2,end) infinite}.t-copy{min-width:0;line-height:1.15}.t-copy strong{display:block;color:#ffd99a;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.t-copy small{display:block;max-width:100%;font-size:9px;color:#e9c8d0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.timer{width:36px;max-width:36px;overflow:hidden;text-overflow:clip;text-align:center;padding:4px 2px;border:1px solid #b97769;color:#ffe2c4;font-weight:800;font-size:10px;white-space:nowrap}
+.queue{display:flex;align-items:center;gap:7px;padding:0 8px;background:#251d30;border-bottom:1px solid #584255}.queue-label{font-size:8px;color:#bcaec7;letter-spacing:.08em;flex:none}.queue-chip{height:40px;min-width:0;max-width:calc(100% - 112px);display:flex;align-items:center;gap:5px;padding:0 6px;border:1px solid #a78bce;background:#3a2b49;color:#f4e7ff;font-size:9px;line-height:1.1;font-weight:800;white-space:normal;overflow:hidden;text-overflow:ellipsis}.queue-chip:before{content:"◈";font-size:13px;color:#dfc78b}.autotoggle{margin-left:auto;height:44px;min-width:59px;border:1px solid #63765c;background:#26372c;color:#b3e2bb;font-size:9px;font-weight:800;cursor:pointer}.autotoggle[aria-pressed="false"]{background:#3b303a;color:#c8b8bf;border-color:#65505b}
+.skills{padding:4px 7px;background:#1d1727;display:grid;grid-template:1fr 1fr / 1fr 1fr;gap:5px}.skill{min-width:0;height:100%;min-height:44px;padding:4px 6px;border:1px solid #77624f;background:linear-gradient(180deg,#392a3d,#2b2032);box-shadow:0 2px #130f19;display:grid;grid-template-columns:25px 1fr;grid-template-rows:1fr 12px;gap:0 5px;text-align:left;cursor:pointer}.skill:hover,.skill:focus-visible{outline:2px solid #f2d48e;outline-offset:-2px}.skill .icon{grid-row:1/3;width:25px;height:29px;display:grid;place-items:center;background:#49334a;border:1px solid #896e65;color:#f3ce86;font-size:15px}.skill strong{align-self:end;font-size:10px;line-height:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.skill small{font-size:8px;color:#c4b6ca;line-height:10px}.skill[disabled]{opacity:.62;cursor:not-allowed;filter:saturate(.65)}
+.feedback{display:flex;align-items:center;padding:0 9px;background:#292033;border-block:1px solid #543d58;color:#c9f0c8;font-size:9px;line-height:1.15;overflow:hidden}.feedback:before{content:"✦";margin-right:6px;color:#91dca0;flex:none}.feedback-text{min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+.items{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:0 7px;background:#1d1727}.item{height:44px;min-width:0;border:1px solid #806c51;background:#33283a;display:flex;align-items:center;justify-content:center;gap:6px;font-size:10px;font-weight:800;cursor:pointer}.item .item-icon{font-size:15px;color:#e8c979}.item .count{color:#ffe5a1;border:1px solid #947c50;padding:1px 4px;font-size:9px}.item:disabled{opacity:.55;cursor:not-allowed}.retreat{border-color:#705b64;background:#29232c;color:#c7b9bb}
+.caption{display:flex;align-items:center;justify-content:center;background:#17131f;color:#d0c0bf;font-size:8px;letter-spacing:.015em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px}.combat-log{padding:0 7px;background:#211a2b}.log-button{height:44px;width:100%;display:flex;align-items:center;justify-content:space-between;padding:0 9px;border:1px solid #5d4a60;background:#2a2132;color:#d5c6d5;font-size:10px;text-align:left;cursor:pointer}.log-button span:last-child{color:#c0a5d6}.footer{display:flex;align-items:center;justify-content:center;background:#17131f;color:#8d7d93;font-size:8px;letter-spacing:.05em;border-top:1px solid #382c40}
+.drawer{position:absolute;z-index:8;left:7px;right:7px;bottom:28px;height:200px;padding:9px;background:#211a2b;border:1px solid #b08b65;box-shadow:0 0 0 999px #0d0910aa;display:none}.drawer.open{display:block}.drawer-head{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--gold);padding-bottom:6px;border-bottom:1px solid #614c5c}.drawer-close{min-height:44px;min-width:44px;border:1px solid #82677b;background:#35263a;cursor:pointer}.drawer-body{padding-top:8px;font-size:9px;line-height:1.6;color:#d4c8d5;overflow-wrap:anywhere}
+@keyframes pulse{50%{opacity:.62}}
+@media(max-width:360px){.boss{width:57%;right:0}.hero{width:35%;left:2px}.taunt{left:30%;font-size:8px}.frame{padding-left:3px;padding-right:3px;column-gap:3px}.frame.active{padding-left:2px;padding-right:2px}.skill{padding-left:4px;padding-right:4px;grid-template-columns:23px 1fr;column-gap:4px}.skill .icon{width:23px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<main class="game" aria-label="Realtime combat mockup">
+  <nav class="crumb" aria-label="Location"><span>Verdant Hollow</span><b>›</b><strong>Seed Chamber</strong></nav>
+  <section class="scene" aria-label="Battle scene: Max faces the Hollow Matriarch">
+    <div class="boss-status"><span class="boss-name">HOLLOW MATRIARCH</span><span class="boss-pct" id="boss-pct">65%</span><span class="boss-track"><i id="boss-bar"></i></span></div>
+    <img class="actor hero" src="../sprites/hero_max.png" alt="Max, the party tank">
+    <img class="actor boss" src="../sprites/hollow_matriarch.png" alt="Hollow Matriarch">
+    <div class="taunt" id="taunt">Taunted · 3 attacks</div>
+  </section>
+  <section class="party" aria-label="Party status">
+    <article class="frame active"><span class="role" aria-label="Tank" title="Tank">▣</span><span class="name">Max</span><span class="role-name">76/140 HP · You</span><span class="hp"><i style="--hp:54%"></i></span><span class="effects"><span>Guard · 2 attacks</span></span></article>
+    <article class="frame"><span class="role" aria-label="Healer" title="Healer">✚</span><span class="name">Luna</span><span class="role-name">94/110 HP</span><span class="hp"><i style="--hp:85%"></i></span><span class="effects"><span>Regen 4s</span></span></article>
+    <article class="frame"><span class="role" aria-label="Archer" title="Archer">✦</span><span class="name">Emma</span><span class="role-name">102/120 HP</span><span class="hp"><i style="--hp:85%"></i></span><span class="effects"><span>Ready</span></span></article>
+    <article class="frame"><span class="role" aria-label="Swordsman" title="Swordsman">➤</span><span class="name">Kai</span><span class="role-name">88/115 HP</span><span class="hp"><i style="--hp:77%"></i></span><span class="effects"><span>Bleed 3s</span></span></article>
+  </section>
+  <section class="telegraph" aria-label="Boss attack warning"><span class="bar" aria-hidden="true"></span><span class="t-copy"><strong id="telegraph-name">CRUSHING BLOW</strong><small id="telegraph-target">Targeting Max</small></span><span class="timer" id="telegraph-time">2s</span></section>
+  <section class="queue" aria-label="Next action"><span class="queue-label">NEXT</span><span class="queue-chip" id="queued-action">Queued: Guard · next action</span><button class="autotoggle" id="auto" aria-pressed="true">AUTO ON</button></section>
+  <section class="skills" aria-label="Max's skills">
+    <button class="skill" data-skill="Taunt"><span class="icon">⚑</span><strong>Taunt</strong><small>Pull attacks</small></button>
+    <button class="skill" data-skill="Guard"><span class="icon">▣</span><strong>Guard</strong><small>Brace · queued</small></button>
+    <button class="skill" data-skill="Cleave" disabled aria-disabled="true"><span class="icon">⚔</span><strong>Cleave</strong><small>Ready in 4s</small></button>
+    <button class="skill" data-skill="Shield Bash"><span class="icon">◈</span><strong>Shield Bash</strong><small>Ready</small></button>
+  </section>
+  <div class="feedback" role="status" aria-live="polite"><span class="feedback-text" id="feedback">Luna healed Max +24 HP</span></div>
+  <section class="items" aria-label="Combat items"><button class="item" id="potion"><span class="item-icon">⚗</span><span>Potion</span><span class="count">2</span></button><button class="item retreat" disabled aria-disabled="true"><span class="item-icon" aria-hidden="true">🔒</span><span>Retreat</span></button></section>
+  <div class="caption">Can't retreat from a boss.</div>
+  <section class="combat-log"><button class="log-button" id="log-toggle" aria-expanded="false"><span>Combat log</span><span>＋</span></button></section>
+  <footer class="footer">MOCKUP · CO-OP PHASE 2</footer>
+  <aside class="drawer" id="log-drawer" aria-hidden="true"><div class="drawer-head"><strong>Combat log</strong><button class="drawer-close" id="log-close" aria-label="Close combat log">×</button></div><div class="drawer-body" id="log-copy">Luna healed Max for 24 HP.<br>Hollow Matriarch is preparing Crushing Blow.<br>Max has Guard queued as the next action.</div></aside>
+</main>
+<script>
+(()=>{
+ const byId=id=>document.getElementById(id);
+ const log=byId('log-drawer'), toggle=byId('log-toggle');
+ function setLog(open){log.classList.toggle('open',open);log.setAttribute('aria-hidden',String(!open));toggle.setAttribute('aria-expanded',String(open));toggle.lastElementChild.textContent=open?'−':'＋';}
+ toggle.addEventListener('click',()=>setLog(!log.classList.contains('open')));
+ byId('log-close').addEventListener('click',()=>setLog(false));
+ document.querySelectorAll('.skill:not([disabled])').forEach(button=>button.addEventListener('click',()=>{byId('queued-action').textContent='Queued: '+button.dataset.skill+' · next action';}));
+ byId('auto').addEventListener('click',e=>{const on=e.currentTarget.getAttribute('aria-pressed')!=='true';e.currentTarget.setAttribute('aria-pressed',String(on));e.currentTarget.textContent=on?'AUTO ON':'AUTO OFF';});
+ let potions=2;byId('potion').addEventListener('click',()=>{if(!potions)return;potions--;byId('potion').querySelector('.count').textContent=String(potions);if(!potions)byId('potion').disabled=true;});
+ window.mockup={setState(state={}){
+   const assign=(id,value)=>{if(value!==undefined)byId(id).textContent=String(value)};
+   assign('feedback',state.feedback);assign('telegraph-name',state.telegraph);assign('telegraph-target',state.target);assign('telegraph-time',state.time);assign('queued-action',state.queued);
+ }};
+})();
+</script>
+</body>
+</html>
