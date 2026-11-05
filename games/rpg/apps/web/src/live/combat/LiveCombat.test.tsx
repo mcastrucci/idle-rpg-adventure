@@ -103,6 +103,26 @@ describe('LiveCombat', () => {
     expect(css).toContain('transition: none');
   });
 
+  it('keeps the warning region mounted as attacks begin and resolve', () => {
+    const active = view();
+    const combat = active.combat;
+    if (!combat) throw new Error('Expected combat in fixture');
+    const idle = { ...active, combat: { ...combat, actors: combat.actors.map((actor) => ({ ...actor, windup: null })) } };
+    const { container, props, rerender } = renderCombat({ snapshot: idle });
+    const warnings = container.querySelector('.live-combat__telegraphs');
+    const controls = container.querySelector('.live-combat__controls');
+    expect(warnings?.nextElementSibling).toBe(controls);
+    expect(warnings?.childElementCount).toBe(0);
+
+    rerender(<LiveCombat {...props} view={active} />);
+    expect(warnings?.querySelector('[role="status"]')).toBeTruthy();
+    expect(warnings?.nextElementSibling).toBe(controls);
+
+    rerender(<LiveCombat {...props} view={idle} />);
+    expect(warnings?.childElementCount).toBe(0);
+    expect(warnings?.nextElementSibling).toBe(controls);
+  });
+
   it('renders compact party frames with a clear own-hero marker and accessible authoritative HP', () => {
     const base = view() as unknown as { combat: { actors: Array<Record<string, unknown>> } };
     const party = [actorId, '2b6f4d1e-8f43-4f1c-9a52-1d6a2f7c9e11', '3b6f4d1e-8f43-4f1c-9a52-1d6a2f7c9e12', '4b6f4d1e-8f43-4f1c-9a52-1d6a2f7c9e13'];

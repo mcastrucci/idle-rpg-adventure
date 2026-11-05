@@ -101,28 +101,21 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, connectio
       </span>
     </header>
 
-    {windups.map((actor) => {
-      const windup = actor.windup;
-      if (!windup) return null;
-      const remaining = Math.max(0, windup.resolveAtTick - combat.tick);
-      const targets = windup.targetIds.map((id) => {
-        const target = actors.find((candidate) => candidate.id === id);
-        return target ? actorLabel(target, actorId) : null;
-      }).filter((name): name is string => name !== null);
-      return <aside className="live-combat__telegraph" key={actor.id} role="status" aria-live="polite">
-        <strong>{t('ui.combat.winding_up', { actor: actorLabel(actor, actorId), skill: displayLabel(windup.skillLabelKey ?? windup.skill) })}</strong>
-        <span>{t('ui.combat.resolves', { ticks: t('ui.unit.ticks', { count: remaining }) })}</span>
-        {targets.length > 0 && <span>{t('ui.combat.targets', { targets: targets.join(', ') })}</span>}
-      </aside>;
-    })}
-
-    <div className="live-combat__frames" role="group" aria-label={t('ui.combat.combatants')}>
-      {(['hero', 'enemy'] as const).map((side) => <div className="live-combat__side" key={side}>
-        <h3>{side === 'hero' ? t('ui.combat.party') : t('ui.combat.enemies')}</h3>
-        <div className={`live-combat__actor-grid live-combat__actor-grid--${side}`}>
-          {actors.filter((actor) => actor.side === side).map((actor) => <ActorCard key={actor.id} actor={actor} actorId={actorId} />)}
-        </div>
-      </div>)}
+    <div className="live-combat__telegraphs">
+      {windups.map((actor) => {
+        const windup = actor.windup;
+        if (!windup) return null;
+        const remaining = Math.max(0, windup.resolveAtTick - combat.tick);
+        const targets = windup.targetIds.map((id) => {
+          const target = actors.find((candidate) => candidate.id === id);
+          return target ? actorLabel(target, actorId) : null;
+        }).filter((name): name is string => name !== null);
+        return <aside className="live-combat__telegraph" key={actor.id} role="status" aria-live="polite">
+          <strong>{t('ui.combat.winding_up', { actor: actorLabel(actor, actorId), skill: displayLabel(windup.skillLabelKey ?? windup.skill) })}</strong>
+          <span>{t('ui.combat.resolves', { ticks: t('ui.unit.ticks', { count: remaining }) })}</span>
+          {targets.length > 0 && <span>{t('ui.combat.targets', { targets: targets.join(', ') })}</span>}
+        </aside>;
+      })}
     </div>
 
     <div className="live-combat__controls">
@@ -175,6 +168,15 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, connectio
         </p>
       </div>
       <p className="live-combat__timing">{t('ui.combat.timing')}</p>
+    </div>
+
+    <div className="live-combat__frames" role="group" aria-label={t('ui.combat.combatants')}>
+      {(['hero', 'enemy'] as const).map((side) => <div className="live-combat__side" key={side}>
+        <h3>{side === 'hero' ? t('ui.combat.party') : t('ui.combat.enemies')}</h3>
+        <div className={`live-combat__actor-grid live-combat__actor-grid--${side}`}>
+          {actors.filter((actor) => actor.side === side).map((actor) => <ActorCard key={actor.id} actor={actor} actorId={actorId} />)}
+        </div>
+      </div>)}
     </div>
 
     <div className="live-combat__log">
