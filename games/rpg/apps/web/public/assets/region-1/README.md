@@ -6,7 +6,7 @@ Entrega de arte tras la aprobación de estilo de Claro del Portal, Terrazas de R
 
 - Todos los fondos son **1086×1448 nativos, relación 3:4**, sin escalado ni recorte al exportar.
 - `backgrounds/webp/`: **WebP con pérdida, calidad 85**, método 6.
-- `backgrounds/source/`: **PNG nativos originales** sin modificar.
+- **PNG nativos originales** sin modificar: ya no viven en `public/` (se copia tal cual al build y a la imagen Docker). Están en `games/rpg/art/region-1/backgrounds/source/`. Un guard (`pnpm test`) falla si un PNG fuente o un WebP de más de 600 KB vuelve a `public/`.
 - Los **8 fondos nuevos** pesan entre **273.638 y 427.380 bytes**, todos por debajo de **450.000 bytes**. Los tres fondos aprobados también están incluidos con la nueva exportación: Claro 394.760 bytes, Corazón 415.500 bytes y Terrazas 513.452 bytes. Este último conserva el PNG aprobado y Q85; no se alteró su arte para forzar el objetivo de los fondos nuevos.
 - Cada fondo ocupa unos **6 MiB RGBA8 en GPU sin mipmaps**, independientemente de su peso de descarga. No cargar los PNG fuente de sprites como texturas de juego.
 
@@ -36,14 +36,14 @@ No hay texto, flechas, iconos ni personajes incrustados en los fondos. Zonas pro
 
 - Una pose neutra y un único frame `*_idle` por atlas; sin animación esquelética ni frames de ataque/golpe/muerte. Esos movimientos se realizan después con tweens del sprite completo.
 - **512×512 RGBA8: 1 MiB por atlas sin mipmaps.** Los PNG pesan entre 140 y 317 KB. No hay fondos de damero pintados: alpha real verificado.
-- Los originales transparentes de 1254×1254 se conservan en `sprites/source/`. Solo los sprites se redujeron al atlas de entrega por vecino más próximo; los fondos no se escalaron.
+- Los originales transparentes de 1254×1254 se conservan en `games/rpg/art/region-1/sprites/source/`. Solo los sprites se redujeron al atlas de entrega por vecino más próximo; los fondos no se escalaron.
 - Max mira a la derecha y los enemigos a la izquierda. Max conserva el aspecto del concepto; no define un sistema de personalización ni cambia el equipo real del personaje.
 - La Matriarca es orgánica, nativa de la Fractura. Linterna Centinela y Labrador Oxidado son máquinas del Arca.
 - Los JSON contienen un único frame sin trim/rotación; pivote propuesto, pendiente de ajustar en la escena. La compatibilidad de carga y los tweens se deben probar en el proyecto PixiJS; no se implementaron aquí.
 
 ## Mockup con controles fijos
 
-- `mockup/fixed-combat-reference.png`: boceto actualizado. El arte y los textos dibujados son referencia visual, no componentes de UI reutilizables.
+- `docs/design/references/fixed-combat-reference.png` (movido fuera de `public/`): boceto actualizado. El arte y los textos dibujados son referencia visual, no componentes de UI reutilizables.
 - **Abrir `mockup/index.html` después de descomprimir el paquete.** Funciona sin dependencias ni red, usando los fondos y sprites relativos.
 - Baseline **360×780 CSS px**, filas reservadas para aviso de ataque, cola y feedback, habilidades 2×2 y poción/retirada siempre en sus filas. El log abre una capa superpuesta. Controles definidos con al menos 44 px de alto.
 - Solo Max tiene controles; los cuatro marcos de grupo son una representación de la futura fase 2. Retirada bloqueada en el jefe, poción activa, Cleave con enfriamiento de 4s.

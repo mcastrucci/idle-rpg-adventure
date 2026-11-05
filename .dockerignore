@@ -31,3 +31,7 @@ yarn-debug.log*
 *.db
 .DS_Store
 Thumbs.db
+
+# Native art sources and design references are not runtime assets (#160).
+games/rpg/art
+docs/design/references
