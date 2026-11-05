@@ -73,6 +73,21 @@ Scene-less content remains bundle format 1. A bundle with geometry is format 2 a
 covered by its canonical SHA-256 content hash. Runtime boot validates the format, geometry bounds, location references,
 and RPG entity parity before using the bundle.
 
+## Tappable regions in the live view (#154)
+
+When a location has scene geometry, the live view carries `scene: { width, height, regions: [{ id, kind, x, y, r }] }`.
+Coordinates are in the Tiled map's pixel space (`width` x `height` is the map size in pixels, origin top left). Each
+region is a circle around an exit or hotspot rect: its centre, and half of the larger side as radius. `kind` is `exit`
+or `hotspot`, and `id` is the exit or hotspot ID of `exits[]` / `hotspots[]`, which carry the open/done state. The server
+lists only exits and hotspots the viewer can currently see, so an undiscovered secret exit has no region. Resources and
+enemy anchors are not sent.
+
+The web client scales this space onto the background art (per axis: art size divided by map size), so a map authored at
+the art's native size (for example 1086 x 1448) maps one to one. If the map is smaller or larger than the art, author it
+with the same aspect ratio. The renderer keeps at least a 44 px tap target. Region 1 has DRAFT scene geometry (#168) under
+`content/scenes/region_1/`, awaiting owner verification; each `.tmj` references a copy of its background WebP next to it,
+because the importer only accepts images inside the content root. `seed_vault_heart` has no exits or hotspots, so no scene.
+
 ## Validation boundary
 
 `content-cli validate` and `content-cli build` perform the local map and entity checks. Art size, texture memory,

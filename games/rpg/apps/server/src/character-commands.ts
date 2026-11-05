@@ -30,7 +30,8 @@ function json(value: unknown): JsonValue { return JSON.parse(JSON.stringify(valu
 
 /** Both HTTP and WS dispatch here. Authorization runs even on replays; busy checks only run for new mutations. */
 export async function executeCharacterCommand(context: ModuleContext, accountId: string, command: CommandEnvelope,
-  seedSource?: () => number, settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies): Promise<CommandResponse> {
+  seedSource?: () => number, settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies,
+  exposeTechnicalAreas = false): Promise<CommandResponse> {
   if ((command.operation as string) === 'expedition.start') {
     let parsedWire: ReturnType<typeof parseExpeditionStartPayload>;
     try { parsedWire = parseExpeditionStartPayload(command.payload); }
@@ -38,7 +39,7 @@ export async function executeCharacterCommand(context: ModuleContext, accountId:
     const payload = ExpeditionStart.parse(parsedWire);
     await context.database.db.transaction(tx => requireOwnedActor(tx, payload.actorId, accountId, 'rpg'));
     return runCommand(context.database, context.clock, accountId, { ...command, payload: json(payload) }, async tx => ({
-      status: 201, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).start(accountId, payload)),
+      status: 201, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies, exposeTechnicalAreas).start(accountId, payload)),
     }));
   }
   if (command.operation === 'inventory.equip' || command.operation === 'inventory.unequip' || command.operation === 'inventory.move' || command.operation === 'inventory.buy' || command.operation === 'inventory.sellMaterial' || command.operation === 'inventory.claimStarterKit') {
@@ -73,7 +74,7 @@ export async function executeCharacterCommand(context: ModuleContext, accountId:
     if (!expedition || expedition.accountId !== accountId) throw new ActorError('not_found', 404);
     await context.database.db.transaction(tx => requireOwnedActor(tx, expedition.actorId, accountId, 'rpg'));
     return runCommand(context.database, context.clock, accountId, { ...command, payload: json(payload) }, async tx => ({
-      status: 200, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).cancel(accountId, payload.expeditionId)),
+      status: 200, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies, exposeTechnicalAreas).cancel(accountId, payload.expeditionId)),
     }));
   }
   if ((command.operation as string) === 'expedition.recoverUnavailable') {
@@ -85,7 +86,7 @@ export async function executeCharacterCommand(context: ModuleContext, accountId:
     if (!expedition || expedition.accountId !== accountId) throw new ActorError('not_found', 404);
     await context.database.db.transaction(tx => requireOwnedActor(tx, expedition.actorId, accountId, 'rpg'));
     return runCommand(context.database, context.clock, accountId, { ...command, payload: json(payload) }, async tx => ({
-      status: 200, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).recoverUnavailable(accountId, payload.expeditionId)),
+      status: 200, body: json(await createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies, exposeTechnicalAreas).recoverUnavailable(accountId, payload.expeditionId)),
     }));
   }
   if (command.operation === 'character.create') {
@@ -117,12 +118,12 @@ export function publicCommandError(error: unknown): CommandResponse | null {
 
 /** Credentials never enter a frame, fingerprint or retained command result. */
 export async function executeCharacterSocketCommand(context: ModuleContext, accountId: string, wire: unknown, seedSource?: () => number,
-  settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies) {
+  settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies, exposeTechnicalAreas = false) {
   let command: CommandEnvelope;
   try { command = parseCommandEnvelope(wire); }
   catch { return { type: 'error', error: 'invalid_command' }; }
   let response: CommandResponse;
-  try { response = await executeCharacterCommand(context, accountId, command, seedSource, settlementPolicies); }
+  try { response = await executeCharacterCommand(context, accountId, command, seedSource, settlementPolicies, exposeTechnicalAreas); }
   catch (error) {
     const known = publicCommandError(error);
     if (!known) throw error;

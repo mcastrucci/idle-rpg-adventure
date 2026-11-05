@@ -30,6 +30,7 @@ import { projectExpeditionResultReport } from './report.ts';
 import { findSettlementPolicy, settlementSimulator, supportedSettlementPolicies } from './policy.ts';
 import type { SettlementPolicy } from './policy.ts';
 import { readRpgEvalContext } from './progress.ts';
+import { hiddenTechnicalAreaIds } from '../world/access.ts';
 
 const SETTLE_JOB = 'rpg.expedition.settle';
 const ESCROW_ACTIVITY = (id: string) => ({ state: 'expedition' as const, id });
@@ -194,7 +195,9 @@ export async function readStartSnapshot(tx: ActorTransaction, actorId: string, c
  */
 export function gateStart(content: LoadedContent, request: { areaId: string; activityId: string; durationMin: number; paceBp: number },
   rawConfig: unknown, snapshot: RpgActorSnapshot, context: Awaited<ReturnType<typeof readRpgEvalContext>>,
-  beforeCheck: (simulator: { id: string; version: string }) => void = () => {}) {
+  beforeCheck: (simulator: { id: string; version: string }) => void = () => {}, exposeTechnicalAreas = false) {
+  // Technical seed areas are indistinguishable from unknown areas unless the debug tools are enabled (#156).
+  if (hiddenTechnicalAreaIds(content, exposeTechnicalAreas).has(request.areaId)) throw new ExpeditionError('start.unknownArea', 400);
   const world = parseWorld(content);
   const registry = simulators(content);
   const simulator = registry.get(request.activityId);
@@ -222,7 +225,7 @@ async function loadCharacter(tx: ActorTransaction, actorId: string, accountId: s
 /** Transactional RPG composition of checkStart, ledger escrow, deterministic simulation and a durable settle wake-up. */
 export function createExpeditionService(tx: ActorTransaction, clock: Clock, content: LoadedContent,
   seedSource: () => number = () => randomBytes(4).readUInt32BE(0),
-  settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies) {
+  settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies, exposeTechnicalAreas = false) {
   return {
     async options(accountId: string, actorId: string) {
       const world = parseWorld(content);
@@ -233,7 +236,8 @@ export function createExpeditionService(tx: ActorTransaction, clock: Clock, cont
       const holdings = await getHoldings(tx, actorId);
       const snapshot = snapshotRpgActor(character, holdings, content);
       const context = await readRpgEvalContext(tx, actorId, character.level, holdings);
-      const areas = world.areas.flatMap(area => {
+      const technical = hiddenTechnicalAreaIds(content, exposeTechnicalAreas);
+      const areas = world.areas.filter(area => !technical.has(area.id)).flatMap(area => {
         const activities = (area.activities ?? []).flatMap(activityId => {
           const sim = registry.get(activityId);
           if (!sim) return [];
@@ -261,7 +265,7 @@ export function createExpeditionService(tx: ActorTransaction, clock: Clock, cont
         if (!findSettlementPolicy(settlementPolicies, KERNEL_VERSION, sim.id, sim.version)) {
           throw new ExpeditionError('expedition_settlement_policy_unavailable', 503);
         }
-      });
+      }, exposeTechnicalAreas);
 
       const nowMs = clock.nowMs();
       if (!Number.isSafeInteger(nowMs) || nowMs < 0) throw new Error('invalid expedition clock');

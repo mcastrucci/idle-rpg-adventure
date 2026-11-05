@@ -11,13 +11,14 @@ import { createExpeditionService } from '../expeditions/service.ts';
 import { readRpgEvalContext } from '../expeditions/progress.ts';
 import { characters } from '../characters/schema.ts';
 import { publicCommandError } from '../character-commands.ts';
-import { computeRpgWorldView, getRpgLiveStartAreas } from './access.ts';
+import { computeRpgWorldView, getRpgLiveStartAreas, hiddenTechnicalAreaIds } from './access.ts';
 
 const ActorParams = z.strictObject({ actorId: z.uuid().transform(id => id.toLowerCase()) });
 const GENERIC_BOSS_LABEL = 'Mandatory boss';
 
 /** Owner-scoped, read-only world map. Requirements and hidden content are evaluated on the server and never serialized. */
-export const worldModule: ServerModule = {
+export function createWorldModule(exposeTechnicalAreas = false): ServerModule {
+ return {
   name: 'world', roles: ['api'],
   async register(app, context) {
     app.addHook('onRequest', async (request, reply) => {
@@ -45,8 +46,9 @@ export const worldModule: ServerModule = {
             return [area.id, area] as const;
           }));
           const engineView = computeRpgWorldView(context.content, evalContext);
-          const liveStartIds = new Set(getRpgLiveStartAreas(context.content).map(area => area.id));
-          const visibleAreas = engineView.areas.filter(area => area.kind !== 'hub' && area.visibility !== 'hidden');
+          const liveStartIds = new Set(getRpgLiveStartAreas(context.content, exposeTechnicalAreas).map(area => area.id));
+          const technical = hiddenTechnicalAreaIds(context.content, exposeTechnicalAreas);
+          const visibleAreas = engineView.areas.filter(area => area.kind !== 'hub' && area.visibility !== 'hidden' && !technical.has(area.id));
           const knownAreaIds = new Set([...visibleAreas.map(area => area.id), ...world.areas.filter(area => area.kind === 'hub').map(area => area.id)]);
           const hub = world.areas.find(area => area.kind === 'hub');
           if (!hub) throw new Error('RPG world has no hub');
@@ -55,7 +57,7 @@ export const worldModule: ServerModule = {
 
           // The existing idle-options service owns activity/completion validation. This projection copies only
           // available public activity IDs; it does not reproduce the start gate or return its economy data.
-          const idleOptions = await createExpeditionService(tx, context.clock, context.content).options(accountId, actorId);
+          const idleOptions = await createExpeditionService(tx, context.clock, context.content, undefined, undefined, exposeTechnicalAreas).options(accountId, actorId);
           const idleByArea = new Map(idleOptions.areas.map(area => [area.areaId, area.activities.filter(activity => activity.available).map(activity => activity.activityId)]));
           const free = owner.activityState === 'none';
           const dto = {
@@ -104,6 +106,7 @@ export const worldModule: ServerModule = {
     });
   },
 };
+}
 
 function publicLabel(entity: { readonly id: string; readonly nameKey?: string | undefined }): string {
   return entity.nameKey ?? entity.id;

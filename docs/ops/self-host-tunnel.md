@@ -154,11 +154,70 @@ A quick tunnel gets a new random hostname each time `cloudflared` starts. After 
 2. `docker compose up -d server` (recreates the container with the new value).
 
 Browser storage is per origin, so a new hostname is a new site: the phone starts a **new guest account** and the old
-characters stay in the database but are unreachable from that device. For a stable address use a **named tunnel** with a
-domain on your Cloudflare account (`cloudflared tunnel login`, `cloudflared tunnel create <name>`,
-`cloudflared tunnel route dns <name> game.example.com`, and an ingress rule `service: http://127.0.0.1:3000`; see the
-Cloudflare Tunnel documentation). Then `ALLOWED_ORIGINS=https://game.example.com` never changes and saved progress
-survives restarts.
+characters stay in the database but are unreachable from that device. For a stable address use a named tunnel on your
+own domain; see [Stable URL for playtests (named tunnel)](#stable-url-for-playtests-named-tunnel) below.
+
+## Stable URL for playtests (named tunnel)
+
+A named tunnel keeps the same hostname (for example `https://game.example.com`) across restarts, so `ALLOWED_ORIGINS`
+never changes and the testers' guest accounts and progress survive restarts of the tunnel, the server and the PC.
+
+Prerequisites:
+- A domain whose DNS is managed by your Cloudflare account (free plan is enough) and a hostname you can dedicate to
+  the game (`game.example.com`).
+- `cloudflared` installed (section 1) and the Docker setup working with the quick tunnel.
+
+One-time setup (any terminal; this writes into your own `~/.cloudflared`, `%USERPROFILE%\.cloudflared` on Windows):
+
+```
+cloudflared tunnel login
+cloudflared tunnel create idle-rpg
+cloudflared tunnel route dns idle-rpg game.example.com
+```
+
+Start the game on the stable URL (from the repository root):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\selfhost\up.ps1 -Hostname game.example.com
+```
+
+```bash
+scripts/selfhost/up.sh --hostname game.example.com
+make selfhost-named HOST=game.example.com            # same as up.sh --staging --hostname ...; add TUNNEL=<name> if not idle-rpg
+```
+
+Use `-TunnelName <name>` / `--tunnel-name <name>` (default `idle-rpg`) if you created the tunnel under another name;
+`-Update` / `--update` work as before. `down.ps1` / `down.sh` stop it by process ID, exactly like the quick tunnel.
+
+What the script does differently from the quick tunnel:
+- Looks the tunnel up with `cloudflared tunnel list --output json` and fails with the one-time setup commands if it
+  does not exist or its credentials file `~/.cloudflared/<tunnel-id>.json` is missing.
+- Writes `.selfhost/cloudflared-named.yml` (git-ignored) with the tunnel name, the credentials file and the ingress
+  rules `hostname -> http://127.0.0.1:3000` plus a catch-all `http_status:404`, and runs
+  `cloudflared tunnel --config .selfhost/cloudflared-named.yml run <name>` in the background. Your own
+  `~/.cloudflared/config.yml` is never read or modified.
+- Writes `ALLOWED_ORIGINS=https://<hostname>` and `TRUST_PROXY=loopback,uniquelocal` into `.env` (other keys are kept).
+- Waits for `http://127.0.0.1:3000/health/ready`, then tries `https://<hostname>/health/ready` for up to 60 s. A failure
+  there is only a warning: DNS for a new route can lag.
+
+Staging or not: staging enables the debug panel (time travel, grants, progression) for **every** authenticated account.
+For external testers, do **not** use staging: run `up.ps1 -Hostname ...` or `up.sh --hostname ...` without the
+`--staging` flag (so not `make selfhost-named`, which is the staging variant for your own devices and trusted testers).
+
+Security notes (see also the notes in section 4):
+- The hostname is public: anyone who learns it can open the game and create guest accounts. Share it only with the
+  testers, and stop the tunnel when the playtest ends. Cloudflare Access (an allow-list in front of the hostname) is an
+  option if you need real restriction.
+- `TRUST_PROXY=loopback,uniquelocal` is safe here only because the server port is published on `127.0.0.1` and the only
+  way in is the tunnel. Do not publish port 3000 on other interfaces.
+- `ALLOWED_ORIGINS` contains exactly the one https origin you control; no wildcards.
+- The tunnel credentials file (`~/.cloudflared/<tunnel-id>.json`) lets anyone run your tunnel: keep it private and never
+  commit or copy it into the repository.
+- The database credentials are still the development defaults; see section 4.
+
+The PC must stay on, awake, online and running Docker Desktop for the whole playtest. When it is off the hostname answers
+with a Cloudflare error (1033) and testers cannot play; their progress is safe in the database and comes back when
+you start it again.
 
 ## 6. Optional: staging mode with debug tools
 

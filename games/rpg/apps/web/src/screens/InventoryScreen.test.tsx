@@ -8,6 +8,7 @@ import type { ApiClient } from '../api/http.ts';
 import { CommandUnconfirmedError } from '../api/commands.ts';
 import type { CommandRequest } from '../api/commands.ts';
 import type { CharacterDto } from '../api/types.ts';
+import { setLocale } from '../i18n/index.ts';
 import { InventoryScreen } from './InventoryScreen.tsx';
 
 const ACTOR = '0b6f4d1e-8f43-4f1c-9a52-1d6a2f7c9e10';
@@ -584,6 +585,40 @@ describe('InventoryScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Refresh state' }));
     await waitFor(() => expect(api.request).toHaveBeenCalledTimes(4));
     expect(requests).toHaveLength(1);
+  });
+
+  it('shows a translated error for failed inventory and merchant reads instead of the raw ApiError message', async () => {
+    for (const [locale, notFound, generic] of [
+      ['en', /Could not load inventory \(Not found\.\)/, 'unknown error'],
+      ['es', /No se pudo cargar inventario \(No se encontró\.\)/, 'error desconocido'],
+    ] as const) {
+      setLocale(locale, { persist: false });
+      const { view } = harness({ inventoryRead: async () => { throw new ApiError(404, 'not_found'); } });
+      const { unmount } = view();
+      expect((await screen.findAllByRole('alert')).map((node) => node.textContent).join(' ')).toMatch(notFound);
+      expect(document.body.textContent).not.toContain('404 not_found');
+      unmount();
+      const failing = harness({ inventoryRead: async () => { throw new Error('socket hang up'); } });
+      const second = failing.view();
+      expect((await screen.findAllByRole('alert'))[0]?.textContent).toContain(generic);
+      expect(document.body.textContent).not.toContain('socket hang up');
+      second.unmount();
+    }
+  });
+
+  it('names the gating area in the merchant lock notice, in both languages', async () => {
+    const locked: MerchantCatalogDto = { merchants: [{ id: 'merchant:sanctuary', offers: [
+      { id: 'offer:healing_potion', item: 'item:healing_potion', buyPrice: { currency: 'gold', amount: 40 }, stock: 'infinite', requiresCompletedArea: 'area:region_1' },
+    ] }] };
+    for (const [locale, text] of [['en', 'Clear The Verdant Hollow to unlock these merchant offers.'], ['es', 'Conquista La Hondonada Verde para desbloquear las ofertas de estos mercaderes.']] as const) {
+      setLocale(locale, { persist: false });
+      const { view } = harness({ merchant: locked });
+      const { unmount } = view();
+      fireEvent.click(screen.getByRole('button', { name: locale === 'en' ? 'Merchant' : 'Mercader' }));
+      expect(await screen.findByText(text)).toBeDefined();
+      expect(document.body.textContent).not.toMatch(/Region 1|Región 1/);
+      unmount();
+    }
   });
 
   it('refreshes after a server conflict and preserves the current server snapshot', async () => {

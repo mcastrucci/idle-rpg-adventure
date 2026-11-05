@@ -4,6 +4,7 @@
   "tags": [
     "secret"
   ],
+  "scene": "scenes/region_1/sunken_greenhouse.tmj",
   "exits": [
     {
       "id": "exit:region_1.sunken_greenhouse.lantern_ruins",

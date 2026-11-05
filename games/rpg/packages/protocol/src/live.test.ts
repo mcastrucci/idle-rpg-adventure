@@ -20,6 +20,22 @@ describe('live wire protocol', () => {
     ]) expect(() => parseLiveClientRequest(input)).toThrow();
   });
 
+  it('parses the optional scene geometry of a view and rejects malformed regions (#154)', () => {
+    const frame = (view: unknown) => ({ type: 'live.snapshot', instanceId, epoch: 1, seq: 0, view, participants: [] });
+    const scene = { width: 543, height: 724, regions: [{ id: 'exit:a', kind: 'exit', x: 10, y: 20, r: 30 }, { id: 'rune', kind: 'hotspot', x: 543, y: 0, r: 4.5 }] };
+    expect(parseLiveServerFrame(frame({ phase: 'exploring' }))).toMatchObject({ view: { phase: 'exploring' } }); // old snapshots have no scene
+    expect(parseLiveServerFrame(frame({ phase: 'exploring', scene }))).toMatchObject({ view: { scene } });
+    expect(parseLiveServerFrame(frame({ scene: { width: 1, height: 1, regions: [] } }))).toMatchObject({ view: { scene: { regions: [] } } });
+    expect(parseLiveCurrent({ current: { instanceId, actorId, view: { scene }, participants: [] } }).current?.view.scene).toEqual(scene);
+    const region = { id: 'exit:a', kind: 'exit', x: 1, y: 1, r: 1 };
+    for (const bad of [
+      { ...scene, extra: true }, { ...scene, width: 0 }, { ...scene, height: 1.5 }, { width: 5 }, { ...scene, regions: 'x' },
+      { ...scene, regions: [{ ...region, kind: 'resource' }] }, { ...scene, regions: [{ ...region, r: 0 }] }, { ...scene, regions: [{ ...region, x: -1 }] },
+      { ...scene, regions: [{ ...region, x: Number.NaN }] }, { ...scene, regions: [{ ...region, y: 725 }] }, { ...scene, regions: [{ ...region, id: '' }] },
+      { ...scene, regions: [{ ...region, extra: 1 }] }, { ...scene, regions: [region, region] },
+    ]) expect(() => parseLiveServerFrame(frame({ scene: bad }))).toThrow();
+  });
+
   it('parses snapshots and event envelopes while limiting views to public fields', () => {
     const snapshot = { type: 'live.snapshot', instanceId, epoch: 2, seq: 8,
       view: { phase: 'exploring', heroes: [], runBag: [{ actorId, items: [{ item: 'item:herb', qty: 2 }], gold: 3 }] },

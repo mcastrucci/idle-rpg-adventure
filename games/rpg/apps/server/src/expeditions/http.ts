@@ -16,7 +16,7 @@ const ExpeditionParams = z.strictObject({ expeditionId: z.uuid().transform(id =>
 
 /** HTTP and WS command operations share the command dispatcher and idempotency ledger. */
 export function createExpeditionModule(seedSource?: () => number, settlementPolicies: readonly SettlementPolicy[] = supportedSettlementPolicies,
-  estimateOptions: EstimateServiceOptions = {}): ServerModule {
+  estimateOptions: EstimateServiceOptions = {}, exposeTechnicalAreas = false): ServerModule {
 return {
   name: 'expeditions', roles: ['api'],
   async register(app, context) {
@@ -24,7 +24,7 @@ return {
       reply.header('cache-control', 'no-store');
       checkOrigin(request, context.allowedOrigins);
     });
-    const estimates = createEstimateService(context.content, estimateOptions);
+    const estimates = createEstimateService(context.content, { ...estimateOptions, exposeTechnicalAreas });
     app.addHook('onClose', async () => { await estimates.close(); });
     // Read-only Monte Carlo estimate of a candidate start (#53). Not a command: it changes nothing, so it needs no
     // command id; the body carries only the request and config (no stats), parsed by the shared protocol.
@@ -46,7 +46,7 @@ return {
       const { accountId } = await requireAccount(request, context);
       const { expeditionId } = ExpeditionParams.parse(request.params);
       try {
-        return await context.database.db.transaction(tx => createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).get(accountId, expeditionId));
+        return await context.database.db.transaction(tx => createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies, exposeTechnicalAreas).get(accountId, expeditionId));
       } catch (error) {
         const known = publicCommandError(error);
         if (known) return reply.code(known.status).send(known.body);
@@ -57,7 +57,7 @@ return {
       const { accountId } = await requireAccount(request, context);
       const { actorId } = ActorParams.parse(request.params);
       try {
-        return await context.database.db.transaction(tx => createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).list(accountId, actorId));
+        return await context.database.db.transaction(tx => createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies, exposeTechnicalAreas).list(accountId, actorId));
       } catch (error) {
         const known = publicCommandError(error);
         if (known) return reply.code(known.status).send(known.body);
@@ -68,7 +68,7 @@ return {
       const { accountId } = await requireAccount(request, context);
       const { actorId } = ActorParams.parse(request.params);
       try {
-        return await context.database.db.transaction(tx => createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies).options(accountId, actorId));
+        return await context.database.db.transaction(tx => createExpeditionService(tx, context.clock, context.content, seedSource, settlementPolicies, exposeTechnicalAreas).options(accountId, actorId));
       } catch (error) {
         const known = publicCommandError(error);
         if (known) return reply.code(known.status).send(known.body);
@@ -79,7 +79,7 @@ return {
       const { accountId } = await requireAccount(request, context);
       const command = parseGameCommand(request.body);
       if ((command.operation as string) !== 'expedition.start') return reply.code(400).send({ error: 'operation_route_mismatch' });
-      const response = await executeCharacterCommand(context, accountId, command, seedSource, settlementPolicies);
+      const response = await executeCharacterCommand(context, accountId, command, seedSource, settlementPolicies, exposeTechnicalAreas);
       return reply.code(response.status).send(response.body);
     });
     app.post('/expeditions/:expeditionId/cancel', { bodyLimit: 70 * 1024 }, async (request, reply) => {
@@ -89,7 +89,7 @@ return {
       if ((command.operation as string) !== 'expedition.cancel') return reply.code(400).send({ error: 'operation_route_mismatch' });
       const payload = command.payload as Record<string, unknown>;
       if (typeof payload['expeditionId'] !== 'string' || payload['expeditionId'].toLowerCase() !== expeditionId) return reply.code(400).send({ error: 'operation_route_mismatch' });
-      const response = await executeCharacterCommand(context, accountId, command, seedSource, settlementPolicies);
+      const response = await executeCharacterCommand(context, accountId, command, seedSource, settlementPolicies, exposeTechnicalAreas);
       return reply.code(response.status).send(response.body);
     });
     app.post('/expeditions/:expeditionId/recover-unavailable', { bodyLimit: 70 * 1024 }, async (request, reply) => {
@@ -99,7 +99,7 @@ return {
       if ((command.operation as string) !== 'expedition.recoverUnavailable') return reply.code(400).send({ error: 'operation_route_mismatch' });
       const payload = command.payload as Record<string, unknown>;
       if (typeof payload['expeditionId'] !== 'string' || payload['expeditionId'].toLowerCase() !== expeditionId) return reply.code(400).send({ error: 'operation_route_mismatch' });
-      const response = await executeCharacterCommand(context, accountId, command, seedSource, settlementPolicies);
+      const response = await executeCharacterCommand(context, accountId, command, seedSource, settlementPolicies, exposeTechnicalAreas);
       return reply.code(response.status).send(response.body);
     });
     app.setErrorHandler((error: Error & { statusCode?: number; code?: string }, _request, reply) => {

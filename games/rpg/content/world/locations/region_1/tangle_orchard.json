@@ -4,6 +4,7 @@
   "tags": [
     "ordinary"
   ],
+  "scene": "scenes/region_1/tangle_orchard.tmj",
   "exits": [
     {
       "id": "exit:region_1.tangle_orchard.overgrown_causeway",

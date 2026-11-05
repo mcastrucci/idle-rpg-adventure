@@ -8,7 +8,7 @@ import type { CommandRequest } from '../api/commands.ts';
 import { CommandRejectedError, CommandUnconfirmedError } from '../api/commands.ts';
 import { itemDisplayName } from '../content/labels.ts';
 import { displayLabel } from '../content/labels.ts';
-import { t } from '../i18n/index.ts';
+import { errorText, t } from '../i18n/index.ts';
 import type { Params } from '../i18n/index.ts';
 import { buyInventoryCommand, claimStarterKitCommand, equipInventoryCommand, moveInventoryCommand, sellMaterialCommand, unequipInventoryCommand } from '../inventory/api.ts';
 import { useInventoryState } from './inventory/useInventoryState.ts';
@@ -189,7 +189,8 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
 
   const selectedDefinition = definitionFor(snapshot, selected);
   const merchantOffers = merchant?.merchants.flatMap((entry) => entry.offers.map((offer) => ({ ...offer, merchantName: fallbackName(entry.id) }))) ?? [];
-  const conquestLocked = Boolean(snapshot && merchantOffers.length && merchantOffers.every((offer) => offer.requiresCompletedArea && !snapshot.completedAreas.includes(offer.requiresCompletedArea)));
+  const lockingArea = snapshot && merchantOffers.length && merchantOffers.every((offer) => offer.requiresCompletedArea && !snapshot.completedAreas.includes(offer.requiresCompletedArea)) ? merchantOffers[0]?.requiresCompletedArea : undefined;
+  const conquestLocked = lockingArea !== undefined;
 
   return <section className="screen inventory-screen" aria-labelledby="inventory-title">
     <h1 id="inventory-title" className="screen__title">{t('ui.inventory.title')}</h1>
@@ -208,7 +209,7 @@ export function InventoryScreen({ character, canCommand, api, runCommand, refres
           <p className="muted">{t('ui.inventory.merchant_intro')}</p>
           {merchantLoading && <p className="muted" role="status">{t('ui.inventory.merchant_loading')}</p>}
           {merchantError && <div className="inventory-message" role="alert"><p>{t('ui.inventory.merchant_failed', { error: merchantError })}</p><button className="button button--secondary" type="button" onClick={() => void reloadMerchant().catch(() => undefined)}>{t('ui.common.retry')}</button></div>}
-          {conquestLocked && <p className="inventory-message" role="status">{t('ui.inventory.conquest_locked')}</p>}
+          {conquestLocked && <p className="inventory-message" role="status">{t('ui.inventory.conquest_locked', { area: displayLabel(lockingArea) })}</p>}
           {!merchantLoading && merchant && merchantOffers.length === 0 && <p className="muted">{t('ui.inventory.merchant_empty')}</p>}
           <div className="merchant-list">{merchantOffers.map((offer) => {
             const definition = snapshot?.catalog.items.find((item) => item.id === offer.item);
@@ -320,7 +321,7 @@ function characterGold(holdings: readonly InventoryHoldingDto[], snapshot: Inven
 }
 function validQuantity(value: number, maximum: number): boolean { return Number.isInteger(value) && value > 0 && value <= maximum; }
 function parseQuantity(value: string): number { const parsed = Number(value); return Number.isSafeInteger(parsed) ? parsed : 0; }
-function errorLabel(error: unknown): string { return error instanceof Error ? error.message : t('ui.common.unknown_error'); }
+const errorLabel = errorText;
 function commandError(error: unknown, operation: string): Notice {
   const code = error instanceof ApiError || error instanceof CommandRejectedError ? error.code : error instanceof Error ? error.message : 'unknown_error';
   if (code === 'busy') return errorNotice('ui.inventory.err_busy');

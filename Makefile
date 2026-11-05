@@ -1,12 +1,16 @@
 # Self-hosting shortcuts for Linux, macOS or WSL (see docs/ops/self-host-tunnel.md).
 # On Windows without make, use scripts/selfhost/up.ps1 and down.ps1 instead.
-.PHONY: selfhost selfhost-staging selfhost-update selfhost-down selfhost-logs
+.PHONY: selfhost selfhost-staging selfhost-named selfhost-update selfhost-down selfhost-logs
 
 selfhost: ## Start the game behind a Cloudflare quick tunnel
 	scripts/selfhost/up.sh
 
 selfhost-staging: ## Same, with the staging overlay and the debug panel
 	scripts/selfhost/up.sh --staging
+
+selfhost-named: ## Stable URL via a named tunnel: make selfhost-named HOST=game.example.com [TUNNEL=idle-rpg]
+	@test -n "$(HOST)" || { echo "usage: make selfhost-named HOST=game.example.com [TUNNEL=idle-rpg]" >&2; exit 2; }
+	scripts/selfhost/up.sh --staging --hostname $(HOST) $(if $(TUNNEL),--tunnel-name $(TUNNEL))
 
 selfhost-update: ## git pull, rebuild, migrate and start in staging mode
 	scripts/selfhost/up.sh --update --staging

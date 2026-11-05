@@ -6,7 +6,8 @@
 .live-combat__connection { flex: 0 0 auto; font-size: .78rem; }
 .live-combat__connection--offline { color: var(--warn); }
 .live-combat__connection--online { color: var(--ok); }
-.live-combat__telegraph { display: grid; gap: 4px; min-width: 0; padding: 11px 12px; border: 1px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); overflow-wrap: anywhere; }
+.live-combat__telegraphs { display: grid; align-content: start; gap: 6px; height: 80px; min-width: 0; overflow: auto; }
+.live-combat__telegraph { display: grid; gap: 2px; min-width: 0; padding: 6px 8px; border: 1px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); overflow-wrap: anywhere; }
 .live-combat__telegraph span { font-variant-numeric: tabular-nums; }
 .live-combat__frames { display: grid; gap: 10px; min-width: 0; }
 .live-combat__side { display: grid; gap: 7px; min-width: 0; }
@@ -29,26 +30,26 @@
 .live-combat__effects li { max-width: 100%; padding: 3px 7px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: .72rem; overflow-wrap: anywhere; }
 .live-combat__actor-queued, .live-combat__queued, .live-combat__pending, .live-combat__result, .live-combat__timing { font-size: .82rem; overflow-wrap: anywhere; }
 .live-combat__actor-queued { margin: 0; color: var(--accent); }
-.live-combat__feedback { display: grid; gap: 4px; min-width: 0; }
+.live-combat__feedback { display: grid; align-content: start; gap: 4px; min-width: 0; height: 4.5rem; overflow: auto; }
 .live-combat__feedback p { margin: 0; }
 .live-combat__timing { margin: 0; color: var(--muted); }
 .live-combat__controls { display: grid; gap: 9px; min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .live-combat__auto { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 2px; cursor: pointer; }
 .live-combat__auto input { width: 20px; height: 20px; accent-color: var(--accent); }
-.live-combat__skills { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; min-width: 0; }
+.live-combat__skills { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 5.25rem; gap: 7px; min-width: 0; }
 .live-combat__action, .live-combat__item, .live-combat__log-toggle { min-width: 0; min-height: 44px; padding: 8px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); color: var(--text); font: inherit; text-align: left; overflow-wrap: anywhere; }
-.live-combat__action { display: grid; align-content: start; gap: 3px; }
+.live-combat__action { display: grid; align-content: start; gap: 3px; height: 5.25rem; overflow: auto; }
 .live-combat__action > span { color: var(--muted); font-size: .72rem; }
 .live-combat__action strong { font-size: .88rem; line-height: 1.2; }
 .live-combat__action small { color: var(--muted); font-size: .72rem; line-height: 1.25; }
 .live-combat__action:disabled, .live-combat__item:disabled { opacity: .52; }
-.live-combat__items { display: grid; gap: 6px; min-width: 0; }
+.live-combat__items { display: grid; align-content: start; grid-auto-rows: 44px; gap: 6px; height: 94px; min-width: 0; overflow: auto; }
 .live-combat__item { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .live-combat__item span { flex: 0 0 auto; color: var(--muted); font-size: .78rem; }
 .live-combat__retreat { display: grid; gap: 4px; min-width: 0; }
 .live-combat__retreat-button { min-width: 0; min-height: 44px; padding: 8px 12px; border: 1px solid var(--danger); border-radius: 9px; background: color-mix(in srgb, var(--danger) 10%, var(--surface-2)); color: var(--text); font: inherit; font-weight: 700; overflow-wrap: anywhere; }
 .live-combat__retreat-button:disabled { opacity: .58; }
-.live-combat__retreat-reason { margin: 0; color: var(--muted); font-size: .78rem; overflow-wrap: anywhere; }
+.live-combat__retreat-reason { min-height: 2.5em; margin: 0; color: var(--muted); font-size: .78rem; overflow-wrap: anywhere; }
 .live-combat__log { min-width: 0; border-top: 1px solid var(--border); padding-top: 9px; }
 .live-combat__log-toggle { width: 100%; text-align: center; }
 .live-combat__log ol { display: grid; gap: 5px; max-height: 220px; overflow: auto; margin: 8px 0 0; padding-left: 24px; color: var(--muted); font-size: .82rem; overflow-wrap: anywhere; }

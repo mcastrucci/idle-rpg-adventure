@@ -256,8 +256,7 @@ describe.skipIf(!adminUrl)('live entry/current acceptance (real PostgreSQL)', ()
     expect(world.statusCode).toBe(200);
     expect(world.json<{ areas: Array<{ id: string; actions: { enterLive: boolean } }> }>().areas)
       .toContainEqual(expect.objectContaining({ id: SECOND_LIVE_AREA, actions: expect.objectContaining({ enterLive: true }) }));
-    expect(world.json<{ areas: Array<{ id: string; actions: { enterLive: boolean } }> }>().areas)
-      .toContainEqual(expect.objectContaining({ id: 'area:test_grove', actions: expect.objectContaining({ enterLive: false }) }));
+    expect(world.body).not.toContain('area:test_grove'); // technical seed areas are hidden from players (#156)
     const unlockedOptions = await n.app.inject({ method: 'GET', url: optionsUrl, headers: headers(session) });
     expect(unlockedOptions.json<{ areas: Array<{ id: string; startLocationId: string }> }>().areas)
       .toEqual(expect.arrayContaining([expect.objectContaining({ id: SECOND_LIVE_AREA, startLocationId: SECOND_LIVE_START })]));

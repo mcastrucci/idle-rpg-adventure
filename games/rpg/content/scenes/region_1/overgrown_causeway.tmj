@@ -1,0 +1,134 @@
+{
+  "type": "map",
+  "version": "1.11",
+  "tiledversion": "1.11.2",
+  "orientation": "orthogonal",
+  "renderorder": "right-down",
+  "width": 1086,
+  "height": 1448,
+  "tilewidth": 1,
+  "tileheight": 1,
+  "infinite": false,
+  "nextlayerid": 5,
+  "nextobjectid": 6,
+  "tilesets": [],
+  "layers": [
+    {
+      "id": 1,
+      "name": "background",
+      "type": "imagelayer",
+      "image": "overgrown_causeway.webp",
+      "imagewidth": 1086,
+      "imageheight": 1448,
+      "x": 0,
+      "y": 0,
+      "offsetx": 0,
+      "offsety": 0,
+      "opacity": 1,
+      "visible": true
+    },
+    {
+      "id": 2,
+      "name": "exits",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 1,
+          "name": "exit:region_1.overgrown_causeway.portal_clearing",
+          "type": "",
+          "x": 40,
+          "y": 330,
+          "width": 170,
+          "height": 140,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "name": "exit:region_1.overgrown_causeway.old_well",
+          "type": "",
+          "x": 490,
+          "y": 380,
+          "width": 190,
+          "height": 190,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        },
+        {
+          "id": 3,
+          "name": "exit:region_1.overgrown_causeway.tangle_orchard",
+          "type": "",
+          "x": 850,
+          "y": 440,
+          "width": 190,
+          "height": 180,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "hotspots",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 4,
+          "name": "fallen_sign",
+          "type": "",
+          "x": 760,
+          "y": 770,
+          "width": 220,
+          "height": 130,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "resources",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 5,
+          "name": "res:glowcap#0",
+          "type": "",
+          "x": 960,
+          "y": 880,
+          "width": 0,
+          "height": 0,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "point": true
+        }
+      ]
+    }
+  ]
+}

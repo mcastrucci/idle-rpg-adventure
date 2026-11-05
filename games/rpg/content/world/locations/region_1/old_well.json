@@ -4,6 +4,7 @@
   "tags": [
     "ordinary"
   ],
+  "scene": "scenes/region_1/old_well.tmj",
   "exits": [
     {
       "id": "exit:region_1.old_well.overgrown_causeway",

@@ -298,6 +298,49 @@ describe('RPG live plugin: combat', () => {
   });
 });
 
+describe('RPG live plugin: scene geometry (#154)', () => {
+  // The fixture below overrides the authored Region 1 geometry with simple rects over real lantern_ruins IDs (a secret exit, a flag hotspot).
+  const RUINS = R1('lantern_ruins');
+  const rect = (x: number, y: number) => ({ x, y, width: 40, height: 20 });
+  const sceneGame = createRpgLiveGame({ ...compiled.bundle, scenes: { [RUINS]: { width: 543, height: 724, background: 'scenes/region_1/lantern_ruins.png',
+    exits: { [EXIT('lantern_ruins', 'tangle_orchard')]: rect(0, 100), [EXIT('lantern_ruins', 'pump_station')]: rect(100, 100),
+      [EXIT('lantern_ruins', 'sunken_greenhouse')]: { x: 200, y: 301, width: 20, height: 41 } },
+    hotspots: { cracked_panel: rect(300, 400) }, enemyAnchors: {}, resources: { 'res:alloy_scrap#0': { x: 5, y: 5 } } } } });
+  const sceneOf = (view: unknown) => (view as { scene?: { width: number; height: number; regions: { id: string; kind: string; x: number; y: number; r: number }[] } }).scene;
+  const atRuins = () => run(region1(), ...TO_PUMP, travel(EXIT('pump_station', 'lantern_ruins')));
+
+  it('never sends a region for an undiscovered secret exit, and sends it once the hatch is found', () => {
+    const ruins = atRuins();
+    const before = sceneGame.view(ruins, HERO);
+    expect(sceneOf(before)).toEqual({ width: 543, height: 724, regions: [
+      { id: EXIT('lantern_ruins', 'tangle_orchard'), kind: 'exit', x: 20, y: 110, r: 20 },
+      { id: EXIT('lantern_ruins', 'pump_station'), kind: 'exit', x: 120, y: 110, r: 20 },
+      { id: 'cracked_panel', kind: 'hotspot', x: 320, y: 410, r: 20 }] });
+    expect(JSON.stringify(before)).not.toContain('sunken_greenhouse');
+    const searched = ok(sceneGame.applyCommand(ruins, HERO, { type: 'interact', hotspotId: 'cracked_panel' })).state;
+    const after = sceneGame.view(searched, HERO);
+    expect(sceneOf(after)?.regions.map((region) => region.id)).toContain(EXIT('lantern_ruins', 'sunken_greenhouse'));
+    expect(sceneOf(after)?.regions.find((region) => region.id === EXIT('lantern_ruins', 'sunken_greenhouse'))).toMatchObject({ x: 210, y: 322, r: 21 });
+    // Every region matches an exit or hotspot of the same view, whose state (open, done) the client reads from there.
+    const listed = new Set([...(after as { exits: { id: string }[] }).exits, ...(after as { hotspots: { id: string }[] }).hotspots].map((entry) => entry.id));
+    for (const region of sceneOf(after)?.regions ?? []) expect(listed.has(region.id)).toBe(true);
+  });
+
+  it('omits scene for locations without geometry and when the bundle has no scenes', () => {
+    const noScenes = createRpgLiveGame({ ...compiled.bundle, scenes: {} });
+    expect(sceneOf(sceneGame.view(region1(), HERO))).toBeUndefined();
+    expect(sceneOf(noScenes.view(atRuins(), HERO))).toBeUndefined();
+    expect('scene' in (noScenes.view(atRuins(), HERO) as object)).toBe(false);
+  });
+
+  it('sends the authored Region 1 geometry (#168), and still hides the secret exit region until the hatch is found', () => {
+    const view = sceneOf(game.view(atRuins(), HERO));
+    expect(view).toMatchObject({ width: 1086, height: 1448 });
+    const ids = view?.regions.map((region) => region.id);
+    expect(ids).toEqual([EXIT('lantern_ruins', 'tangle_orchard'), EXIT('lantern_ruins', 'pump_station'), 'cracked_panel']);
+  });
+});
+
 describe('RPG live plugin: exploration (#38)', () => {
   it('shows only the viewing actor their corpse hotspot at its exact location', () => {
     const state = init();

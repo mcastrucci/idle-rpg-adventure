@@ -3,9 +3,10 @@
   "roots": {
     "runtime": "games/rpg/apps/web/public/assets/region-1",
     "source": "games/rpg/art/region-1",
+    "art": "games/rpg/art/region-1",
     "repo": "."
   },
-  "notes": "Runtime files (webp, sprite png+json, previews, mockup html) are served from `runtime` and copied into the web build. Native source PNGs live outside public/ under `source`. Each path is relative to the root of its field: `webp`, `image`, `atlas`, `preview` and `mockup.html` to `runtime`; `source` to `source`; `mockup.raster` to `repo`.",
+  "notes": "Only runtime files (webp, sprite png+json, this manifest) live in public/ and are copied into the web build. Everything else (native source PNGs, previews, mockup html, generation.json, README) lives under `art`/`source`. Each path is relative to the root of its field: `webp`, `image` and `atlas` to `runtime`; `source`, `preview` and `mockup.html` to `art`; `mockup.raster` to `repo`.",
   "layout": {
     "artAspect": [
       3,

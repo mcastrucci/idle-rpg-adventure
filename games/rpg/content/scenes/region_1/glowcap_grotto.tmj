@@ -1,0 +1,123 @@
+{
+  "type": "map",
+  "version": "1.11",
+  "tiledversion": "1.11.2",
+  "orientation": "orthogonal",
+  "renderorder": "right-down",
+  "width": 1086,
+  "height": 1448,
+  "tilewidth": 1,
+  "tileheight": 1,
+  "infinite": false,
+  "nextlayerid": 5,
+  "nextobjectid": 5,
+  "tilesets": [],
+  "layers": [
+    {
+      "id": 1,
+      "name": "background",
+      "type": "imagelayer",
+      "image": "glowcap_grotto.webp",
+      "imagewidth": 1086,
+      "imageheight": 1448,
+      "x": 0,
+      "y": 0,
+      "offsetx": 0,
+      "offsety": 0,
+      "opacity": 1,
+      "visible": true
+    },
+    {
+      "id": 2,
+      "name": "exits",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 1,
+          "name": "exit:region_1.glowcap_grotto.old_well",
+          "type": "",
+          "x": 10,
+          "y": 410,
+          "width": 190,
+          "height": 190,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "hotspots",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 2,
+          "name": "mushroom_ring",
+          "type": "",
+          "x": 450,
+          "y": 470,
+          "width": 260,
+          "height": 130,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "resources",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 3,
+          "name": "res:glowcap#0",
+          "type": "",
+          "x": 350,
+          "y": 300,
+          "width": 0,
+          "height": 0,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "point": true
+        },
+        {
+          "id": 4,
+          "name": "res:glowcap#1",
+          "type": "",
+          "x": 960,
+          "y": 330,
+          "width": 0,
+          "height": 0,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "point": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { liveXpGainFromEvent } from '@rpg/protocol';
-import type { LiveBossRiskDto, LiveCurrentResponseDto, LiveJson, LiveOptionsDto, LiveStartRequestDto, LiveViewDto, LiveXpGainDto } from '@rpg/protocol';
+import type { LiveBossRiskDto, LiveCurrentResponseDto, LiveJson, LiveOptionsDto, LiveSceneDto, LiveStartRequestDto, LiveViewDto, LiveXpGainDto } from '@rpg/protocol';
 import type { ApiClient } from '../api/http.ts';
 import type { LiveConnection } from '../app/services.ts';
 import { currentLive, liveOptions, startLive } from '../live/api.ts';
@@ -48,6 +48,7 @@ type Snapshot = {
   readonly groups?: readonly { readonly id: string; readonly enemies: readonly string[]; readonly boss: boolean; readonly defeated: boolean }[];
   readonly exits?: readonly { readonly id: string; readonly to: string; readonly open: boolean; readonly reasons: readonly string[]; readonly bossRoom: boolean; readonly visited: boolean }[];
   readonly hotspots?: readonly { readonly id: string; readonly type: string; readonly textKey: string; readonly done: boolean }[];
+  readonly scene?: LiveSceneDto;
   readonly resources?: readonly { readonly nodeId: string; readonly resource: string; readonly gathered: boolean }[];
   readonly canReturn?: boolean;
   readonly runBag?: readonly { readonly actorId: string; readonly items: readonly { readonly item: string; readonly qty: number }[]; readonly gold: number; readonly uniques?: readonly { readonly itemId: string; readonly definition: string }[] }[];
@@ -335,6 +336,23 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, acti
   const exploring = view?.phase === 'exploring';
   const busy = (sessionState?.pendingCount ?? 0) > 0;
   const readyForActions = canCommand && Boolean(sessionState?.attached);
+  // One rule and one command per exit/hotspot, shared by its DOM button and its scene region (#154): the canvas only
+  // reports a tap, the server decides the result.
+  const exitEnabled = (exit: NonNullable<Snapshot['exits']>[number]) => readyForActions && !busy && exit.open && !(exit.bossRoom && exit.visited);
+  const hotspotEnabled = (hotspot: NonNullable<Snapshot['hotspots']>[number]) => readyForActions && !busy && !hotspot.done;
+  const activateExit = (exit: NonNullable<Snapshot['exits']>[number]) => { if (exit.bossRoom) requestBossRisk(exit.id); else submit({ type: 'travel', exitId: exit.id }); };
+  const activateHotspot = (hotspot: NonNullable<Snapshot['hotspots']>[number]) => submit({ type: 'interact', hotspotId: hotspot.id });
+  const regionEnabled = (kind: 'exit' | 'hotspot', id: string): boolean | undefined => {
+    if (!exploring) return false;
+    const exit = kind === 'exit' ? view?.exits?.find((candidate) => candidate.id === id) : undefined;
+    const hotspot = kind === 'hotspot' ? view?.hotspots?.find((candidate) => candidate.id === id) : undefined;
+    return exit ? exitEnabled(exit) : hotspot ? hotspotEnabled(hotspot) : undefined;
+  };
+  const onRegionTap = (kind: 'exit' | 'hotspot', id: string) => {
+    if (!regionEnabled(kind, id)) return;
+    if (kind === 'exit') { const exit = view?.exits?.find((candidate) => candidate.id === id); if (exit) activateExit(exit); }
+    else { const hotspot = view?.hotspots?.find((candidate) => candidate.id === id); if (hotspot) activateHotspot(hotspot); }
+  };
   const combatConnection = sessionState?.attached ? sessionState.connection
     : live.state.status === 'open' ? { ...live.state, status: 'connecting' as const } : live.state;
   const combatPanel = view?.phase === 'combat' && <LiveCombat view={authoritativeView ?? {}} events={combatEvents}
@@ -370,7 +388,7 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, acti
           <h2 id="live-scene-title">{view.location ? displayLabel(view.location) : t('ui.live.current_location')}</h2>
           <p className="live-scene__area">{t('ui.live.area', { area: view.area ? displayLabel(view.area) : t('ui.live.unknown') })}</p>
           <div className="matriarch-scene-frame">
-            <SceneViewport locationId={view.location} />
+            <SceneViewport locationId={view.location} scene={view.scene} regionEnabled={regionEnabled} onRegionTap={onRegionTap} />
             {matriarchRoom && <MatriarchCombatScene locationId={view.location} actorId={actorId}
               combat={authoritativeView?.combat ?? null} events={combatEvents}
               live={Boolean(sessionState?.attached) && combatConnection.status === 'open'} />}
@@ -398,17 +416,17 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, acti
               {t(group.boss ? 'ui.live.engage_boss' : 'ui.live.engage', { enemies: group.enemies.map(displayLabel).join(', ') })}
             </button>)}
             {(view.exits ?? []).map((exit) => exit.bossRoom ? <button key={exit.id} className="button live-action" type="button"
-              disabled={!readyForActions || busy || !exit.open || exit.visited}
-              onClick={() => requestBossRisk(exit.id)}>
+              disabled={!exitEnabled(exit)}
+              onClick={() => activateExit(exit)}>
               {t(exit.open ? 'ui.live.boss_review' : 'ui.live.boss_locked', { to: displayLabel(exit.to) })}
               {!exit.open && exit.reasons.length > 0 && <small>{exit.reasons.map(displayLabel).join(', ')}</small>}
-            </button> : <button key={exit.id} className="button live-action" type="button" disabled={!readyForActions || busy || !exit.open}
-              onClick={() => submit({ type: 'travel', exitId: exit.id })}>
+            </button> : <button key={exit.id} className="button live-action" type="button" disabled={!exitEnabled(exit)}
+              onClick={() => activateExit(exit)}>
               {t(exit.open ? 'ui.live.travel' : 'ui.live.route_locked', { to: displayLabel(exit.to) })}
               {!exit.open && exit.reasons.length > 0 && <small>{exit.reasons.map(displayLabel).join(', ')}</small>}
             </button>)}
             {(view.hotspots ?? []).map((hotspot) => <button key={hotspot.id} className="button live-action" type="button"
-              disabled={!readyForActions || busy || hotspot.done} onClick={() => submit({ type: 'interact', hotspotId: hotspot.id })}>
+              disabled={!hotspotEnabled(hotspot)} onClick={() => activateHotspot(hotspot)}>
               {hotspot.id.startsWith('corpse:') ? t('ui.live.recover_corpse') : t('ui.live.interact', { name: displayLabel(hotspot.textKey) })}
               {hotspot.done && <small>{t('ui.live.already_done')}</small>}
             </button>)}

@@ -4,6 +4,7 @@
   "tags": [
     "safe"
   ],
+  "scene": "scenes/region_1/portal_clearing.tmj",
   "exits": [
     {
       "id": "exit:region_1.portal_clearing.overgrown_causeway",

@@ -4,6 +4,7 @@
   "tags": [
     "ordinary"
   ],
+  "scene": "scenes/region_1/lantern_ruins.tmj",
   "exits": [
     {
       "id": "exit:region_1.lantern_ruins.tangle_orchard",

@@ -1,0 +1,83 @@
+{
+  "type": "map",
+  "version": "1.11",
+  "tiledversion": "1.11.2",
+  "orientation": "orthogonal",
+  "renderorder": "right-down",
+  "width": 1086,
+  "height": 1448,
+  "tilewidth": 1,
+  "tileheight": 1,
+  "infinite": false,
+  "nextlayerid": 4,
+  "nextobjectid": 3,
+  "tilesets": [],
+  "layers": [
+    {
+      "id": 1,
+      "name": "background",
+      "type": "imagelayer",
+      "image": "portal_clearing.webp",
+      "imagewidth": 1086,
+      "imageheight": 1448,
+      "x": 0,
+      "y": 0,
+      "offsetx": 0,
+      "offsety": 0,
+      "opacity": 1,
+      "visible": true
+    },
+    {
+      "id": 2,
+      "name": "exits",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 1,
+          "name": "exit:region_1.portal_clearing.overgrown_causeway",
+          "type": "",
+          "x": 820,
+          "y": 420,
+          "width": 180,
+          "height": 140,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "hotspots",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 2,
+          "name": "portal_glyphs",
+          "type": "",
+          "x": 320,
+          "y": 590,
+          "width": 200,
+          "height": 120,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        }
+      ]
+    }
+  ]
+}
