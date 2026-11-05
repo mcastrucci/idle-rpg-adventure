@@ -72,7 +72,7 @@ describe('prefers-reduced-motion (LiveCombat)', () => {
       combat: { tick: 12, groupId: 'g', actors: [
         { id: actorId, side: 'hero', hp: 60, maxHp: 100, alive: true, effects: [], auto: false, queued: null, windup: null },
         { id: 'enemy:boar', labelKey: 'enemy.boar.name', side: 'enemy', hp: 80, maxHp: 100, alive: true, effects: [], auto: false, queued: null,
-          windup: { skill: 'skill:heavy_strike', skillLabelKey: 'skill.heavy_strike.name', targetIds: [actorId], startedTick: 10, resolveAtTick: 15 } },
+          windup: { skill: 'skill:heavy_strike', labelKey: 'skill.heavy_strike.name', targetIds: [actorId], startedTick: 10, resolveAtTick: 15 } },
       ] } } as unknown as LiveViewDto;
     const online = { status: 'open', attempt: 0, retryInMs: null, lastCloseCode: null, error: null } as const;
     render(<LiveCombat view={view} actorId={actorId} events={[]} pendingCommandIds={[]} connection={online} onSubmit={() => 'id'} />);

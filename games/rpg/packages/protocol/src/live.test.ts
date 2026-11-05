@@ -71,6 +71,10 @@ describe('live wire protocol', () => {
       xpToNext: 9_999_999, hp: null, maxHp: 300, present: true, consumables: [] }] } })).toMatchObject({ type: 'live.snapshot' });
     expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 10, source: 'game',
       event: { type: 'gathered', nodeId: 'node:one', drops: [{ item: 'item:herb', qty: 2 }], gold: 3 } })).toMatchObject({ type: 'live.event' });
+    // The server's gathered event carries the gatherer (game.ts); the strict parser must accept it (#180 follow-up).
+    expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 10, source: 'game',
+      event: { type: 'gathered', nodeId: 'node:one', resource: 'res:herb', lootTable: 'loot:herb', drops: [{ item: 'item:herb', qty: 2 }],
+        gold: 3, actorId } })).toMatchObject({ type: 'live.event' });
     expect(parseLiveServerFrame({ type: 'live.event', instanceId, epoch: 2, seq: 11, source: 'game',
       event: { type: 'corpseRecovered', actorId, repeat: false } })).toMatchObject({ type: 'live.event' });
     const bossRisk = { locationId: 'location:boss', enemies: [{ enemy: 'enemy:warden', rank: 'boss', level: 5 }],
