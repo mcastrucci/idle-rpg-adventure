@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r typecheck",
     "lint": "eslint --max-warnings 0 .",
-    "test": "vitest run && node --test games/rpg/apps/web/scripts/world-map-touch-guard.test.mjs games/rpg/apps/web/scripts/public-assets-guard.test.mjs",
+    "test": "vitest run && node --test games/rpg/apps/web/scripts/world-map-touch-guard.test.mjs games/rpg/apps/web/scripts/public-assets-guard.test.mjs games/rpg/apps/web/scripts/live-frame-guard.test.mjs",
     "lint:boundaries:test": "vitest run --project boundaries",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm content:validate",
     "content-cli": "node engine/content-compiler/src/bin.ts",

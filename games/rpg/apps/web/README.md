@@ -178,3 +178,23 @@ apart at 360 px width). Zooming in separates them.
 
 Limitation: this is emulated touch in desktop Chromium. It is not real-device acceptance (no iOS Safari, no Android
 WebView, no real multi-touch hardware, no OS gesture or safe-area behaviour); #68 still needs a manual pass on devices.
+
+## Live frame check (#176)
+
+Opt-in browser evidence that a live adventure is one fixed `100dvh` frame (breadcrumb, scene band, status strip, mode
+panel, log row; layout table in `games/rpg/art/region-1/mockup/layout-spec.md`). Not part of `pnpm check`; needs
+Playwright + Chromium on the machine (not repository dependencies). The server is **mocked**: HTTP through
+`page.route`, the live socket through `page.routeWebSocket`, so every state is scripted (exploring with 8 exits, combat
+with two common enemies, four enemies with one missing sprite, boss with a telegraph).
+
+```sh
+pnpm --filter @rpg/web build
+OUT_DIR=/some/dir node games/rpg/apps/web/scripts/live-frame-check.mjs   # starts `vite preview` itself; BASE_URL, PORT, LOCALES override
+```
+
+For 360x780 and 320x640 (en and es) it asserts: the document never scrolls (`scrollHeight <= innerHeight`, no horizontal
+scroll); every control in the frame is at least 44x44 px; the four skill buttons, potion, retreat, Auto and the log
+button keep their exact rects (0.5 px) through a telegraph, a queue change, feedback events and the open log drawer;
+the row table is identical in exploring and combat; sprites are drawn for the hero and every enemy, with a labelled
+silhouette for an enemy without art; retreat is locked against a boss. Screenshots of each state go to `OUT_DIR`. The
+pure assertions live in `scripts/live-frame-guard.mjs` and are unit-tested (`node --test`, part of `pnpm test`).
