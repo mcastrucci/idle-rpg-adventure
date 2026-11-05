@@ -13,6 +13,7 @@ import {
   sendDebugCommand, setProgressionCommand,
 } from './api.ts';
 import type { DebugClockDto } from './api.ts';
+import type { PlaytestCapture } from './usePlaytestCapture.ts';
 
 interface Props {
   readonly character: CharacterDto | null;
@@ -21,6 +22,10 @@ interface Props {
   readonly onClose: () => void;
   /** Reloads the character, inventory and world views from the server. */
   readonly onChanged: () => void;
+  readonly capture: PlaytestCapture;
+  readonly onCaptureStart: () => void;
+  readonly onCaptureFinish: () => void;
+  readonly onCaptureClear: () => void;
 }
 
 interface Outcome { readonly ok: boolean; readonly code: string }
@@ -38,7 +43,7 @@ function parseInteger(text: string, min: number, max: number): number | null {
 }
 
 /** Staging "god mode" tools. Each action sends one fresh command and shows the server's code; nothing is computed here. */
-export function DebugPanel({ character, api, clock: initialClock, onClose, onChanged }: Props) {
+export function DebugPanel({ character, api, clock: initialClock, onClose, onChanged, capture, onCaptureStart, onCaptureFinish, onCaptureClear }: Props) {
   useLocale();
   const actorId = character?.actorId ?? null;
   const [clock, setClock] = useState(initialClock);
@@ -97,6 +102,7 @@ export function DebugPanel({ character, api, clock: initialClock, onClose, onCha
   const qtyValue = parseInteger(qty, DEBUG_LIMITS.qty.min, DEBUG_LIMITS.qty.max);
   const disabled = busy || actorId === null;
   const submit = (action: () => void) => (event: FormEvent) => { event.preventDefault(); action(); };
+  const captureJson = capture.exportJson;
 
   return (
     <section className="debug-panel" role="dialog" aria-modal="true" aria-labelledby="debug-title">
@@ -174,8 +180,25 @@ export function DebugPanel({ character, api, clock: initialClock, onClose, onCha
           ))}
         </div>
       </fieldset>
+
+      <fieldset className="debug-group">
+        <legend>{t('ui.debug.capture_title')}</legend>
+        <p className="muted">{t('ui.debug.capture_note')}</p>
+        <p role="status">{t(`ui.debug.capture_${capture.status}`)}{capture.reason ? `: ${capture.reason}` : ''} · {capture.count}</p>
+        {capture.status === 'idle' || capture.status === 'complete' || capture.status === 'incomplete'
+          ? <button type="button" className="button" disabled={!actorId || busy} onClick={onCaptureStart}>{t('ui.debug.capture_start')}</button>
+          : <button type="button" className="button button--secondary" disabled={capture.status !== 'recording'} onClick={onCaptureFinish}>{t('ui.debug.capture_finish')}</button>}
+        {captureJson && <button type="button" className="button button--secondary" onClick={() => downloadCapture(captureJson)}>{t('ui.debug.capture_download')}</button>}
+        {captureJson && <button type="button" className="button button--secondary" onClick={onCaptureClear}>{t('ui.debug.capture_clear')}</button>}
+      </fieldset>
     </section>
   );
+}
+
+function downloadCapture(json: string) {
+  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'matriarch-playtest-capture.json'; anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 /** `1 d 2 h 15 min` style duration built from the server's offset; formatting only. */
