@@ -4,6 +4,7 @@
   "tags": [
     "ordinary"
   ],
+  "scene": "scenes/region_1/irrigation_terraces.tmj",
   "exits": [
     {
       "id": "exit:region_1.irrigation_terraces.old_well",

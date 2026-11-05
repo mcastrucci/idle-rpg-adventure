@@ -84,8 +84,9 @@ enemy anchors are not sent.
 
 The web client scales this space onto the background art (per axis: art size divided by map size), so a map authored at
 the art's native size (for example 1086 x 1448) maps one to one. If the map is smaller or larger than the art, author it
-with the same aspect ratio. The renderer keeps at least a 44 px tap target. Region 1 has no authored scenes yet, so its
-art has no tappable regions until they are drawn in Tiled.
+with the same aspect ratio. The renderer keeps at least a 44 px tap target. Region 1 has DRAFT scene geometry (#168) under
+`content/scenes/region_1/`, awaiting owner verification; each `.tmj` references a copy of its background WebP next to it,
+because the importer only accepts images inside the content root. `seed_vault_heart` has no exits or hotspots, so no scene.
 
 ## Validation boundary
 

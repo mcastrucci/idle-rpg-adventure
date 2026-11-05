@@ -25,7 +25,7 @@ const REGION_1 = 'area:region_1';
 const WARDEN = 'enemy:region_2.resonant_warden';
 
 function compiled() {
-  const result = compileContent(loadContentFiles(ROOT), plugin);
+  const result = compileContent(loadContentFiles(ROOT), plugin, { contentRoot: ROOT });
   if (!result.ok) throw new Error(JSON.stringify(result.errors, null, 2));
   const c = result.bundle.collections;
   const byId = <T extends { id: string }>(list: readonly unknown[] | undefined, parse: (item: unknown) => T): Record<string, T> =>

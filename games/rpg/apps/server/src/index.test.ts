@@ -23,7 +23,7 @@ describe('RPG boot composition', () => {
   it('accepts the real compiled RPG seed', () => { expect(() => validateRpgBundle(compiledRpgContent())).not.toThrow(); });
   it.each(['skills', 'lootTables', 'items', 'encounterTables', 'resourceNodes', 'idleActivities'])('rejects hash-valid bundles missing referenced %s', (name) => {
     const seed = compiledRpgContent();
-    const body = { format: seed.format, game: seed.game, world: seed.world, collections: { ...seed.collections, [name]: [] } };
+    const body = { format: seed.format, game: seed.game, world: seed.world, collections: { ...seed.collections, [name]: [] }, ...(seed.scenes ? { scenes: seed.scenes } : {}) };
     expect(() => validateRpgBundle({ ...body, contentHash: contentHashOf(body) })).toThrow(/unresolved RPG reference/);
   });
   it('rejects duplicate IDs and dangling references in world requirements', () => {
@@ -41,7 +41,7 @@ describe('RPG boot composition', () => {
     const area = seed.world.areas.find((area) => area.kind === 'explorable');
     if (area === undefined) throw new Error('test seed must include an explorable area');
     area['difficulty'] = -1;
-    const body = { format: seed.format, game: seed.game, world: seed.world, collections: seed.collections };
+    const body = { format: seed.format, game: seed.game, world: seed.world, collections: seed.collections, ...(seed.scenes ? { scenes: seed.scenes } : {}) };
     const tampered = { ...body, contentHash: contentHashOf(body) };
     const dir = await mkdtemp(join(tmpdir(), 'rpg-invalid-')); dirs.push(dir);
     const path = join(dir, 'content.json'); await writeFile(path, JSON.stringify(tampered));
@@ -56,7 +56,7 @@ describe('RPG boot composition', () => {
     location.scene = 'scenes/sanctuary/plaza.tmj';
     const body = {
       format: 2 as const, game: seed.game, world: seed.world, collections: seed.collections,
-      scenes: { [location.id]: { width: 32, height: 32, background: 'scenes/sanctuary/background.png', exits: {},
+      scenes: { ...seed.scenes, [location.id]: { width: 32, height: 32, background: 'scenes/sanctuary/background.png', exits: {},
         hotspots: { orphan: { x: 1, y: 1, width: 2, height: 2 } }, enemyAnchors: {}, resources: {} } },
     };
     expect(() => validateRpgBundle({ ...body, contentHash: contentHashOf(body) })).toThrow(/hotspots geometry names/);

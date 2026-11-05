@@ -15,7 +15,8 @@ const REAL_CONTENT = fileURLToPath(new URL('../../../content/', import.meta.url)
 const PLUGIN = fileURLToPath(new URL('./index.ts', import.meta.url));
 
 const AREA = 'world/areas/region_1.json';
-const HUB = 'world/locations/region_1/old_well.json'; // existing, scene-less location that gets the new exit
+const HUB = 'world/locations/region_1/old_well.json'; // existing location that gets the new exit (it has a scene since #168, so it also needs geometry)
+const HUB_SCENE = 'scenes/region_1/old_well.tmj';
 const NEW_LOC = 'loc:region_1.mossy_cistern';
 const NEW_LOC_FILE = 'world/locations/region_1/mossy_cistern.json';
 const NEW_SCENE = 'scenes/region_1/mossy_cistern.tmj';
@@ -92,6 +93,11 @@ function addLocation(root: string, opts: { map?: Record<string, unknown> | null;
     const hub = readJson(root, HUB);
     (hub['exits'] as unknown[]).push({ id: EXIT_IN, to: NEW_LOC });
     writeJson(root, HUB, hub);
+    // The hub has a scene, so its new exit needs a rectangle too (a scene-less neighbour would need nothing).
+    const hubMap = readJson(root, HUB_SCENE) as { layers: { name: string; objects?: unknown[] }[] };
+    hubMap.layers.find(layer => layer.name === 'exits')?.objects?.push(
+      { id: 99, name: EXIT_IN, type: '', x: 500, y: 700, width: 96, height: 96, rotation: 0, opacity: 1, visible: true });
+    writeJson(root, HUB_SCENE, hubMap);
   }
 }
 
@@ -126,7 +132,7 @@ describe('no-code location (#44, ADR-0014)', () => {
 
   it('adds a Region 1 location with a .tmj + one JSON file and data-only links, with no issues', async () => {
     const before = (await build(copyRealContent())).bundle;
-    expect(before?.format).toBe(1);
+    expect(before?.format).toBe(2); // Region 1 now ships authored scenes (#168)
 
     const root = copyRealContent();
     addLocation(root);
@@ -146,7 +152,7 @@ describe('no-code location (#44, ADR-0014)', () => {
       hotspots: { mossy_valve: { x: 512, y: 200, width: 64, height: 64 } },
       enemyAnchors: {}, resources: {},
     });
-    expect(Object.keys(bundle.scenes ?? {})).toEqual([NEW_LOC]);
+    expect(Object.keys(bundle.scenes ?? {}).sort()).toEqual([...Object.keys(before.scenes ?? {}), NEW_LOC].sort());
     expect(bundle.contentHash).not.toBe(before.contentHash);
 
     // Reachable through the exit graph from the area's start location, and back.

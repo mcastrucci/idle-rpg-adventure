@@ -4,6 +4,7 @@
   "tags": [
     "ordinary"
   ],
+  "scene": "scenes/region_1/pump_station.tmj",
   "exits": [
     {
       "id": "exit:region_1.pump_station.lantern_ruins",
