@@ -18,8 +18,8 @@
  */
 import { divFloor, hashSeed, mulBp, RngStreams } from '@engine/sim-core';
 import type { JsonValue, LiveCommandResult, LiveGame, LiveStep } from '@engine/live-kernel';
-import { createActorWorldState, evaluateRequirement } from '@engine/world';
-import type { AreaId, LocationId } from '@engine/world';
+import { createActorWorldState, evaluateRequirement, SceneGeometryMapSchema } from '@engine/world';
+import type { AreaId, LocationId, SceneGeometry } from '@engine/world';
 import { createCombat, ENGINE_VERSION, rpgIdleContentFromBundle, rollLoot, step } from '@rpg/rpg-sim';
 import type { CombatContent, CombatInput, CombatState, ConsumableStack, HeroSetup, RpgIdleContent } from '@rpg/rpg-sim';
 import type { AutomationRule, ConsumableItem } from '@rpg/rpg-schema';
@@ -207,6 +207,8 @@ function parseCommand(input: JsonValue): Command | null {
 export interface RpgLiveContent {
   readonly world: unknown;
   readonly collections: Readonly<Record<string, readonly unknown[]>>;
+  /** Compiled Tiled scene geometry by location ID (format 2 bundles). Absent for bundles without authored scenes. */
+  readonly scenes?: Readonly<Record<string, unknown>> | undefined;
 }
 
 export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveState> {
@@ -214,6 +216,7 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
   const combatContent: CombatContent = idle.combat;
   const xpCurve = rpgXpCurve(content.collections);
   const world: LiveWorld = buildLiveWorld(content.world);
+  const scenes: Readonly<Record<string, SceneGeometry>> = content.scenes === undefined ? {} : SceneGeometryMapSchema.parse(content.scenes);
   const formulas = idle.formulas ?? DEFAULT_STAT_FORMULAS;
 
   const locationOf = (locationId: string): LiveLocation => {
@@ -721,6 +724,12 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       const corpseHotspots = viewer?.corpses.filter(corpse => corpse.areaId === state.area && corpse.locationId === state.location)
         .map(corpse => ({ id: `corpse:${corpse.id}`, type: 'corpse', textKey: 'live.corpse',
           done: state.hotspotsDone.includes(`${here.id}/corpse:${corpse.id}`) })) ?? [];
+      const visibleExits = here.exits.flatMap((exit) => {
+        const status = exitStatus(state, exit);
+        if (!status.open && exit.tags.includes(SECRET_TAG)) return [];
+        return [{ id: exit.id, to: exit.to, open: status.open, reasons: status.reasons,
+          bossRoom: locationOf(exit.to).tags.has(BOSS_ROOM_TAG), visited: state.visited[exit.to] !== undefined }];
+      });
       const combat = state.combat;
       const retreatBlockedReasonValue = retreatBlockedReason(state);
       return {
@@ -743,13 +752,9 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
         runBag: Object.entries(state.runBag).sort(([a], [b]) => a.localeCompare(b)).map(([actorId, bag]) => ({ actorId,
           items: Object.entries(bag.items).sort(([a], [b]) => a.localeCompare(b)).map(([item, qty]) => ({ item, qty })), gold: bag.gold,
           uniques: bag.uniques ?? [] })),
-        exits: here.exits.flatMap((exit) => {
-          const status = exitStatus(state, exit);
-          if (!status.open && exit.tags.includes(SECRET_TAG)) return [];
-          return [{ id: exit.id, to: exit.to, open: status.open, reasons: status.reasons,
-            bossRoom: locationOf(exit.to).tags.has(BOSS_ROOM_TAG), visited: state.visited[exit.to] !== undefined }];
-        }),
+        exits: visibleExits,
         hotspots: [...here.hotspots.map((h) => ({ id: h.id, type: h.type, textKey: h.textKey, done: state.hotspotsDone.includes(`${here.id}/${h.id}`) })), ...corpseHotspots],
+        ...(sceneView(here.id, visibleExits.map((exit) => exit.id), here.hotspots.map((h) => h.id)) ?? {}),
         resources: here.resources.map((r) => ({ nodeId: r.nodeId, resource: r.resource, gathered: state.gathered.includes(`${here.id}/${r.nodeId}`) })),
         flags: state.flags,
         canReturn: state.phase === 'exploring' && mayReturn(state),
@@ -777,6 +782,22 @@ export function createRpgLiveGame(content: RpgLiveContent): LiveGame<RpgLiveStat
       } as unknown as JsonValue;
     },
   };
+
+  /**
+   * Tappable scene geometry for the viewer (#154): one circle per authored exit or hotspot rect, in the Tiled pixel
+   * space. Only exits and hotspots already listed in the view are included, so an undiscovered secret exit never leaves the server.
+   */
+  function sceneView(locationId: string, exitIds: readonly string[], hotspotIds: readonly string[]): { scene: JsonValue } | undefined {
+    const geometry = scenes[locationId];
+    if (!geometry) return undefined;
+    const circle = (rect: { x: number; y: number; width: number; height: number }) => ({
+      x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2), r: Math.max(1, Math.round(Math.max(rect.width, rect.height) / 2)) });
+    const regions = [
+      ...exitIds.flatMap((id) => { const rect = geometry.exits[id]; return rect ? [{ id, kind: 'exit', ...circle(rect) }] : []; }),
+      ...hotspotIds.flatMap((id) => { const rect = geometry.hotspots[id]; return rect ? [{ id, kind: 'hotspot', ...circle(rect) }] : []; }),
+    ];
+    return { scene: { width: geometry.width, height: geometry.height, regions } };
+  }
 
   /** Open decision #18 (provisional): non-boss fights only; HP cost; fall back to the previous location; group stays. */
   function retreat(state: RpgLiveState): LiveCommandResult<RpgLiveState> {

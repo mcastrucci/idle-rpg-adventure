@@ -39,6 +39,29 @@ describe('SceneViewport', () => {
     expect(calls).toEqual(['load:location:a', 'transition:location:b']);
   });
 
+  it('passes server regions into the scene spec and reports taps by kind and ID, without deciding anything', async () => {
+    const { renderer } = fakeRenderer();
+    let tapListener: ((event: { regionId: string }) => void) | undefined;
+    vi.mocked(renderer.on).mockImplementation(((type: string, listener: (event: { regionId: string }) => void) => {
+      if (type === 'regionTap') tapListener = listener;
+      return () => undefined;
+    }) as never);
+    const specs: SceneSpec[] = [];
+    vi.mocked(renderer.loadScene).mockImplementation((spec: SceneSpec) => { specs.push(spec); return Promise.resolve(); });
+    const scene = { width: 2, height: 2, regions: [{ id: 'exit:a', kind: 'exit' as const, x: 1, y: 1, r: 1 }, { id: 'rune', kind: 'hotspot' as const, x: 2, y: 0, r: 1 }] };
+    const onTap = vi.fn();
+    const enabled = (kind: string, id: string) => (kind === 'exit' && id === 'exit:a' ? true : kind === 'hotspot' ? false : undefined);
+    render(<SceneViewport locationId="location:a" scene={scene} regionEnabled={enabled} onRegionTap={onTap} createRenderer={() => renderer} buildScene={buildScene} />);
+    await flush();
+    // The 4x4 test art doubles the 2x2 authored space.
+    expect(specs[0]?.regions).toEqual([{ id: 'exit:exit:a', x: 2, y: 2, radius: 2, enabled: true }, { id: 'hotspot:rune', x: 4, y: 0, radius: 2, enabled: false }]);
+    expect(renderer.setRegions).toHaveBeenLastCalledWith(specs[0]?.regions);
+    tapListener?.({ regionId: 'exit:exit:a' });
+    tapListener?.({ regionId: 'garbage' });
+    expect(onTap).toHaveBeenCalledTimes(1);
+    expect(onTap).toHaveBeenCalledWith('exit', 'exit:a');
+  });
+
   it('is decorative: hidden from assistive technology and without text', async () => {
     const { renderer } = fakeRenderer();
     const { container } = render(<SceneViewport locationId="location:a" createRenderer={() => renderer} buildScene={buildScene} />);

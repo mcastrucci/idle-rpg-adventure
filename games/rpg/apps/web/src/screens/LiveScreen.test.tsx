@@ -7,6 +7,11 @@ import { LiveClient } from '../live/client.ts';
 import type { WebSocketLike } from '../live/client.ts';
 import { LiveScreen } from './LiveScreen.tsx';
 
+// The canvas is not under test here: capture what LiveScreen hands the viewport and drive its region taps directly.
+type ViewportProps = { scene?: unknown; regionEnabled?: (kind: 'exit' | 'hotspot', id: string) => boolean | undefined; onRegionTap?: (kind: 'exit' | 'hotspot', id: string) => void };
+const viewport: { props: ViewportProps | null } = { props: null };
+vi.mock('../scene/SceneViewport.tsx', () => ({ SceneViewport: (props: ViewportProps) => { viewport.props = props; return null; } }));
+
 const actorId = '11111111-1111-4111-8111-111111111111';
 const instanceId = '22222222-2222-4222-8222-222222222222';
 const options: LiveOptionsDto = { actorId, areas: [{ id: 'area:region_1', label: 'Region One', startLocationId: 'location:glade' }],
@@ -182,6 +187,48 @@ describe('LiveScreen navigation controller', () => {
     await waitFor(() => expect(JSON.parse(socket.sent.at(-1) ?? '{}').command?.command).toMatchObject({ type: 'enterBossRoom', exitId: 'exit:boss', confirm: true }));
     deps.client.stop();
   });
+  it('sends the same commands from scene region taps as from the DOM buttons, and ignores disabled regions', async () => {
+    const scene = { width: 100, height: 100, regions: [{ id: 'exit:go', kind: 'exit', x: 10, y: 10, r: 8 }, { id: 'exit:shut', kind: 'exit', x: 20, y: 10, r: 8 },
+      { id: 'exit:boss', kind: 'exit', x: 30, y: 10, r: 8 }, { id: 'rune', kind: 'hotspot', x: 40, y: 10, r: 8 }, { id: 'spent', kind: 'hotspot', x: 50, y: 10, r: 8 },
+      { id: 'exit:ghost', kind: 'exit', x: 60, y: 10, r: 8 }] };
+    const snapshot = { ...view(), scene, exits: [
+      { id: 'exit:go', to: 'location:next', open: true, reasons: [], bossRoom: false, visited: false },
+      { id: 'exit:shut', to: 'location:locked', open: false, reasons: ['live.locked'], bossRoom: false, visited: false },
+      { id: 'exit:boss', to: 'location:boss', open: true, reasons: [], bossRoom: true, visited: false }],
+    hotspots: [{ id: 'rune', type: 'lore', textKey: 'hotspot.rune', done: false }, { id: 'spent', type: 'lore', textKey: 'hotspot.spent', done: true }] };
+    const deps = setup({ instanceId, actorId, view: snapshot as unknown as LiveViewDto, participants: [{ actorId, status: 'connected' }] });
+    const socket = await connect(deps);
+    render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
+    await attach(socket, deps.current as NonNullable<typeof deps.current>);
+    await screen.findByRole('button', { name: /Travel to/ });
+    const props = (): ViewportProps => { if (!viewport.props) throw new Error('viewport not rendered'); return viewport.props; };
+    expect(props().scene).toEqual(scene);
+    const lastCommand = () => JSON.parse(socket.sent.at(-1) ?? '{}').command?.command;
+    // Enabled state mirrors the DOM controls; geometry without a control is not interactive.
+    expect(['exit:go', 'exit:shut', 'exit:boss'].map((id) => props().regionEnabled?.('exit', id))).toEqual([true, false, true]);
+    expect(['rune', 'spent'].map((id) => props().regionEnabled?.('hotspot', id))).toEqual([true, false]);
+    expect(props().regionEnabled?.('exit', 'exit:ghost')).toBeUndefined();
+
+    const before = socket.sent.length;
+    act(() => { props().onRegionTap?.('exit', 'exit:shut'); props().onRegionTap?.('hotspot', 'spent'); props().onRegionTap?.('exit', 'exit:ghost'); });
+    expect(socket.sent.length).toBe(before);
+
+    act(() => props().onRegionTap?.('exit', 'exit:go'));
+    await waitFor(() => expect(lastCommand()).toEqual({ type: 'travel', exitId: 'exit:go' }));
+    const travelId = JSON.parse(socket.sent.at(-1) ?? '{}').command.commandId as string;
+    act(() => socket.receive({ type: 'live.ack', instanceId, commandId: travelId, status: 'applied', duplicate: false }));
+    await waitFor(() => expect(props().regionEnabled?.('hotspot', 'rune')).toBe(true));
+    act(() => props().onRegionTap?.('hotspot', 'rune'));
+    await waitFor(() => expect(lastCommand()).toEqual({ type: 'interact', hotspotId: 'rune' }));
+    const interactId = JSON.parse(socket.sent.at(-1) ?? '{}').command.commandId as string;
+    act(() => socket.receive({ type: 'live.ack', instanceId, commandId: interactId, status: 'applied', duplicate: false }));
+    await waitFor(() => expect(props().regionEnabled?.('exit', 'exit:boss')).toBe(true));
+    // A boss-room region asks for the server's risk summary first; it never skips the confirmation.
+    act(() => props().onRegionTap?.('exit', 'exit:boss'));
+    await waitFor(() => expect(lastCommand()).toEqual({ type: 'enterBossRoom', exitId: 'exit:boss', confirm: false }));
+    deps.client.stop();
+  });
+
   it('shows the server-provided XP bar of a hero past the old level cap (open-ended curve, #129)', async () => {
     const seventh = { actorId, level: 7, xp: 4_531, xpIntoLevel: 781, xpToNext: 1562, hp: null, maxHp: 80, present: true, consumables: [] };
     const deps = setup({ instanceId, actorId, view: { ...view(), heroes: [seventh] } as unknown as LiveViewDto, participants: [{ actorId, status: 'connected' }] });
