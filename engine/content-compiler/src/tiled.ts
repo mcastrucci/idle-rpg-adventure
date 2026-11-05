@@ -5,13 +5,19 @@ import type { SceneGeometry } from '@engine/world';
 
 import type { ContentError } from './errors.ts';
 
+/** Pixel size a game declares for a logical scene image key; `undefined` when the key is unknown. */
+export type SceneImageResolver = (key: string) => { readonly width: number; readonly height: number } | undefined;
+
+/** Prefix of an image-layer path that names a logical asset key instead of a file in the content root. */
+export const SCENE_ASSET_PREFIX = 'asset:';
+
 export interface TiledImportResult {
   readonly geometry?: SceneGeometry;
   readonly error?: ContentError;
 }
 
 /** Imports the deliberately small, inert subset of Tiled JSON used by scene authoring. */
-export function importTiledMap(file: string, text: string, contentRoot: string): TiledImportResult {
+export function importTiledMap(file: string, text: string, contentRoot: string, resolveSceneImage?: SceneImageResolver): TiledImportResult {
   let input: unknown;
   try {
     input = JSON.parse(text);
@@ -132,6 +138,18 @@ export function importTiledMap(file: string, text: string, contentRoot: string):
   if ((background['imagewidth'] !== undefined && background['imagewidth'] !== width) ||
       (background['imageheight'] !== undefined && background['imageheight'] !== height)) {
     return failure('scene.backgroundSize', file, ['layers'], `declared image dimensions must match ${width}x${height} map pixels`);
+  }
+  if (image.startsWith(SCENE_ASSET_PREFIX)) {
+    const key = image.slice(SCENE_ASSET_PREFIX.length);
+    if (!/^[a-zA-Z0-9_.:-]+$/.test(key)) return failure('scene.imagePathRejected', file, ['layers'], `asset key "${key}" may only use letters, digits and "_ . : -"`);
+    if (!resolveSceneImage) return failure('scene.assetUnsupported', file, ['layers'], `background "${image}" names an asset key, but the game plugin does not resolve scene images`);
+    const declared = resolveSceneImage(key);
+    if (!declared) return failure('scene.assetMissing', file, ['layers'], `background asset "${key}" is not declared by the game's asset manifest`);
+    if (declared.width !== width || declared.height !== height) {
+      return failure('scene.backgroundSize', file, ['layers'], `background asset "${key}" is ${declared.width}x${declared.height} but the map is ${width}x${height} pixels`);
+    }
+    return { geometry: { width, height, background: image, exits: sortRecord(geometry.exits), hotspots: sortRecord(geometry.hotspots),
+      enemyAnchors: sortRecord(geometry.enemyAnchors), resources: sortRecord(geometry.resources) } };
   }
   const imagePath = resolveLocalImage(image, file, contentRoot, mapDir);
   if ('error' in imagePath) return imagePath;

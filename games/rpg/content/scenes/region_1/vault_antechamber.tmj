@@ -17,7 +17,7 @@
       "id": 1,
       "name": "background",
       "type": "imagelayer",
-      "image": "vault_antechamber.webp",
+      "image": "asset:loc:region_1.vault_antechamber",
       "imagewidth": 1086,
       "imageheight": 1448,
       "x": 0,

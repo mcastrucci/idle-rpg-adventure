@@ -17,7 +17,7 @@
       "id": 1,
       "name": "background",
       "type": "imagelayer",
-      "image": "glowcap_grotto.webp",
+      "image": "asset:loc:region_1.glowcap_grotto",
       "imagewidth": 1086,
       "imageheight": 1448,
       "x": 0,

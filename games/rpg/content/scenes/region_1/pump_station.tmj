@@ -17,7 +17,7 @@
       "id": 1,
       "name": "background",
       "type": "imagelayer",
-      "image": "pump_station.webp",
+      "image": "asset:loc:region_1.pump_station",
       "imagewidth": 1086,
       "imageheight": 1448,
       "x": 0,

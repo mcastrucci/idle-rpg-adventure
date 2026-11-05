@@ -69,6 +69,11 @@ export interface ContentGamePlugin<G = unknown> {
   references?(content: CompiledContent): readonly ReferenceCheck[];
   /** Game-specific checks run after every engine check passed for the parsed content. */
   validate?(content: CompiledContent): readonly PluginIssue[];
+  /**
+   * Resolves a logical scene image key (an image layer path `asset:<key>`) to the pixel size of art the game ships
+   * outside the content root. Return `undefined` for an unknown key. Without this hook `asset:` keys are rejected.
+   */
+  resolveSceneImage?(key: string): { readonly width: number; readonly height: number } | undefined;
   /** Game checks for authored geometry, after each referenced Tiled map has been safely imported. */
   validateScenes?(content: CompiledContent, scenes: Readonly<Record<string, SceneGeometry>>): readonly PluginIssue[];
 }

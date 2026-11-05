@@ -17,7 +17,7 @@
       "id": 1,
       "name": "background",
       "type": "imagelayer",
-      "image": "lantern_ruins.webp",
+      "image": "asset:loc:region_1.lantern_ruins",
       "imagewidth": 1086,
       "imageheight": 1448,
       "x": 0,
