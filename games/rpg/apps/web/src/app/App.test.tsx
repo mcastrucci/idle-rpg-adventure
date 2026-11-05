@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -152,6 +153,34 @@ describe('App shell', () => {
     expect(await screen.findByRole('heading', { name: 'Live adventure' })).toBeDefined();
     await waitFor(() => expect(paths.filter((path) => path === `/live/current/${actorId}`).length).toBeGreaterThanOrEqual(2));
     expect(paths).not.toContain('/live/start');
+  });
+
+  it('hands the whole viewport to a live adventure and gives the header and tab bar back on the map (#176)', async () => {
+    const instanceId = '33333333-3333-4333-8333-333333333333';
+    const actorId = CHARACTER.actorId;
+    const fetch: FetchLike = async (input) => {
+      if (input === '/auth/session') return Response.json({ accountId: 'acc', guest: true, email: null, expiresAtMs: 1 });
+      if (input === '/characters') return Response.json([CHARACTER]);
+      if (input === `/live/current/${actorId}`) return Response.json({ current: { instanceId, actorId,
+        view: { phase: 'exploring', area: 'area.region_1.name', location: 'loc:region_1.portal_clearing', heroes: [], groups: [] }, participants: [{ actorId, status: 'connected' }] } });
+      if (input.endsWith('/world')) return Response.json({ hub: { id: 'area:sanctuary', label: 'area.sanctuary.name', position: { x: 0, y: 0 } }, areas: [], routes: [] });
+      return Response.json({ error: 'not_found' }, { status: 404 });
+    };
+    const hidden = readFileSync('games/rpg/apps/web/src/live/frame/live-frame.css', 'utf8');
+    for (const chrome of ['.header', '.tabbar', '.banner', '.debug-bar']) expect(hidden).toContain(`html.live-frame-active ${chrome}`);
+    expect(hidden).toMatch(/html\.live-frame-active, html\.live-frame-active body \{[^}]*overflow: hidden/);
+    render(<App services={{ api: new ApiClient(fetch), live: fakeLive(), storage: { getItem: () => null, setItem: () => {} } }} />);
+    fireEvent.click(await screen.findByRole('link', { name: 'World map' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    fireEvent.click(await screen.findByRole('link', { name: 'Resume live adventure' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await waitFor(() => expect(document.querySelector('.live-frame')).not.toBeNull());
+    expect(document.documentElement.classList.contains('live-frame-active')).toBe(true);
+    // The frame's breadcrumb row is the way back; the adventure keeps running while the map is shown.
+    fireEvent.click(screen.getByRole('link', { name: '← World map' }));
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await waitFor(() => expect(document.documentElement.classList.contains('live-frame-active')).toBe(false));
+    expect(await screen.findByRole('link', { name: 'Resume live adventure' })).toBeDefined();
   });
 
   it('refreshes activity after starting and resumes the same instance from the map', async () => {

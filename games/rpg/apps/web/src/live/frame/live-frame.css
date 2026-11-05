@@ -1,0 +1,88 @@
+/*
+ * Fixed live-adventure frame (#176). One 100dvh column, no document scroll, rows from the owner-approved layout spec
+ * (games/rpg/art/region-1/mockup/layout-spec.md): breadcrumb, scene band (the only flexible row), status strip, mode
+ * panel, log row. Everything else has a reserved height and clips or scrolls inside itself.
+ *
+ * Reference (360 x 780): crumb 44, scene 272, strip 104, panel 316 (telegraph 48, queue 44, skills 104, feedback 32,
+ * items 44, caption 26, 3 px gaps), log 44. Short phones (<= 720 px tall) use the compact table below, so 360 x 640 and
+ * 320 x 640 keep a scene of about 186 px and every control stays at least 44 px.
+ */
+html.live-frame-active, html.live-frame-active body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+html.live-frame-active .shell { height: 100dvh; min-height: 0; max-width: none; padding-bottom: 0; overflow: hidden; }
+html.live-frame-active .content { padding: 0; }
+/* The frame has its own way back and its own connection state; these would only cover it. */
+html.live-frame-active .header, html.live-frame-active .tabbar, html.live-frame-active .banner,
+html.live-frame-active .expedition-toast, html.live-frame-active .debug-bar { display: none; }
+
+.live-frame {
+  --crumb-h: 44px; --strip-h: 104px; --row-gap: 3px;
+  --telegraph-h: 48px; --queue-h: 44px; --skills-h: 104px; --feedback-h: 32px; --items-h: 44px; --caption-h: 26px;
+  --panel-h: calc(var(--telegraph-h) + var(--queue-h) + var(--skills-h) + var(--feedback-h) + var(--items-h) + var(--caption-h) + 6 * var(--row-gap));
+  --log-h: 44px;
+  position: fixed; z-index: 1; inset: 0; width: 100%; max-width: 440px; height: 100dvh; margin: 0 auto;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  display: grid; grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: var(--crumb-h) minmax(96px, 1fr) var(--strip-h) var(--panel-h) var(--log-h);
+  grid-template-areas: 'crumb' 'scene' 'strip' 'panel' 'log';
+  overflow: hidden; background: var(--bg); color: var(--text);
+}
+.live-frame *, .live-frame *::before, .live-frame *::after { box-sizing: border-box; }
+
+@media (max-height: 720px) {
+  .live-frame { --strip-h: 76px; --telegraph-h: 40px; --skills-h: 96px; --feedback-h: 30px; --caption-h: 24px; --row-gap: 2px; }
+}
+
+/* Breadcrumb row: the way back to the map, area > location, connection state. */
+.live-frame__crumb { grid-area: crumb; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.live-frame__back { display: inline-flex; flex: 0 0 auto; align-items: center; min-width: 44px; height: 44px; padding: 0 6px; font-size: .85rem; white-space: nowrap; }
+.live-frame__crumbs { display: flex; flex: 1 1 0; flex-wrap: wrap; align-content: center; align-items: baseline; column-gap: 5px; min-width: 0; max-height: 100%; overflow: hidden; font-size: .8rem; line-height: 1.2; }
+.live-frame__area { display: inline-flex; gap: 5px; max-width: 100%; color: var(--muted); }
+.live-frame__area > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-frame__sep { flex: 0 0 auto; }
+.live-frame__location { min-width: 0; max-width: 100%; margin: 0; overflow: hidden; font-size: .9rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.live-frame__link { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: var(--warn); }
+.live-frame__link--online { background: var(--ok); }
+
+/* Scene band: backdrop canvas, sprite layer and notice toasts, all clipped to the band. */
+.live-frame__scene { grid-area: scene; position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #0b0a10; }
+.live-frame__scene .scene-viewport { position: absolute; inset: 0; width: auto; max-height: none; aspect-ratio: auto; border-radius: 0; }
+.live-frame__scene .scene-viewport__note { position: absolute; inset: auto 8px 8px; margin: 0; }
+.live-frame__notices { position: absolute; z-index: 3; right: 6px; bottom: 6px; left: 6px; display: grid; gap: 4px; max-height: 70%; overflow: hidden; pointer-events: none; }
+.live-frame .live-frame__notices > * { margin: 0; padding: 4px 8px; border: 1px solid var(--warn); border-radius: 8px; background: color-mix(in srgb, var(--bg) 88%, transparent); font-size: .78rem; line-height: 1.25; overflow-wrap: anywhere; }
+.live-frame .live-frame__notices .live-xp-notice { margin: 0; border-color: var(--ok); }
+.live-frame .live-frame__notices .live-action-status--confirmed { border-color: var(--ok); }
+.live-frame .live-frame__notices .live-action-status--rejected, .live-frame .live-frame__notices .live-action-status--error { border-color: var(--danger); }
+.live-frame .live-frame__notices .live-action-status { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; pointer-events: auto; }
+.live-frame .live-frame__notices .live-action-status button { flex: 0 0 auto; min-height: 44px; padding: 0 10px; font-size: .78rem; }
+.live-frame__notices:empty { display: none; }
+
+/* A connection note with nothing wrong stays in the accessibility tree but is not drawn. */
+.live-screen__connection--quiet { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Exploring parts: status strip and a mode panel with the same footprint as the combat panel. */
+.live-explore { display: contents; }
+.live-explore__strip { grid-area: strip; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 3px; min-width: 0; min-height: 0; padding: 4px 8px; overflow: hidden; border-block: 1px solid var(--border); background: var(--surface); }
+.live-strip__head { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 18px; font-size: .75rem; }
+.live-strip__xp { display: flex; flex: 1 1 0; align-items: center; gap: 8px; min-width: 0; margin: 0; overflow: hidden; color: var(--muted); white-space: nowrap; }
+.live-strip__xp span { overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.live-strip__xp-bar { flex: 1 1 24px; min-width: 24px; height: 5px; overflow: hidden; border-radius: 99px; background: var(--surface-2); }
+.live-strip__xp-bar > span { display: block; height: 100%; background: var(--accent); }
+.live-strip__heroes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 4px; min-height: 0; overflow: hidden; }
+.live-strip__heroes > :only-child { grid-column: 1 / -1; }
+.live-strip__hero { display: grid; align-content: center; gap: 4px; min-width: 0; min-height: 0; margin: 0; padding: 4px 8px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.live-strip__hero--self { border-color: var(--accent); }
+.live-strip__hero-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; font-size: .85rem; white-space: nowrap; }
+.live-strip__hero-line > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.live-strip__hero-line > span:last-child { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.live-strip__hp { height: 7px; overflow: hidden; border-radius: 99px; background: var(--surface); }
+.live-strip__hp > span { display: block; height: 100%; background: var(--ok); }
+
+.live-explore__panel { grid-area: panel; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: var(--row-gap); min-width: 0; min-height: 0; padding: var(--row-gap) 8px 0; overflow: hidden; }
+.live-explore__list { display: grid; align-content: start; gap: 6px; min-width: 0; min-height: 0; padding-right: 2px; overflow-y: auto; overscroll-behavior: contain; }
+.live-explore .live-scene__actions, .live-explore .live-scene__section { gap: 6px; padding-top: 6px; }
+.live-explore .live-scene__actions:first-child { padding-top: 0; border-top: 0; }
+.live-explore .live-action { min-height: 44px; padding: 6px 12px; font-size: .9rem; }
+.live-explore .live-scene__section ul { padding-left: 18px; font-size: .85rem; }
+.live-explore .live-return { min-height: 44px; margin-bottom: 4px; }
+
+@media (prefers-reduced-motion: reduce) { .live-frame * { scroll-behavior: auto; } }
