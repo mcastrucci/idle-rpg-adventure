@@ -11,6 +11,7 @@ import { codeText, t, useLocale } from '../i18n/index.ts';
 import type { Params } from '../i18n/index.ts';
 import { DeathPanel, ProvisionalLiveRiskNotice } from './character/DeathPanel.tsx';
 import { LiveCombat } from '../live/combat/LiveCombat.tsx';
+import { MATRIARCH_LOCATION, MatriarchCombatScene } from '../scene/MatriarchCombatScene.tsx';
 import { SceneViewport } from '../scene/SceneViewport.tsx';
 
 type Props = {
@@ -327,12 +328,18 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, acti
     if (commandId) cancelRisk();
   }, [canCommand, cancelRisk, risk, riskExit, submit]);
 
-  const view = project(sessionState?.view ?? serverView);
+  const authoritativeView = sessionState?.view ?? serverView;
+  const combatEvents = sessionState?.recentEvents ?? sessionState?.events ?? [];
+  const view = project(authoritativeView);
+  const matriarchRoom = view?.location === MATRIARCH_LOCATION;
   const exploring = view?.phase === 'exploring';
   const busy = (sessionState?.pendingCount ?? 0) > 0;
   const readyForActions = canCommand && Boolean(sessionState?.attached);
   const combatConnection = sessionState?.attached ? sessionState.connection
     : live.state.status === 'open' ? { ...live.state, status: 'connecting' as const } : live.state;
+  const combatPanel = view?.phase === 'combat' && <LiveCombat view={authoritativeView ?? {}} events={combatEvents}
+    actorId={actorId} pendingCommandIds={sessionState?.pendingCommandIds ?? []}
+    connection={combatConnection} onSubmit={submit} />;
 
   return <section className="screen live-screen" aria-labelledby="live-screen-title">
     <a className="back-link" href="#/world">{t('ui.live.back')}</a>
@@ -357,14 +364,18 @@ export function LiveScreen({ actorId, initialAreaId, api, live, canCommand, acti
         {currentError && <span>{t('ui.live.host_view_error', { error: liveErrorText(currentError) })}</span>}
       </div>
       {view && <>
-        {view.phase === 'combat' && <LiveCombat view={sessionState?.view ?? serverView ?? {}} events={sessionState?.recentEvents ?? sessionState?.events ?? []}
-          actorId={actorId} pendingCommandIds={sessionState?.pendingCommandIds ?? []}
-          connection={combatConnection} onSubmit={submit} />}
+        {!matriarchRoom && combatPanel}
 
         <section className="live-scene" aria-labelledby="live-scene-title">
           <h2 id="live-scene-title">{view.location ? displayLabel(view.location) : t('ui.live.current_location')}</h2>
           <p className="live-scene__area">{t('ui.live.area', { area: view.area ? displayLabel(view.area) : t('ui.live.unknown') })}</p>
-          <SceneViewport locationId={view.location} />
+          <div className="matriarch-scene-frame">
+            <SceneViewport locationId={view.location} />
+            {matriarchRoom && <MatriarchCombatScene locationId={view.location} actorId={actorId}
+              combat={authoritativeView?.combat ?? null} events={combatEvents}
+              live={Boolean(sessionState?.attached) && combatConnection.status === 'open'} />}
+          </div>
+          {matriarchRoom && combatPanel}
           <div className="live-scene__actors" aria-label={t('ui.live.party_status')}>
             {(view.heroes ?? []).map((hero) => <p key={hero.actorId}>
               <span>{hero.actorId === actorId ? t('ui.common.you') : isUuid(hero.actorId) ? t('ui.common.party_member') : displayLabel(hero.actorId)}</span>
