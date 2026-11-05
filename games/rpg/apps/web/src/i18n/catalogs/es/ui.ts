@@ -148,6 +148,7 @@ const UI: Readonly<Record<string, string>> = {
   'ui.code.retreat_not_allowed': 'No puedes retirarte desde aquí.',
   'ui.code.stale_start_snapshot': 'Tus datos cambiaron; revísalos e inténtalo de nuevo.',
   'ui.code.start.areaNotCompleted': 'Completa esta área antes de enviar una expedición.',
+  'ui.code.start.unknownArea': 'Esa área no está disponible para expediciones.',
   'ui.code.store_error': 'La aventura tuvo un problema de almacenamiento; reconectando.',
   'ui.code.too_many_unique_items': 'Demasiados objetos de equipo en una sola entrega.',
   'ui.code.unauthorized': 'Inicia sesión de nuevo.',

@@ -35,16 +35,30 @@ export function requireRpgLiveStartAccessible(content: LoadedContent, context: E
 }
 
 /** Returns only a validated, authored explorable area that can be used as a live start. */
-export function getRpgLiveStartArea(content: LoadedContent, areaId: string) {
-  return getRpgLiveStartAreas(content).find(area => area.id === areaId);
+export function getRpgLiveStartArea(content: LoadedContent, areaId: string, exposeTechnicalAreas = false) {
+  return getRpgLiveStartAreas(content, exposeTechnicalAreas).find(area => area.id === areaId);
+}
+
+/** Authored tag marking developer/test seed areas that players must never see or enter (issue #156). */
+export const TECHNICAL_AREA_TAG = 'technical_seed';
+
+/**
+ * IDs of technical areas the player-facing server must hide. Empty when the RPG debug tools are enabled (staging),
+ * where these areas stay visible. This is the single server-side filter for the world map, live entry and idle expeditions.
+ */
+export function hiddenTechnicalAreaIds(content: LoadedContent, exposeTechnicalAreas: boolean): ReadonlySet<string> {
+  if (exposeTechnicalAreas) return new Set();
+  const world = content.world as { readonly areas?: readonly unknown[] };
+  return new Set((world.areas ?? []).map(raw => RpgAreaSchema.parse(raw))
+    .filter(area => area.tags?.includes(TECHNICAL_AREA_TAG)).map(area => area.id));
 }
 
 /** Returns startable areas in authored order, excluding hubs and areas without a start location. */
-export function getRpgLiveStartAreas(content: LoadedContent) {
+export function getRpgLiveStartAreas(content: LoadedContent, exposeTechnicalAreas = false) {
   const world = content.world as { readonly areas?: readonly unknown[]; readonly locations?: readonly unknown[] };
   const locationIds = new Set((world.locations ?? []).map(raw => RpgLocationSchema.parse(raw).id));
   return (world.areas ?? [])
     .map(raw => RpgAreaSchema.parse(raw))
-    .filter(area => area.kind === 'explorable' && !area.tags?.includes('technical_seed') && area.startLocation !== undefined &&
+    .filter(area => area.kind === 'explorable' && (exposeTechnicalAreas || !area.tags?.includes(TECHNICAL_AREA_TAG)) && area.startLocation !== undefined &&
       area.locations.includes(area.startLocation) && locationIds.has(area.startLocation));
 }

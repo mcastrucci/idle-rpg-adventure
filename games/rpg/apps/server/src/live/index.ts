@@ -103,7 +103,9 @@ export async function startRpgLiveInstance(host: RpgLiveHost | InstanceHost<RpgL
 
 /** Prepares a solo region start inside the shared command transaction, with actor lock held through create/CAS. */
 export async function prepareRpgLiveStart(tx: ActorTransaction, host: RpgLiveHost, accountId: string,
-  input: { readonly actorId: string; readonly areaId: string; readonly supplies: readonly ConsumableStack[] }): Promise<PreparedInstanceCreate> {
+  input: { readonly actorId: string; readonly areaId: string; readonly supplies: readonly ConsumableStack[];
+    /** Staging only: lets technical seed areas be entered (debug tools enabled). Defaults to the production behaviour. */
+    readonly exposeTechnicalAreas?: boolean }): Promise<PreparedInstanceCreate> {
   const actorId = input.actorId.toLowerCase();
   const instanceHost = host.host();
   const content = host.content();
@@ -115,7 +117,7 @@ export async function prepareRpgLiveStart(tx: ActorTransaction, host: RpgLiveHos
   if (actor.activityState !== 'none' || actor.activityId !== null) throw new ActivityConflictError();
   const [character] = await tx.select().from(characters).where(eq(characters.actorId, actorId));
   if (!character) throw new RangeError('unknown character');
-  const startArea = getRpgLiveStartArea(content, input.areaId);
+  const startArea = getRpgLiveStartArea(content, input.areaId, input.exposeTechnicalAreas ?? false);
   if (!startArea) throw new RangeError('invalid live start area');
   const holdings = await getHoldings(tx, actorId);
   const progress = await readRpgEvalContext(tx, actorId, character.level, holdings);

@@ -17,7 +17,7 @@ import { prepareRpgLiveStart } from './index.ts';
 
 const ActorParamsSchema = z.strictObject({ actorId: z.uuid().transform((id) => id.toLowerCase()) });
 /** Owner-scoped solo live entry routes. The client chooses only a known authored area and carried supplies. */
-export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
+export function createLiveEntryModule(live: RpgLiveHost, exposeTechnicalAreas = false): ServerModule {
   return {
     name: 'live-entry', roles: ['api'],
     async register(app, context) {
@@ -48,7 +48,7 @@ export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
             }
             const known = new Set(computeRpgWorldView(context.content, progress).areas
               .filter((area) => area.visibility === 'known').map((area) => area.id));
-            const areas = getRpgLiveStartAreas(context.content).filter(area => known.has(area.id))
+            const areas = getRpgLiveStartAreas(context.content, exposeTechnicalAreas).filter(area => known.has(area.id))
               .map(area => ({ id: area.id, label: area.nameKey ?? area.id, startLocationId: area.startLocation as string }));
             return [areas,
               [...stock.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([item, availableQty]) => ({
@@ -69,7 +69,7 @@ export function createLiveEntryModule(live: RpgLiveHost): ServerModule {
           const response = await runCommand(context.database, context.clock, accountId,
             { commandId: start.commandId, operation: 'live.start', payload: { actorId: start.actorId, areaId: start.areaId, supplies: start.supplies } },
             async (tx) => {
-              const prepared = await prepareRpgLiveStart(tx, live, accountId, { actorId: start.actorId, areaId: start.areaId, supplies: start.supplies });
+              const prepared = await prepareRpgLiveStart(tx, live, accountId, { actorId: start.actorId, areaId: start.areaId, supplies: start.supplies, exposeTechnicalAreas });
               const lease = await live.createInTransaction(tx, prepared.input);
               await tx.insert(rpgLiveEntries).values({ instanceId: prepared.input.instanceId, actorId: start.actorId,
                 areaId: start.areaId, startedAt: new Date(prepared.input.nowMs) });
