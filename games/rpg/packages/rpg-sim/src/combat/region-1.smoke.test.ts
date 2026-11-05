@@ -17,7 +17,7 @@ import { BRUISER_L5, ofType, rules } from './testing/fixtures.ts';
 const ROOT = fileURLToPath(new URL('../../../../content/', import.meta.url));
 
 function loadRegion1(): CombatContent {
-  const result = compileContent(loadContentFiles(ROOT), plugin);
+  const result = compileContent(loadContentFiles(ROOT), plugin, { contentRoot: ROOT });
   if (!result.ok) throw new Error(JSON.stringify(result.errors, null, 2));
   const { collections } = result.bundle;
   const byId = <T extends { id: string }>(list: T[]): Record<string, T> => Object.fromEntries(list.map((x) => [x.id, x]));

@@ -299,7 +299,7 @@ describe('RPG live plugin: combat', () => {
 });
 
 describe('RPG live plugin: scene geometry (#154)', () => {
-  // Region 1 has no authored Tiled scenes yet, so the geometry is a fixture over real lantern_ruins IDs (a secret exit, a flag hotspot).
+  // The fixture below overrides the authored Region 1 geometry with simple rects over real lantern_ruins IDs (a secret exit, a flag hotspot).
   const RUINS = R1('lantern_ruins');
   const rect = (x: number, y: number) => ({ x, y, width: 40, height: 20 });
   const sceneGame = createRpgLiveGame({ ...compiled.bundle, scenes: { [RUINS]: { width: 543, height: 724, background: 'scenes/region_1/lantern_ruins.png',
@@ -327,9 +327,17 @@ describe('RPG live plugin: scene geometry (#154)', () => {
   });
 
   it('omits scene for locations without geometry and when the bundle has no scenes', () => {
+    const noScenes = createRpgLiveGame({ ...compiled.bundle, scenes: {} });
     expect(sceneOf(sceneGame.view(region1(), HERO))).toBeUndefined();
-    expect(sceneOf(game.view(atRuins(), HERO))).toBeUndefined();
-    expect('scene' in (game.view(atRuins(), HERO) as object)).toBe(false);
+    expect(sceneOf(noScenes.view(atRuins(), HERO))).toBeUndefined();
+    expect('scene' in (noScenes.view(atRuins(), HERO) as object)).toBe(false);
+  });
+
+  it('sends the authored Region 1 geometry (#168), and still hides the secret exit region until the hatch is found', () => {
+    const view = sceneOf(game.view(atRuins(), HERO));
+    expect(view).toMatchObject({ width: 1086, height: 1448 });
+    const ids = view?.regions.map((region) => region.id);
+    expect(ids).toEqual([EXIT('lantern_ruins', 'tangle_orchard'), EXIT('lantern_ruins', 'pump_station'), 'cracked_panel']);
   });
 });
 

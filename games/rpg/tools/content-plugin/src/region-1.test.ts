@@ -13,7 +13,7 @@ import plugin, { RPG_ISSUE_CODES } from './index.ts';
 const ROOT = fileURLToPath(new URL('../../../content/', import.meta.url));
 const FILES = loadContentFiles(ROOT);
 function compile(files: readonly ContentFile[] = FILES) {
-  const result = compileContent(files, plugin);
+  const result = compileContent(files, plugin, { contentRoot: ROOT });
   if (!result.ok) throw new Error(JSON.stringify(result.errors, null, 2));
   return result.bundle;
 }
@@ -89,7 +89,7 @@ describe('Region 1 content authoring (#46 prerequisite, provisional balance)', (
     expect(effects('lantern_ruins', 'cracked_panel')).toEqual([{ setFlag: 'region_1.hatch_found' }]);
     const withoutLever = FILES.map(f => f.file === 'world/locations/region_1/pump_station.json'
       ? { ...f, text: JSON.stringify({ ...JSON.parse(f.text), hotspots: [{ id: 'bulkhead_lever', type: 'interact', textKey: 'hotspot.region_1.bulkhead_lever' }] }) } : f);
-    const result = compileContent(withoutLever, plugin);
+    const result = compileContent(withoutLever, plugin, { contentRoot: ROOT });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors.map(e => `${e.code} ${e.file ?? '-'} ${e.path.join('.')}`)).toEqual([

@@ -25,7 +25,7 @@ let cached: { bundle: ContentBundle; content: RpgIdleContent } | undefined;
 /** The compiled `games/rpg/content` bundle and the idle content parsed from it (compiled once per test file). */
 export function region1(): { bundle: ContentBundle; content: RpgIdleContent } {
   if (cached === undefined) {
-    const result = compileContent(loadContentFiles(ROOT), plugin);
+    const result = compileContent(loadContentFiles(ROOT), plugin, { contentRoot: ROOT });
     if (!result.ok) throw new Error(JSON.stringify(result.errors, null, 2));
     cached = { bundle: result.bundle, content: rpgIdleContentFromBundle(result.bundle) };
   }

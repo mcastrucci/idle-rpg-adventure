@@ -1,6 +1,6 @@
 /**
- * #154: tappable scene geometry in the live view, against real PostgreSQL and a format-2 content bundle. Region 1 has no
- * authored Tiled scene yet, so the bundle attaches fixture geometry to the production `lantern_ruins` location (it has a
+ * #154: tappable scene geometry in the live view, against real PostgreSQL and a format-2 content bundle. The bundle
+ * overrides the authored geometry of the production `lantern_ruins` location with fixture rects (it has a
  * flag-gated secret exit). The view a player receives over HTTP must not contain the secret exit's region before the
  * hatch is found, and must contain it afterwards.
  */
@@ -51,7 +51,7 @@ describe.skipIf(!adminUrl)('live view scene geometry (real PostgreSQL, format-2 
     const rect = (x: number) => ({ x, y: 100, width: 40, height: 40 });
     const body = {
       format: 2 as const, game: compiled.bundle.game, world, collections: compiled.bundle.collections,
-      scenes: { [RUINS]: { width: 543, height: 724, background: 'scenes/region_1/lantern_ruins.png',
+      scenes: { ...compiled.bundle.scenes, [RUINS]: { width: 543, height: 724, background: 'scenes/region_1/lantern_ruins.png',
         exits: Object.fromEntries(ruins.exits.map((exit, index) => [exit.id, rect(index * 100)])),
         hotspots: { cracked_panel: rect(400) }, enemyAnchors: {}, resources: { 'res:alloy_scrap#0': { x: 5, y: 5 } } } },
     };
