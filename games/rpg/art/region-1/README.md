@@ -44,7 +44,7 @@ No hay texto, flechas, iconos ni personajes incrustados en los fondos. Zonas pro
 ## Mockup con controles fijos
 
 - `docs/design/references/fixed-combat-reference.png` (movido fuera de `public/`): boceto actualizado. El arte y los textos dibujados son referencia visual, no componentes de UI reutilizables.
-- **Abrir `mockup/index.html` después de descomprimir el paquete.** Funciona sin dependencias ni red, usando los fondos y sprites relativos.
+- **Abrir `mockup/index.html` después de descomprimir el paquete.** Funciona sin dependencias ni red, leyendo los fondos y sprites de `apps/web/public/assets/region-1/` mediante rutas relativas (abrir desde el repositorio, no desde el paquete).
 - Baseline **360×780 CSS px**, filas reservadas para aviso de ataque, cola y feedback, habilidades 2×2 y poción/retirada siempre en sus filas. El log abre una capa superpuesta. Controles definidos con al menos 44 px de alto.
 - Solo Max tiene controles; los cuatro marcos de grupo son una representación de la futura fase 2. Retirada bloqueada en el jefe, poción activa, Cleave con enfriamiento de 4s.
 - `window.mockup.setState(...)` permite cambiar mensajes largos/vacíos para revisión. Este HTML es un prototipo local, no una integración de combate/cooperativo en el juego.
@@ -55,4 +55,4 @@ Se comprobaron dimensiones, relación 3:4, límite de 2048 por lado, Q85, pesos,
 
 **Geometría de navegador y teléfono pendiente:** Chromium no está instalado en este entorno; Happy DOM no valida medidas reales ni legibilidad física. No se afirma una prueba de PixiJS ni de dispositivo. El arte de cada escena está aplanado en un fondo opaco, con los personajes en archivos separados. Para parallax harán falta capas ambientales adicionales.
 
-No se modificó código ni contenido del repositorio ni se publicó una integración. `generation.json` conserva los prompts y las referencias locales usados para esta tanda; `manifest.json` conserva dimensiones, hashes y presupuestos de los archivos entregados.
+No se modificó código ni contenido del repositorio ni se publicó una integración. `generation.json` conserva los prompts y las referencias locales usados para esta tanda; `apps/web/public/assets/region-1/manifest.json` conserva dimensiones, hashes y presupuestos de los archivos entregados.

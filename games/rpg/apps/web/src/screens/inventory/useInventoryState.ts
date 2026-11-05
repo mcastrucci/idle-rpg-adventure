@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { InventorySnapshotDto, MerchantCatalogDto } from '@rpg/protocol';
 import type { ApiClient } from '../../api/http.ts';
-import { t } from '../../i18n/index.ts';
+import { errorText } from '../../i18n/index.ts';
 import { getInventory, getMerchantCatalog } from '../../inventory/api.ts';
 import type { InventoryTab } from '../InventoryScreen.tsx';
 
@@ -58,4 +58,4 @@ export function useInventoryState({ actorId, tab, api, setSnapshot, setMerchant,
   return { inventoryLoading, merchantLoading, reloadInventory, reloadMerchant };
 }
 
-function errorLabel(error: unknown): string { return error instanceof Error ? error.message : t('ui.common.unknown_error'); }
+const errorLabel = errorText;

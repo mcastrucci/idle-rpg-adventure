@@ -7,7 +7,8 @@ import {
   addRule, clearCondition, defaultConditionValue, moveRule, NEW_RULE, removeRule, setActionKind, setActionSkill, setCondition, toDraft, toRules,
 } from './draft.ts';
 import { PRESETS, presetRules, presetUnavailableReason } from './presets.ts';
-import { validateRules } from './validate.ts';
+import { setLocale } from '../i18n/index.ts';
+import { describeSchemaIssue, validateRules } from './validate.ts';
 
 const BULWARK_LOADOUT = ['skill:shield_bash', 'skill:guard', 'skill:cleave', 'skill:mend'];
 const THORNBLADE_LOADOUT = ['skill:precise_strike', 'skill:rend', 'skill:second_wind', 'skill:cleave'];
@@ -72,6 +73,33 @@ describe('validateRules', () => {
     expect(validateRules(tooMany, context)).toMatchObject({ ok: false, issues: [{ index: null }] });
     expect(validateRules([{ when: { selfHpBelowBp: 20000 }, do: { useSkill: 'skill:guard' } }], context)).toMatchObject({ ok: false, issues: [{ index: 0 }] });
     expect(validateRules([{ when: { unknown: true }, do: { useSkill: 'skill:guard' } }], context).ok).toBe(false);
+  });
+
+  it('translates schema issues by code and field, never showing raw Zod text', () => {
+    const cases: [unknown, string, string][] = [
+      [{ when: { selfHpBelowBp: 20000 }, do: { useSkill: 'skill:guard' } }, 'Not a valid rule (my HP: the value must be between 0 and 10000 basis points).', 'Regla no válida (mis PV: el valor debe estar entre 0 y 10000 puntos básicos).'],
+      [{ when: { unknown: true }, do: { useSkill: 'skill:guard' } }, 'Not a valid rule (condition: it has fields that are not allowed).', 'Regla no válida (condición: tiene campos que no están permitidos).'],
+      [{ when: {}, do: { useSkill: 'skill:guard', extra: 1 } }, 'Not a valid rule (action: it has fields that are not allowed).', 'Regla no válida (acción: tiene campos que no están permitidos).'],
+      [{ when: { enemiesAtLeast: 0 }, do: { useSkill: 'skill:guard' } }, 'Not a valid rule (enemy count: there must be at least 1 enemy).', 'Regla no válida (número de enemigos: debe haber al menos 1 enemigo).'],
+      [{ when: { skillReady: 5 }, do: { useSkill: 'skill:guard' } }, 'Not a valid rule (skill ready: the value has the wrong type or is missing).', 'Regla no válida (habilidad lista: el valor tiene un tipo incorrecto o falta).'],
+    ];
+    for (const [locale, index] of [['en', 1], ['es', 2]] as const) {
+      setLocale(locale, { persist: false });
+      for (const entry of cases) {
+        const result = validateRules([entry[0]], context);
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.issues).toEqual([{ index: 0, message: entry[index] }]);
+      }
+    }
+    setLocale('en', { persist: false });
+  });
+
+  it('falls back to a translated generic message for unmapped codes', () => {
+    const issue = { code: 'something_new', path: [0, 'when'] as PropertyKey[] };
+    expect(describeSchemaIssue(issue)).toBe('it is not valid');
+    setLocale('es', { persist: false });
+    expect(describeSchemaIssue(issue)).toBe('no es válido');
+    setLocale('en', { persist: false });
   });
 
   it('mirrors the server character checks', () => {

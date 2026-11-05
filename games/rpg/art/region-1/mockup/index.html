@@ -13,7 +13,7 @@ body{display:flex;justify-content:center;align-items:flex-start}
 button{font:inherit;color:inherit}
 .game{width:min(100vw,360px);height:780px;overflow:hidden;display:grid;grid-template-rows:22px 288px 112px 48px 44px 104px 32px 44px 18px 44px 24px;background:#17131f;border-inline:1px solid #4e3b4f;position:relative}
 .crumb{display:flex;align-items:center;gap:6px;padding:0 9px;background:#211a2b;border-bottom:1px solid #45334a;white-space:nowrap;overflow:hidden;font-size:9px;letter-spacing:.04em;color:#e3d4ad}.crumb b{color:#927db2;font-size:9px}.crumb strong{color:var(--gold);font-weight:700}
-.scene{position:relative;overflow:hidden;background:#302444 url('../backgrounds/webp/seed-vault-heart.webp') center/cover no-repeat;isolation:isolate}
+.scene{position:relative;overflow:hidden;background:#302444 url('../../../apps/web/public/assets/region-1/backgrounds/webp/seed-vault-heart.webp') center/cover no-repeat;isolation:isolate}
 .scene:before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(21,14,32,.28),rgba(21,13,25,.03) 45%,rgba(17,12,22,.58));z-index:-1}
 .boss-status{position:absolute;z-index:3;top:8px;left:9px;right:9px;padding:5px 7px 6px;background:rgba(25,18,31,.92);border:1px solid #94734f;box-shadow:2px 2px 0 #1b1522;display:grid;grid-template-columns:1fr auto;gap:3px 8px}
 .boss-name{font-size:11px;color:#ffe3a6;font-weight:800;letter-spacing:.04em}.boss-pct{font-size:10px;color:#f3cc8d;font-weight:700}.boss-track{grid-column:1/-1;height:7px;background:#4b2839;border:1px solid #9b5c61;overflow:hidden}.boss-track i{display:block;width:65%;height:100%;background:linear-gradient(90deg,#bd5264,#ed8b72);box-shadow:inset 0 1px #ffc19a}
@@ -39,8 +39,8 @@ button{font:inherit;color:inherit}
   <nav class="crumb" aria-label="Location"><span>Verdant Hollow</span><b>›</b><strong>Seed Chamber</strong></nav>
   <section class="scene" aria-label="Battle scene: Max faces the Hollow Matriarch">
     <div class="boss-status"><span class="boss-name">HOLLOW MATRIARCH</span><span class="boss-pct" id="boss-pct">65%</span><span class="boss-track"><i id="boss-bar"></i></span></div>
-    <img class="actor hero" src="../sprites/hero_max.png" alt="Max, the party tank">
-    <img class="actor boss" src="../sprites/hollow_matriarch.png" alt="Hollow Matriarch">
+    <img class="actor hero" src="../../../apps/web/public/assets/region-1/sprites/hero_max.png" alt="Max, the party tank">
+    <img class="actor boss" src="../../../apps/web/public/assets/region-1/sprites/hollow_matriarch.png" alt="Hollow Matriarch">
     <div class="taunt" id="taunt">Taunted · 3 attacks</div>
   </section>
   <section class="party" aria-label="Party status">

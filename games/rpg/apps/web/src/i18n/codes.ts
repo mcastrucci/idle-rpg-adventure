@@ -41,3 +41,15 @@ export function codeText(code: string): string {
 export function hasCode(code: string): boolean {
   return has(`ui.code.${code}`);
 }
+
+/**
+ * Player-facing text for a failed request: the error's stable `code` (ApiError, CommandRejectedError) through
+ * `ui.code.*`, `network_error` for transport failures, and a translated generic message otherwise. It never shows a
+ * raw `Error.message` such as "404 not_found".
+ */
+export function errorText(error: unknown): string {
+  const code = error !== null && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : null;
+  if (code !== null && hasCode(code)) return t(`ui.code.${code}`);
+  if (error instanceof Error && error.name === 'NetworkError') return t('ui.code.network_error');
+  return t('ui.common.unknown_error');
+}

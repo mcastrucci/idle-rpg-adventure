@@ -6,9 +6,9 @@ A standalone, offline review artifact for a fixed-position realtime combat HUD. 
 
 Open `index.html` directly in a modern browser. It has no dependencies, build step, font downloads, or network calls. Expected asset paths, relative to this directory:
 
-- `../backgrounds/webp/seed-vault-heart.webp`
-- `../sprites/hero_max.png`
-- `../sprites/hollow_matriarch.png`
+- `../../../apps/web/public/assets/region-1/backgrounds/webp/seed-vault-heart.webp`
+- `../../../apps/web/public/assets/region-1/sprites/hero_max.png`
+- `../../../apps/web/public/assets/region-1/sprites/hollow_matriarch.png`
 
 ## Layout at 360 × 780 CSS pixels
 
