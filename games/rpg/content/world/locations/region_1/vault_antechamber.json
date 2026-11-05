@@ -5,6 +5,7 @@
     "ordinary",
     "safe"
   ],
+  "scene": "scenes/region_1/vault_antechamber.tmj",
   "exits": [
     {
       "id": "exit:region_1.vault_antechamber.pump_station",

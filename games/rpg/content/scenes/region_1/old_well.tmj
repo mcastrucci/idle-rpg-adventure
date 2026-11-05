@@ -1,0 +1,134 @@
+{
+  "type": "map",
+  "version": "1.11",
+  "tiledversion": "1.11.2",
+  "orientation": "orthogonal",
+  "renderorder": "right-down",
+  "width": 1086,
+  "height": 1448,
+  "tilewidth": 1,
+  "tileheight": 1,
+  "infinite": false,
+  "nextlayerid": 5,
+  "nextobjectid": 6,
+  "tilesets": [],
+  "layers": [
+    {
+      "id": 1,
+      "name": "background",
+      "type": "imagelayer",
+      "image": "old_well.webp",
+      "imagewidth": 1086,
+      "imageheight": 1448,
+      "x": 0,
+      "y": 0,
+      "offsetx": 0,
+      "offsety": 0,
+      "opacity": 1,
+      "visible": true
+    },
+    {
+      "id": 2,
+      "name": "exits",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 1,
+          "name": "exit:region_1.old_well.overgrown_causeway",
+          "type": "",
+          "x": 10,
+          "y": 380,
+          "width": 170,
+          "height": 170,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "name": "exit:region_1.old_well.glowcap_grotto",
+          "type": "",
+          "x": 860,
+          "y": 420,
+          "width": 200,
+          "height": 190,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        },
+        {
+          "id": 3,
+          "name": "exit:region_1.old_well.irrigation_terraces",
+          "type": "",
+          "x": 600,
+          "y": 320,
+          "width": 180,
+          "height": 170,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "hotspots",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 4,
+          "name": "inscription",
+          "type": "",
+          "x": 740,
+          "y": 615,
+          "width": 150,
+          "height": 150,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "resources",
+      "type": "objectgroup",
+      "draworder": "topdown",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "opacity": 1,
+      "visible": true,
+      "objects": [
+        {
+          "id": 5,
+          "name": "res:glowcap#0",
+          "type": "",
+          "x": 690,
+          "y": 690,
+          "width": 0,
+          "height": 0,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "point": true
+        }
+      ]
+    }
+  ]
+}
