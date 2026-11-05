@@ -52,6 +52,26 @@ test('rejects a background WebP above 600 KB but not other WebPs', () => {
   } finally { rmSync(root, { recursive: true }); }
 });
 
+test('rejects non-runtime files inside a region folder', () => {
+  const root = tree({
+    'assets/region-1/previews-360/a.jpg': 10,
+    'assets/region-1/mockup/index.html': 10,
+    'assets/region-1/generation.json': 10,
+    'assets/region-1/README.md': 10,
+    'assets/region-1/sprites/atlas.txt': 10,
+    'assets/region-1/sprites/sub/x.png': 10,
+    'assets/region-1/backgrounds/webp/a.png': 10,
+    'assets/region-1/backgrounds/webp/ok.webp': 10,
+    'assets/region-1/sprites/ok.png': 10,
+    'assets/region-1/manifest.json': 10,
+  });
+  try {
+    const found = findPublicAssetViolations(root);
+    assert.equal(found.length, 7);
+    assert.ok(found.every((message) => /only manifest\.json/.test(message)));
+  } finally { rmSync(root, { recursive: true }); }
+});
+
 test('the real public/ folder is clean', () => {
   const publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'public');
   assert.deepEqual(findPublicAssetViolations(publicDir), []);
