@@ -122,6 +122,15 @@ export interface LiveCombatActorDto {
   readonly cooldowns?: readonly { readonly skill: string; readonly readyAtTick: number; readonly remainingTicks: number }[];
   readonly effects?: readonly LiveActiveEffectDto[];
 }
+/**
+ * Tappable geometry of the current location's scene (#154). Coordinates are in the scene's authored pixel space,
+ * the Tiled map size in pixels (`width` x `height`), origin top-left; `r` is the tap radius in the same unit.
+ * Each region is a circle around an exit or hotspot rect. `id` is the exit or hotspot ID of `exits[]` / `hotspots[]`,
+ * whose entries carry the state (open, done). Only exits and hotspots the viewer can currently see are listed: an
+ * undiscovered secret exit has no region. The field is absent for locations without authored scene geometry.
+ */
+export interface LiveSceneRegionDto { readonly id: string; readonly kind: 'exit' | 'hotspot'; readonly x: number; readonly y: number; readonly r: number }
+export interface LiveSceneDto { readonly width: number; readonly height: number; readonly regions: readonly LiveSceneRegionDto[] }
 /** Client-safe projection of the current game view. Game-specific view fields remain JSON data. */
 export interface LiveViewDto {
   readonly phase?: string;
@@ -130,6 +139,7 @@ export interface LiveViewDto {
   readonly heroes?: readonly LiveHeroDto[];
   readonly combat?: { readonly tick: number; readonly groupId: string | null; readonly actors: readonly LiveCombatActorDto[] } | null;
   readonly runBag?: readonly LiveRunBagDto[];
+  readonly scene?: LiveSceneDto;
   readonly [key: string]: unknown;
 }
 export type LiveServerFrame =
@@ -192,6 +202,20 @@ const bossRiskSchema = z.strictObject({ locationId: boundedText,
   deathConsequences: z.array(z.strictObject({ actorId: uuidSchema, xpLost: counterSchema, xpBeforeTotal: counterSchema,
     runBag: z.strictObject({ items: z.array(z.strictObject({ item: boundedText, qty: positiveCounterSchema })).max(512), gold: counterSchema,
       uniques: z.array(z.strictObject({ itemId: uuidSchema, definition: boundedText, slot: z.string().max(64).nullable(), rolls: jsonSchema })).max(512) }) })).max(64) });
+const sceneCoordinate = z.number().finite().nonnegative().max(1_000_000);
+const sceneSchema = z.strictObject({
+  width: z.number().int().positive().max(1_000_000), height: z.number().int().positive().max(1_000_000),
+  regions: z.array(z.strictObject({ id: boundedText, kind: z.enum(['exit', 'hotspot']), x: sceneCoordinate, y: sceneCoordinate,
+    r: sceneCoordinate.refine((value) => value > 0) })).max(128),
+}).superRefine((scene, ctx) => {
+  const seen = new Set<string>();
+  scene.regions.forEach((region, index) => {
+    if (region.x > scene.width || region.y > scene.height) ctx.addIssue({ code: 'custom', path: ['regions', index], message: 'region outside the scene' });
+    const key = `${region.kind}:${region.id}`;
+    if (seen.has(key)) ctx.addIssue({ code: 'custom', path: ['regions', index, 'id'], message: 'duplicate region' });
+    seen.add(key);
+  });
+});
 const liveViewSchema = z.strictObject({
   phase: z.enum(['exploring', 'combat', 'dead', 'closing']).optional(), area: boundedText.optional(), location: boundedText.optional(),
   canRetreat: z.boolean().optional(), retreatBlockedReason: z.enum(['boss', 'not_in_combat', 'unknown_group']).nullable().optional(),
@@ -219,6 +243,7 @@ const liveViewSchema = z.strictObject({
         remaining: counterSchema, unit: z.enum(['ticks', 'actions', 'attacks']), type: boundedText,
         amount: counterSchema.optional(), school: boundedText.optional(), stat: boundedText.optional() })).max(256).optional() })).max(128) }).nullable().optional(),
   runBag: z.array(runBagSchema).max(64).optional(),
+  scene: sceneSchema.optional(),
 });
 const serverFrameSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('authenticated'), accountId: uuidSchema }),
