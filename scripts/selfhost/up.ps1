@@ -109,7 +109,7 @@ if ($Hostname) {
 } else {
   Write-Host 'Starting the Cloudflare quick tunnel...'
   $tunnel = Start-Process -FilePath 'cloudflared' -PassThru -WindowStyle Hidden `
-    -ArgumentList @('tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:3000', '--logfile', $log)
+    -ArgumentList @('tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:3000', '--logfile', ('"' + $log + '"'))
   Set-Content -Path $pidFile -Value $tunnel.Id
 
   $url = $null
