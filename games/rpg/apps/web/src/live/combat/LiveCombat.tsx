@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { displayLabel } from '../../content/labels.ts';
 import { t, useLocale } from '../../i18n/index.ts';
 import type { LiveState } from '../state.ts';
+import { actorLabel, formatEvent } from './eventLog.ts';
 import './combat.css';
 
 interface SkillProjection {
@@ -35,7 +36,7 @@ interface CombatActorProjection {
   readonly effects: readonly EffectProjection[];
   readonly auto?: boolean;
   readonly queued: { readonly kind: string; readonly skill?: string; readonly item?: string; readonly target?: string | null } | null;
-  readonly windup: { readonly skill: string; readonly skillLabelKey?: string; readonly targetIds: readonly string[]; readonly startedTick: number; readonly resolveAtTick: number } | null;
+  readonly windup: { readonly skill: string; readonly labelKey?: string; readonly targetIds: readonly string[]; readonly startedTick: number; readonly resolveAtTick: number } | null;
 }
 interface CombatProjection {
   readonly tick: number;
@@ -111,7 +112,7 @@ export function LiveCombat({ view, events, actorId, pendingCommandIds, connectio
           return target ? actorLabel(target, actorId) : null;
         }).filter((name): name is string => name !== null);
         return <aside className="live-combat__telegraph" key={actor.id} role="status" aria-live="polite">
-          <strong>{t('ui.combat.winding_up', { actor: actorLabel(actor, actorId), skill: displayLabel(windup.skillLabelKey ?? windup.skill) })}</strong>
+          <strong>{t('ui.combat.winding_up', { actor: actorLabel(actor, actorId), skill: displayLabel(windup.labelKey ?? windup.skill) })}</strong>
           <span>{t('ui.combat.resolves', { ticks: t('ui.unit.ticks', { count: remaining }) })}</span>
           {targets.length > 0 && <span>{t('ui.combat.targets', { targets: targets.join(', ') })}</span>}
         </aside>;
@@ -231,44 +232,7 @@ function describeQueued(value: CombatActorProjection['queued']): string {
   if (value.kind === 'useConsumable') return t('ui.combat.queued_item', { name: displayLabel(value.item ?? t('ui.combat.word_consumable')) });
   return displayLabel(value.kind);
 }
-function actorLabel(actor: CombatActorProjection, actorId: string): string {
-  if (actor.id === actorId) return t('ui.common.you');
-  if (actor.side === 'hero' && isUuid(actor.id)) return t('ui.common.party_member');
-  return displayLabel(actor.labelKey ?? actor.id);
-}
-function isUuid(value: string): boolean { return /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(value); }
-function formatEvent(value: LiveJson, actorId: string, actors: readonly CombatActorProjection[]): string {
-  if (value === null || Array.isArray(value) || typeof value !== 'object') return t('ui.combat.event_received');
-  const event = value as { readonly [key: string]: LiveJson };
-  if (event['type'] === 'combat' && event['event'] !== null && !Array.isArray(event['event']) && typeof event['event'] === 'object') {
-    return formatEvent(event['event'], actorId, actors);
-  }
-  const type = typeof event['type'] === 'string' ? event['type'] : t('ui.combat.word_event');
-  const actorIdValue = typeof event['actorId'] === 'string' ? event['actorId'] : '';
-  const actor = actorIdValue ? combatantLabel(actorIdValue, actorId, actors) : t('ui.combat.word_combatant');
-  if (type === 'ActionStarted') {
-    const mode = event['source'] === 'auto' ? t('ui.combat.mode_auto') : event['source'] === 'manual' ? t('ui.combat.mode_manual') : '';
-    return t('ui.combat.event_started', { actor, action: actionLabel(event['action']), mode });
-  }
-  if (type === 'InputRejected') {
-    const params = { input: inputLabel(event['kind']), reason: reasonLabel(event['reason']), actor };
-    return t(actorIdValue === actorId ? 'ui.combat.event_rejected_you' : 'ui.combat.event_rejected', params);
-  }
-  if (type === 'ConsumableUsed') return t('ui.combat.event_consumable', { actor, item: displayLabel(typeof event['item'] === 'string' ? event['item'] : t('ui.combat.word_consumable')), remaining: Number(event['remaining']) || 0 });
-  if (type === 'DamageDealt') return t('ui.combat.event_damage', { source: combatantLabel(event['sourceId'], actorId, actors), amount: Number(event['amount']) || 0, target: combatantLabel(event['targetId'], actorId, actors) });
-  if (type === 'Healed') return t('ui.combat.event_healed', { actor: event['targetId'] === actorId ? t('ui.common.you') : actor, amount: Number(event['amount']) || 0 });
-  const reason = typeof event['reason'] === 'string' ? ` · ${displayLabel(event['reason'])}` : '';
-  return `${displayLabel(type)}${actorIdValue ? ` · ${actor}` : ''}${reason}`;
-}
 
-function actionLabel(value: LiveJson | undefined): string {
-  if (value !== null && !Array.isArray(value) && typeof value === 'object') {
-    const action = value as { readonly [key: string]: LiveJson };
-    if (action['kind'] === 'skill' && typeof action['skill'] === 'string') return displayLabel(action['skill']);
-    if (action['kind'] === 'consumable' && typeof action['item'] === 'string') return displayLabel(action['item']);
-  }
-  return t('ui.combat.word_action');
-}
 
 function advanceFeedback(rows: readonly EventRow[], actorId: string, groupId: string | null, actors: readonly CombatActorProjection[], previous: FeedbackState): FeedbackState {
   let state = previous;
@@ -316,24 +280,6 @@ function latestCursor(rows: readonly EventRow[]): { readonly epoch: number; read
 }
 function compareCursor(row: EventRow, cursor: { readonly epoch: number; readonly seq: number }): number {
   return row.epoch - cursor.epoch || row.seq - cursor.seq;
-}
-function combatantLabel(value: LiveJson | undefined, actorId: string, actors: readonly CombatActorProjection[]): string {
-  if (typeof value !== 'string') return t('ui.combat.word_target');
-  if (value === actorId) return t('ui.common.you');
-  const projection = actors.find((actor) => actor.id === value);
-  return projection ? actorLabel(projection, actorId) : isUuid(value) ? t('ui.combat.word_party_member') : displayLabel(value);
-}
-function inputLabel(value: LiveJson | undefined): string {
-  return value === 'useSkill' ? t('ui.combat.word_skill') : value === 'useConsumable' ? t('ui.combat.word_item') : displayLabel(typeof value === 'string' ? value : t('ui.combat.word_action'));
-}
-const REASON_KEYS: Readonly<Record<string, string>> = {
-  onCooldown: 'ui.combat.reason.on_cooldown', noConsumable: 'ui.combat.reason.no_consumable',
-  noSkill: 'ui.combat.reason.no_skill', invalidTarget: 'ui.combat.reason.invalid_target',
-};
-function reasonLabel(value: LiveJson | undefined): string {
-  if (typeof value !== 'string') return t('ui.combat.reason.unknown');
-  const key = REASON_KEYS[value];
-  return key === undefined ? displayLabel(value) : t(key);
 }
 
 function unwrapCombat(value: LiveJson): { readonly [key: string]: LiveJson } | null {

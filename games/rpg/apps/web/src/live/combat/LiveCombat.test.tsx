@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import type { LiveJson, LiveViewDto } from '@rpg/protocol';
+import type { LiveCombatActorDto, LiveJson, LiveViewDto, LiveWindupDto } from '@rpg/protocol';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { setLocale } from '../../i18n/index.ts';
 import type { LiveState } from '../state.ts';
 import { LiveCombat } from './LiveCombat.tsx';
 
@@ -21,7 +22,7 @@ function view(overrides: Record<string, unknown> = {}): LiveViewDto {
         { id: 1, origin: 'skill:guard', originLabelKey: 'skill.guard', type: 'shield', remaining: 3, unit: 'actions', amount: 12 },
       ], auto: false, queued: null, windup: null },
       { id: 'enemy:thornback_boar', labelKey: 'enemy.thornback_boar.name', side: 'enemy', hp: 80, maxHp: 100, alive: true, effects: [], auto: false, queued: null,
-        windup: { skill: 'skill:heavy_strike', skillLabelKey: 'skill.heavy_strike.name', targetIds: [actorId], startedTick: 10, resolveAtTick: 15 } },
+        windup: { skill: 'skill:heavy_strike', labelKey: 'skill.heavy_strike.name', targetIds: [actorId], startedTick: 10, resolveAtTick: 15 } },
     ] },
     ...overrides,
   } as unknown as LiveViewDto;
@@ -36,7 +37,23 @@ function renderCombat(options: { snapshot?: LiveViewDto; pending?: string[]; con
 }
 
 describe('LiveCombat', () => {
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); setLocale('en', { persist: false }); });
+
+  it('names the telegraphed skill from the protocol windup labelKey in the active locale', () => {
+    // Typed with the protocol DTOs, so a renamed or misspelled field fails the type check.
+    const windup: LiveWindupDto = { skill: 'skill:unlisted_slam', labelKey: 'skill.crushing_blow.name', targetIds: [actorId], startedTick: 10, resolveAtTick: 15 };
+    const boar: LiveCombatActorDto = { id: 'enemy:thornback_boar', labelKey: 'enemy.thornback_boar.name', side: 'enemy', hp: 80, maxHp: 100, alive: true, effects: [], queued: null, windup };
+    const snapshot = view({ combat: { tick: 12, groupId: 'ogre', actors: [
+      { id: actorId, side: 'hero', hp: 60, maxHp: 100, alive: true, effects: [], auto: false, queued: null, windup: null }, boar,
+    ] } });
+    const en = renderCombat({ snapshot });
+    expect(screen.getByText(/is winding up Crushing Blow/)).toBeTruthy();
+    expect(screen.queryByText(/Unlisted Slam/i)).toBeNull();
+    en.unmount();
+    setLocale('es', { persist: false });
+    renderCombat({ snapshot });
+    expect(screen.getByText(/Golpe Aplastante/)).toBeTruthy();
+  });
 
   it('shows an authoritative telegraph countdown and submits one manual response without re-render duplicates', () => {
     const { rerender, submit, props } = renderCombat({ events: [{ epoch: 1, seq: 1, source: 'game', event: {
