@@ -17,7 +17,7 @@
       "id": 1,
       "name": "background",
       "type": "imagelayer",
-      "image": "overgrown_causeway.webp",
+      "image": "asset:loc:region_1.overgrown_causeway",
       "imagewidth": 1086,
       "imageheight": 1448,
       "x": 0,

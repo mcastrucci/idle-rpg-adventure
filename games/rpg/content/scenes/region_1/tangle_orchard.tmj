@@ -17,7 +17,7 @@
       "id": 1,
       "name": "background",
       "type": "imagelayer",
-      "image": "tangle_orchard.webp",
+      "image": "asset:loc:region_1.tangle_orchard",
       "imagewidth": 1086,
       "imageheight": 1448,
       "x": 0,

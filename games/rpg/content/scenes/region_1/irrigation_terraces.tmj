@@ -17,7 +17,7 @@
       "id": 1,
       "name": "background",
       "type": "imagelayer",
-      "image": "irrigation_terraces.webp",
+      "image": "asset:loc:region_1.irrigation_terraces",
       "imagewidth": 1086,
       "imageheight": 1448,
       "x": 0,

@@ -17,7 +17,7 @@
       "id": 1,
       "name": "background",
       "type": "imagelayer",
-      "image": "old_well.webp",
+      "image": "asset:loc:region_1.old_well",
       "imagewidth": 1086,
       "imageheight": 1448,
       "x": 0,

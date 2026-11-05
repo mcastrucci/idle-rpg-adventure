@@ -17,7 +17,7 @@
       "id": 1,
       "name": "background",
       "type": "imagelayer",
-      "image": "portal_clearing.webp",
+      "image": "asset:loc:region_1.portal_clearing",
       "imagewidth": 1086,
       "imageheight": 1448,
       "x": 0,
