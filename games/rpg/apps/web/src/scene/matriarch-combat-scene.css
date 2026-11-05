@@ -1,0 +1,21 @@
+.matriarch-scene-frame { position: relative; }
+.matriarch-scene { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.scene-viewport[hidden] ~ .matriarch-scene { display: none; }
+.matriarch-scene__sprite { position: absolute; z-index: 1; bottom: -5%; width: min(48%, 390px); height: auto; object-fit: contain; transform-origin: 50% 94%; }
+.matriarch-scene__sprite--max { left: 6%; }
+.matriarch-scene__sprite--boss { right: 3%; width: min(58%, 470px); }
+.matriarch-scene__sprite--max.matriarch-scene__sprite--attack { animation: matriarch-lunge-right .62s ease-out both; }
+.matriarch-scene__sprite--boss.matriarch-scene__sprite--attack { animation: matriarch-lunge-left .62s ease-out both; }
+.matriarch-scene__sprite--hit { animation: matriarch-hit .62s ease-out both; }
+.matriarch-scene__sprite--defeat { animation: matriarch-defeat .7s ease-out both; }
+@keyframes matriarch-lunge-right { 45% { transform: translateX(9%) scale(1.04); } }
+@keyframes matriarch-lunge-left { 45% { transform: translateX(-9%) scale(1.04); } }
+@keyframes matriarch-hit { 20%,60% { filter: brightness(1.8) sepia(.3); transform: translateX(-2%); } 40%,80% { transform: translateX(2%); } }
+@keyframes matriarch-defeat { to { opacity: .35; filter: grayscale(.8); transform: translateY(8%) rotate(9deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .matriarch-scene__sprite--max.matriarch-scene__sprite--attack,
+  .matriarch-scene__sprite--boss.matriarch-scene__sprite--attack,
+  .matriarch-scene__sprite--hit,
+  .matriarch-scene__sprite--defeat { animation: none; }
+  .matriarch-scene__sprite--defeat { opacity: .35; filter: grayscale(.8); transform: translateY(8%) rotate(9deg); }
+}
