@@ -210,11 +210,11 @@ h1, h2, p, dl, ol { margin: 0; }
 
 /* Live exploration entry and accessible DOM scene presentation (#40 interim surface). */
 .live-screen__heading { display: flex; flex-direction: column; gap: 4px; }
-.live-entry, .live-scene, .live-terminal, .live-action-status {
+.live-entry, .live-terminal, .live-action-status {
   display: flex; flex-direction: column; gap: 10px; padding: 14px;
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
 }
-.live-entry h2, .live-scene h2, .live-terminal h2 { font-size: 1.05rem; }
+.live-entry h2, .live-terminal h2 { font-size: 1.05rem; }
 .live-entry__field { display: flex; flex-direction: column; gap: 5px; }
 .live-entry__field select, .live-entry__supply input {
   min-height: 48px; min-width: 0; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px;
@@ -228,14 +228,8 @@ h1, h2, p, dl, ol { margin: 0; }
 .live-entry__supply input { width: 100%; text-align: center; font-variant-numeric: tabular-nums; }
 .live-entry__start, .live-return { width: 100%; }
 .live-screen__connection { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px dashed var(--warn); border-radius: 8px; color: #ffe3c7; background: #3a2a1d; }
-.live-scene { background: linear-gradient(160deg, var(--surface) 0%, #252032 100%); }
-.live-scene__area { color: var(--muted); overflow-wrap: anywhere; }
-.live-scene__actors { display: flex; flex-direction: column; gap: 6px; }
-.live-scene__actors p { display: flex; justify-content: space-between; gap: 10px; min-height: 44px; align-items: center; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); }
-.live-scene__actors .live-scene__xp { background: transparent; min-height: 0; padding: 0 10px; color: var(--muted, inherit); }
 .live-xp-notice { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--ok); border-radius: 8px; }
 .live-xp-notice--level-up { font-weight: 600; }
-.live-scene__actors span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .live-scene__actions, .live-scene__section { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
 .live-scene__actions h3, .live-scene__section h3 { margin: 0; font-size: .9rem; color: var(--muted); }
 .live-action { display: flex; flex-direction: column; justify-content: center; gap: 2px; width: 100%; min-height: 48px; padding: 8px 12px; text-align: left; overflow-wrap: anywhere; }

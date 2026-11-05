@@ -95,7 +95,7 @@ describe('LiveScreen navigation controller', () => {
     render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
     await attach(socket, deps.current as NonNullable<typeof deps.current>);
     expect(await screen.findByRole('heading', { name: 'Glass Echo Chamber' })).toBeDefined();
-    expect(screen.getByText(/Area:/).textContent).toContain('The Verdant Hollow');
+    expect(screen.getByRole('navigation', { name: 'Location' }).textContent).toContain('The Verdant Hollow');
     expect(screen.getByText('You')).toBeDefined();
     expect(screen.getByText('50 / 50 HP')).toBeDefined();
     expect(screen.getByRole('button', { name: /Interact: Signal Bloom/ })).toBeDefined();
@@ -111,7 +111,7 @@ describe('LiveScreen navigation controller', () => {
     const socket = await connect(deps);
     render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
     await attach(socket, deps.current as NonNullable<typeof deps.current>);
-    await waitFor(() => expect(screen.getByText(/Area:/).textContent).toContain('The Verdant Hollow'));
+    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Location' }).textContent).toContain('The Verdant Hollow'));
     expect(document.body.textContent).not.toContain('area.region_1.name');
     deps.client.stop();
   });
@@ -122,7 +122,7 @@ describe('LiveScreen navigation controller', () => {
     const socket = await connect(deps);
     render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
     await attach(socket, deps.current as NonNullable<typeof deps.current>);
-    await waitFor(() => expect(screen.getByText(/Area:/).textContent).toContain('Mossy Deep'));
+    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Location' }).textContent).toContain('Mossy Deep'));
     expect(document.body.textContent).not.toContain('area.region_9');
     deps.client.stop();
   });
@@ -277,6 +277,110 @@ describe('LiveScreen navigation controller', () => {
     });
     expect((await screen.findByText('+6 XP')).className).not.toContain('level-up');
     await waitFor(() => expect(refresh.mock.calls.length).toBe(refreshesBefore + 2));
+    deps.client.stop();
+  });
+});
+
+describe('LiveScreen fixed frame (#176)', () => {
+  const participants = [{ actorId, status: 'connected' as const }];
+  const fighting = () => ({ ...view('loc:region_1.irrigation_terraces'), phase: 'combat', exits: [], hotspots: [], canRetreat: true, retreatBlockedReason: null,
+    heroes: [{ actorId, level: 3, xpIntoLevel: 10, xpToNext: 60, hp: 40, maxHp: 50, present: true, consumables: [{ item: 'item:potion', qty: 3 }],
+      skills: [{ id: 'skill:guard', labelKey: 'skill.guard.name', slot: 1, cooldownTicks: 6, cooldownRemainingTicks: 0, windupTicks: 0 }] }],
+    combat: { tick: 5, groupId: 'grp', actors: [
+      { id: actorId, side: 'hero', hp: 40, maxHp: 50, alive: true, effects: [], queued: null, windup: null },
+      { id: 'grp#0', side: 'enemy', labelKey: 'enemy.glowcap_mite.name', hp: 20, maxHp: 20, alive: true, effects: [], queued: null, windup: null },
+      { id: 'grp#1', side: 'enemy', labelKey: 'enemy.glass_wisp.name', hp: 20, maxHp: 20, alive: true, effects: [], queued: null, windup: null }] }  }) as unknown as LiveViewDto;
+  const frameRows = (frame: Element) => [...frame.children].map((child) => child.className.split(' ')[0]);
+
+  it('is one frame of breadcrumb, scene, strip, panel and log, with a way back to the map', async () => {
+    const deps = setup({ instanceId, actorId, view: view(), participants });
+    const socket = await connect(deps);
+    const { unmount } = render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
+    await attach(socket, deps.current as NonNullable<typeof deps.current>);
+    await screen.findByRole('heading', { name: 'Glade' });
+    const frame = document.querySelector('.live-frame') as HTMLElement;
+    expect(frameRows(frame)).toEqual(['live-frame__crumb', 'live-frame__scene', 'live-explore']);
+    expect(frameRows(frame.querySelector('.live-explore') as Element)).toEqual(['live-explore__strip', 'live-explore__panel', 'live-log']);
+    const back = screen.getByRole('link', { name: '← World map' });
+    expect(back.getAttribute('href')).toBe('#/world');
+    expect(back.closest('.live-frame__crumb')).not.toBeNull();
+    expect(screen.getByRole('navigation', { name: 'Location' }).textContent).toContain('Glade');
+    // The adventure owns the viewport while it is on screen, and gives it back when it is not.
+    expect(document.documentElement.classList.contains('live-frame-active')).toBe(true);
+    unmount();
+    expect(document.documentElement.classList.contains('live-frame-active')).toBe(false);
+    deps.client.stop();
+  });
+
+  it('does not take over the page for the entry form, or while the route is hidden', async () => {
+    const entry = setup(null);
+    const first = render(<LiveScreen actorId={actorId} api={entry.api} live={entry.live} canCommand onCharacterRefresh={async () => {}} />);
+    await screen.findByLabelText('Area');
+    expect(document.querySelector('.live-frame')).toBeNull();
+    expect(document.documentElement.classList.contains('live-frame-active')).toBe(false);
+    first.unmount();
+    entry.client.stop();
+
+    const deps = setup({ instanceId, actorId, view: view(), participants });
+    const socket = await connect(deps);
+    const { rerender } = render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand active={false} onCharacterRefresh={async () => {}} />);
+    await attach(socket, deps.current as NonNullable<typeof deps.current>);
+    await screen.findByRole('heading', { name: 'Glade' });
+    expect(document.documentElement.classList.contains('live-frame-active')).toBe(false);
+    rerender(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand active onCharacterRefresh={async () => {}} />);
+    expect(document.documentElement.classList.contains('live-frame-active')).toBe(true);
+    deps.client.stop();
+  });
+
+  it('swaps only the mode panel between exploring and combat; the frame, crumb, scene and log row stay', async () => {
+    const deps = setup({ instanceId, actorId, view: view(), participants });
+    const socket = await connect(deps);
+    render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
+    await attach(socket, deps.current as NonNullable<typeof deps.current>);
+    await screen.findByRole('heading', { name: 'Glade' });
+    const frame = document.querySelector('.live-frame') as HTMLElement;
+    const crumb = frame.querySelector('.live-frame__crumb');
+    const scene = frame.querySelector('.live-frame__scene');
+    expect(frame.getAttribute('data-mode')).toBe('explore');
+    expect(frame.querySelector('.live-combat')).toBeNull();
+    expect(screen.getByRole('button', { name: /Review boss room risk/ })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Return unavailable here' })).toBeDefined();
+
+    act(() => socket.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 1, view: fighting(), participants }));
+    await screen.findByRole('button', { name: /Slot 1.*Guard/ });
+    expect(document.querySelector('.live-frame')).toBe(frame);
+    expect(frame.querySelector('.live-frame__crumb')).toBe(crumb);
+    expect(frame.querySelector('.live-frame__scene')).toBe(scene);
+    expect(frame.getAttribute('data-mode')).toBe('combat');
+    expect(frame.querySelector('.live-explore')).toBeNull();
+    expect(frameRows(frame)).toEqual(['live-frame__crumb', 'live-frame__scene', 'live-combat']);
+    expect(frameRows(frame.querySelector('.live-combat') as Element)).toEqual(['live-combat__hud', 'live-combat__strip', 'live-combat__panel', 'live-log']);
+    // Combat has no exploration actions, and the scene regions stop being tappable while fighting (#154).
+    expect(screen.queryByRole('button', { name: /Review boss room risk/ })).toBeNull();
+    expect(viewport.props?.regionEnabled?.('exit', 'exit:boss')).toBe(false);
+    // Sprites: the hero and each enemy, with a labelled silhouette for the enemy that has no art.
+    const sprites = screen.getByTestId('combat-scene');
+    expect([...sprites.querySelectorAll('.combat-scene__slot')].map((slot) => slot.getAttribute('data-kind'))).toEqual(['sprite', 'sprite', 'silhouette']);
+
+    act(() => socket.receive({ type: 'live.snapshot', instanceId, epoch: 1, seq: 2, view: view(), participants }));
+    await screen.findByRole('button', { name: /Review boss room risk/ });
+    expect(frame.getAttribute('data-mode')).toBe('explore');
+    expect(document.querySelector('.live-frame')).toBe(frame);
+    expect(screen.queryByTestId('combat-scene')).toBeNull();
+    deps.client.stop();
+  });
+
+  it('keeps the level/XP line in the combat strip and drops the old stacked page chrome', async () => {
+    const deps = setup({ instanceId, actorId, view: fighting(), participants });
+    const socket = await connect(deps);
+    render(<LiveScreen actorId={actorId} api={deps.api} live={deps.live} canCommand onCharacterRefresh={async () => {}} />);
+    await attach(socket, deps.current as NonNullable<typeof deps.current>);
+    await screen.findByRole('button', { name: /Slot 1.*Guard/ });
+    const strip = document.querySelector('.live-combat__strip') as HTMLElement;
+    expect(strip.textContent).toContain('Level 3');
+    expect(strip.textContent).toContain('10 / 60 XP');
+    expect(document.querySelector('.live-screen__heading')).toBeNull();
+    expect(document.querySelector('.death-panel')).toBeNull();
     deps.client.stop();
   });
 });

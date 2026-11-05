@@ -297,3 +297,86 @@ describe('LiveCombat', () => {
     expect((screen.getByRole('button', { name: /Use Potion.*Stock 0/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe('LiveCombat fixed geometry (#176)', () => {
+  afterEach(cleanup);
+  const rowOrder = (container: HTMLElement) => [...(container.querySelector('.live-combat__controls')?.children ?? [])].map((child) => child.className.split(' ')[0]);
+  const controlNodes = () => [
+    ...screen.getAllByRole('button', { name: /Slot \d/ }), screen.getByRole('button', { name: /Use Potion/ }), screen.getByRole('button', { name: 'Retreat' }),
+    screen.getByRole('checkbox', { name: 'Auto' }), screen.getByRole('button', { name: /Combat log/ })];
+  const wrapped = (event: Record<string, unknown>, seq: number) => ({ epoch: 1, seq, source: 'game' as const, event: { type: 'combat', event } as unknown as LiveJson });
+
+  it('renders the HUD, strip, panel and log as four parts with the enemies in the scene band and the party in the strip', () => {
+    const { container } = renderCombat();
+    const root = container.querySelector('.live-combat') as HTMLElement;
+    expect([...root.children].map((child) => child.className.split(' ')[0])).toEqual(['live-combat__hud', 'live-combat__strip', 'live-combat__panel', 'live-log']);
+    expect(root.querySelector('.live-combat__hud')?.textContent).toContain('Thornback Boar');
+    expect(root.querySelector('.live-combat__hud')?.textContent).toContain('80% HP');
+    expect(root.querySelector('.live-combat__strip')?.textContent).not.toContain('Thornback Boar');
+    expect(root.querySelector('.live-combat__enemies')?.getAttribute('data-count')).toBe('1');
+  });
+
+  it('keeps the same rows and the same control elements through a telegraph, a queue change, feedback and the open log', () => {
+    const idle = view();
+    const combat = (idle as unknown as { combat: { actors: Array<Record<string, unknown>> } }).combat;
+    const calm = view({ combat: { ...combat, actors: combat.actors.map((actor) => ({ ...actor, windup: null })) } });
+    const { container, rerender, props } = renderCombat({ snapshot: calm });
+    const rows = rowOrder(container);
+    const nodes = controlNodes();
+    expect(rows).toEqual(['visually-hidden', 'live-combat__queue', 'live-combat__skills', 'live-combat__feedback', 'live-combat__items', 'live-combat__retreat-button', 'live-combat__retreat-reason', 'live-combat__timing']);
+    const same = () => { expect(rowOrder(container)).toEqual(rows); controlNodes().forEach((node, index) => expect(node).toBe(nodes[index])); };
+
+    rerender(<LiveCombat {...props} view={idle} />); // a telegraph starts
+    expect(container.querySelector('.live-combat__telegraphs')?.childElementCount).toBe(1);
+    same();
+    const queued = view({ combat: { ...combat, actors: combat.actors.map((actor) => actor['id'] === actorId ? { ...actor, queued: { kind: 'useSkill', skill: 'skill:cleave', target: null } } : actor) } });
+    rerender(<LiveCombat {...props} view={queued} />); // the queue changes
+    same();
+    rerender(<LiveCombat {...props} view={queued} events={[wrapped({ type: 'combatStarted', groupId: 'ogre' }, 1), wrapped({ type: 'InputRejected', actorId, kind: 'useSkill', reason: 'onCooldown' }, 2),
+      wrapped({ type: 'DamageDealt', sourceId: enemyId, targetId: actorId, amount: 9, hpAfter: 51 }, 3)]} />); // feedback arrives
+    expect(screen.getByText(/Your skill was rejected/)).toBeTruthy();
+    same();
+    fireEvent.click(screen.getByRole('button', { name: /Combat log/ })); // the drawer opens over the frame
+    expect(screen.getByRole('list', { name: 'Combat event log' })).toBeTruthy();
+    same();
+  });
+
+  it('opens the log as a drawer with a 44 px close button that returns focus, and closes on Escape', () => {
+    renderCombat();
+    const toggle = screen.getByRole('button', { name: /Combat log/ });
+    fireEvent.click(toggle);
+    const close = screen.getByRole('button', { name: 'Close' });
+    expect(document.activeElement).toBe(close);
+    fireEvent.click(close);
+    expect(screen.queryByRole('list', { name: 'Combat event log' })).toBeNull();
+    expect(document.activeElement).toBe(toggle);
+    fireEvent.click(toggle);
+    fireEvent.keyDown(screen.getByRole('list', { name: 'Combat event log' }), { key: 'Escape' });
+    expect(screen.queryByRole('list', { name: 'Combat event log' })).toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('shows an idle hint instead of an empty queue and an empty telegraph row that stays mounted', () => {
+    const { container } = renderCombat({ snapshot: view({ combat: { tick: 1, groupId: 'ogre', actors: [
+      { id: actorId, side: 'hero', hp: 60, maxHp: 100, alive: true, effects: [], auto: false, queued: null, windup: null },
+      { id: enemyId, side: 'enemy', hp: 80, maxHp: 100, alive: true, effects: [], queued: null, windup: null }] } }) });
+    expect(screen.getByText('Tap a skill to queue it')).toBeTruthy();
+    expect(container.querySelector('.live-combat__telegraphs')?.getAttribute('data-empty')).toBe('No attack incoming');
+  });
+
+  it('declares the row table in CSS: fixed heights, 44 px controls, an overlay drawer, and only frame grid areas', () => {
+    const combatCss = readFileSync('games/rpg/apps/web/src/live/combat/combat.css', 'utf8');
+    const frameCss = readFileSync('games/rpg/apps/web/src/live/frame/live-frame.css', 'utf8');
+    expect(frameCss).toMatch(/grid-template-areas: 'crumb' 'scene' 'strip' 'panel' 'log'/);
+    expect(frameCss).toMatch(/height: 100dvh/);
+    for (const variable of ['--crumb-h: 44px', '--strip-h: 104px', '--telegraph-h: 48px', '--queue-h: 44px', '--skills-h: 104px', '--feedback-h: 32px', '--items-h: 44px', '--log-h: 44px']) expect(frameCss).toContain(variable);
+    const areas = new Set(['crumb', 'scene', 'strip', 'panel', 'log']);
+    for (const [, area] of `${combatCss}${frameCss}`.matchAll(/grid-area: ([a-z]+);/g)) expect(areas.has(area ?? '')).toBe(true);
+    for (const selector of ['.live-combat__auto', '.live-combat__item', '.live-combat__retreat-button']) {
+      expect(combatCss).toMatch(new RegExp(`${selector.replace('.', '\\.')}[^{]*\\{[^}]*height: 44px`));
+    }
+    expect(combatCss).toMatch(/\.live-combat__action, [^{]*\{[^}]*min-height: 44px/);
+    expect(combatCss).toMatch(/\.live-log__drawer \{[^}]*position: absolute/);
+    expect(combatCss).toMatch(/\.live-combat \{ display: contents;/);
+  });
+});
