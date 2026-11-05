@@ -16,7 +16,7 @@ import type { SettlementPolicy } from './expeditions/policy.ts';
 import type { EstimateServiceOptions } from './expeditions/estimates.ts';
 import { createRpgDebugTools } from './debug/index.ts';
 import type { RpgDebugToolsConfig } from './debug/index.ts';
-import { worldModule } from './world/http.ts';
+import { createWorldModule } from './world/http.ts';
 import { persistRpgConnectionLifecycle } from './telemetry/sessions.ts';
 
 export { createRpgDatabase, RPG_MIGRATIONS } from './migrations.ts';
@@ -35,6 +35,8 @@ export function createRpgServer(config: ServerConfig, options: { clock?: Clock; 
   const settlementPolicies = options.settlementPolicies ?? supportedSettlementPolicies;
   // Debug tools (#31) wrap the app clock for time travel; disabled → null, production config → throws.
   const debug = createRpgDebugTools(options.debug, options.clock, config.roles);
+  // Technical seed areas (#156) are player-hidden unless the debug tools are enabled in a non-production environment.
+  const exposeTechnicalAreas = debug !== null;
   const live = options.live ?? createRpgLiveHost();
   const content: ServerModule = {
     name: 'content', roles: ['api'],
@@ -52,7 +54,8 @@ export function createRpgServer(config: ServerConfig, options: { clock?: Clock; 
       createLifecycleHandler: context => event => persistRpgConnectionLifecycle(context.database, event),
       // `live.*` operations go to the instance host; everything else is a character command envelope.
       onCommand: async (payload, identity, context, connection) => await handleRpgLiveSocketCommand(payload, identity, connection, live)
-        ?? executeCharacterSocketCommand(context, identity.accountId, payload, options.seedSource, settlementPolicies),
-    }), characterModule, worldModule, createLiveEntryModule(live), live.module, createExpeditionModule(options.seedSource, settlementPolicies, options.estimates), createCommandMaintenanceModule(),
+        ?? executeCharacterSocketCommand(context, identity.accountId, payload, options.seedSource, settlementPolicies, exposeTechnicalAreas),
+    }), characterModule, createWorldModule(exposeTechnicalAreas), createLiveEntryModule(live, exposeTechnicalAreas), live.module,
+    createExpeditionModule(options.seedSource, settlementPolicies, options.estimates, exposeTechnicalAreas), createCommandMaintenanceModule(),
     createRpgJobsModule(options.jobHandlers ?? {}, settlementPolicies), ...(options.modules ?? [])] });
 }

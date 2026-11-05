@@ -138,6 +138,7 @@ const UI: Readonly<Record<string, string>> = {
   'ui.code.retreat_not_allowed': 'You cannot retreat from here.',
   'ui.code.stale_start_snapshot': 'Your data changed; review and try again.',
   'ui.code.start.areaNotCompleted': 'Complete this area before sending an expedition.',
+  'ui.code.start.unknownArea': 'That area is not available for expeditions.',
   'ui.code.store_error': 'The run hit a storage problem; reconnecting.',
   'ui.code.too_many_unique_items': 'Too many equipment items in a single grant.',
   'ui.code.unauthorized': 'Please sign in again.',

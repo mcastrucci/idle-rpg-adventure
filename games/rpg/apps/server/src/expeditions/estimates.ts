@@ -31,14 +31,17 @@ export interface EstimateServiceOptions {
   readonly maxPending?: number;
   /** An existing cache to use instead of a new one (tests share one across content versions). */
   readonly cache?: EstimateCache<EstimateAggregate>;
+  /** Staging only (debug tools enabled): technical seed areas may be estimated. Default false. */
+  readonly exposeTechnicalAreas?: boolean;
 }
 
 /** Validates a candidate start like `start` does and returns the job inputs, without any write. */
-async function prepareEstimate(tx: ActorTransaction, content: LoadedContent, accountId: string, actorId: string, body: ExpeditionEstimateRequest) {
+async function prepareEstimate(tx: ActorTransaction, content: LoadedContent, accountId: string, actorId: string, body: ExpeditionEstimateRequest,
+  exposeTechnicalAreas = false) {
   if (body.request.paceBp !== 10_000) throw new ExpeditionError('invalid_pace', 400);
   await requireOwnedActor(tx, actorId, accountId, RPG_GAME_ID);
   const { snapshot, context, holdings } = await readStartSnapshot(tx, actorId, content);
-  const { simulator, gate } = gateStart(content, body.request, body.config, snapshot, context);
+  const { simulator, gate } = gateStart(content, body.request, body.config, snapshot, context, undefined, exposeTechnicalAreas);
   // A real start escrows these from the inventory; estimate only what the character could actually bring.
   for (const delta of gate.escrow) {
     if (delta.asset.kind !== 'stack') continue;
@@ -57,7 +60,7 @@ export function createEstimateService(content: LoadedContent, options: EstimateS
   return {
     cache,
     async estimate(database: Database, accountId: string, actorId: string, body: ExpeditionEstimateRequest): Promise<ExpeditionEstimateDto> {
-      const prepared = await database.db.transaction(tx => prepareEstimate(tx, content, accountId, actorId, body));
+      const prepared = await database.db.transaction(tx => prepareEstimate(tx, content, accountId, actorId, body, options.exposeTechnicalAreas ?? false));
       const { areaId, activityId, durationMin, paceBp } = body.request;
       const runs = estimateRunsFor(prepared.budget);
       const key = estimateCacheKey({ kernelVersion: KERNEL_VERSION, simulatorId: prepared.simulatorId, simulatorVersion: prepared.simulatorVersion,

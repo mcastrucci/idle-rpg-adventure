@@ -25,7 +25,7 @@ export const KNOWN_CODES = [
   'not_safe_location', 'operation_route_mismatch', 'origin_forbidden', 'password_capacity', 'rate_limited',
   'region_locked', 'requires.areaCompleted', 'requires.discovered', 'requires.flag', 'requires.game.defeated',
   'requires.game.levelAtLeast', 'requires.hasItem', 'requires.not', 'requires.other', 'retreat_not_allowed',
-  'stale_start_snapshot', 'start.areaNotCompleted', 'store_error', 'too_many_unique_items', 'unauthorized', 'unknown_area', 'unknown_enemy',
+  'stale_start_snapshot', 'start.areaNotCompleted', 'start.unknownArea', 'store_error', 'too_many_unique_items', 'unauthorized', 'unknown_area', 'unknown_enemy',
   'unknown_error', 'unknown_exit', 'unknown_group', 'unknown_hotspot', 'unknown_item', 'unknown_location',
   'unknown_node', 'unsupported_equipment_rolls', 'unsupported_operation', 'version_unavailable',
   'world.noRouteFromReachableArea',

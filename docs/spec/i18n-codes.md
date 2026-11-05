@@ -81,6 +81,12 @@ These were audited and are already code-only; they need `ui.code.*` entries but 
 | --- | --- |
 | `start.areaNotCompleted` | Complete this area before sending an expedition. |
 
+### Expedition start errors `{ error: <code> }`
+
+| Code | English reference |
+| --- | --- |
+| `start.unknownArea` | That area is not available for expeditions. (Also returned for technical seed areas hidden from players, #156.) |
+
 ### Live command ack `reason` (status `rejected`) and `live.error`
 
 | Code | English reference |
