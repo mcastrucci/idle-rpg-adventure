@@ -10,7 +10,7 @@ export type {
   SceneRendererMode, SceneSpec, SceneTransitionResult,
 } from './types.ts';
 export { clampResolution, coverFit, hitRegion, MIN_TAP_RADIUS } from './geometry.ts';
-export type { CoverFit } from './geometry.ts';
+export type { CoverFit, SceneFraming } from './geometry.ts';
 export { SceneController } from './controller.ts';
 export type { SceneControllerOptions } from './controller.ts';
 export type { BackendHooks, PreparedScene, SceneBackend, VisibilitySource } from './backend.ts';

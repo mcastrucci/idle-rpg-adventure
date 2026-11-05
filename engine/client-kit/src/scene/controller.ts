@@ -191,7 +191,7 @@ export class SceneController implements SceneRenderer {
     const container = this.container;
     if (!resident || !container) return;
     const rect = container.getBoundingClientRect();
-    const fit = coverFit({ width: resident.spec.background.width, height: resident.spec.background.height }, this.size);
+    const fit = coverFit({ width: resident.spec.background.width, height: resident.spec.background.height }, this.size, resident.spec.framing);
     const region = hitRegion(resident.spec.regions, fit, event.clientX - rect.left, event.clientY - rect.top);
     if (region) this.emit('regionTap', { regionId: region.id });
   }

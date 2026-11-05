@@ -9,7 +9,7 @@ import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
 
 import type { BackendHooks, PreparedScene, SceneBackend } from './backend.ts';
 import { coverFit, MIN_TAP_RADIUS } from './geometry.ts';
-import type { CoverFit, Size } from './geometry.ts';
+import type { CoverFit, SceneFraming, Size } from './geometry.ts';
 import type { SceneImage, SceneImageData, SceneRegion, SceneSpec } from './types.ts';
 
 interface PixiScene extends PreparedScene {
@@ -18,6 +18,7 @@ interface PixiScene extends PreparedScene {
   readonly textures: readonly Texture[];
   readonly size: Size;
   regions: readonly SceneRegion[];
+  framing: SceneFraming | undefined;
   released: boolean;
 }
 
@@ -99,7 +100,7 @@ export class PixiBackend implements SceneBackend {
     const regionLayer = new Graphics();
     root.addChild(regionLayer);
     const scene: PixiScene = {
-      id: spec.id, root, regionLayer, textures, regions: spec.regions, released: false,
+      id: spec.id, root, regionLayer, textures, regions: spec.regions, framing: spec.framing, released: false,
       size: { width: spec.background.width, height: spec.background.height },
     };
     this.scenes.add(scene);
@@ -230,7 +231,7 @@ export class PixiBackend implements SceneBackend {
   }
 
   private fit(scene: PixiScene): CoverFit {
-    return coverFit(scene.size, this.viewport);
+    return coverFit(scene.size, this.viewport, scene.framing);
   }
 
   private layout(scene: PixiScene): void {

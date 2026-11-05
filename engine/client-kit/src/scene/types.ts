@@ -4,6 +4,8 @@
  * regions only, and a tap on a region is reported by ID so the host can issue the same command its DOM control does.
  */
 
+import type { SceneFraming } from './geometry.ts';
+
 /** Pixel sources the renderer accepts. The renderer owns (and releases) whatever `load` returns. */
 export type SceneImageData = ImageBitmap | HTMLCanvasElement | OffscreenCanvas | HTMLImageElement;
 
@@ -41,6 +43,8 @@ export interface SceneSpec {
   readonly id: string;
   /** Drawn cover-fit (fills the viewport, centred); its pixel size defines the scene coordinate space. */
   readonly background: SceneImage;
+  /** Optional focal point and quiet bands for the crop. Omitted means centred. */
+  readonly framing?: SceneFraming;
   readonly layers: readonly SceneLayer[];
   readonly regions: readonly SceneRegion[];
 }
