@@ -1,11 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../app/App.tsx';
 import type { LiveConnection } from '../app/services.ts';
 import { ApiClient } from '../api/http.ts';
 import type { FetchLike } from '../api/http.ts';
 import type { CharacterDto } from '../api/types.ts';
+import type { LiveServerFrame } from '@rpg/protocol';
 import { INITIAL_LIVE_STATE } from '../live/state.ts';
 import type { LiveState } from '../live/state.ts';
 import { setLocale } from '../i18n/index.ts';
@@ -32,11 +33,13 @@ const INVENTORY = {
 
 interface Recorded { readonly method: string; readonly path: string; readonly body: unknown }
 
-function fakeLive(): LiveConnection {
+function fakeLive(): LiveConnection & { emit(frame: LiveServerFrame): void } {
+  const frames = new Set<(frame: LiveServerFrame) => void>();
   const live: LiveConnection & { state: LiveState } = {
-    state: INITIAL_LIVE_STATE, subscribe: () => () => {}, start() {}, stop() {}, online() {}, offline() {}, waitUntilOpen: () => Promise.resolve(),
+    state: INITIAL_LIVE_STATE, subscribe: () => () => {}, subscribeFrames: (listener) => { frames.add(listener); return () => frames.delete(listener); },
+    start() {}, stop() {}, online() {}, offline() {}, waitUntilOpen: () => Promise.resolve(),
   };
-  return live;
+  return Object.assign(live, { emit: (frame: LiveServerFrame) => { for (const listener of frames) listener(frame); } });
 }
 
 /** `debug` is the status of GET /debug/clock; `respond` answers a debug POST (default 200 `{}`). */
@@ -60,7 +63,7 @@ function setup(debug: number | 'network', respond: (path: string) => Response = 
     return Response.json({ error: 'not_found' }, { status: 404 });
   };
   const services = { api: new ApiClient(fetch), live: fakeLive(), storage: { getItem: () => null, setItem: () => {} } };
-  return { services, calls, posts: () => calls.filter((call) => call.method === 'POST' && call.path.startsWith('/debug/')) };
+  return { services, calls, emit: (frame: LiveServerFrame) => (services.live as ReturnType<typeof fakeLive>).emit(frame), posts: () => calls.filter((call) => call.method === 'POST' && call.path.startsWith('/debug/')) };
 }
 
 async function openPanel(debug: number | 'network' = 200, respond?: (path: string) => Response) {
@@ -176,6 +179,51 @@ describe('debug panel', () => {
     fireEvent.change(screen.getByLabelText(/^Gold/), { target: { value: '5' } });
     fireEvent.click(screen.getByRole('button', { name: 'Grant gold' }));
     expect(await screen.findByText('Done: the server applied the change.')).toBeDefined();
+  });
+
+  it('records only the pinned Matriarch boss encounter and finishes on its result', async () => {
+    const { services } = setup(200);
+    render(<App services={services} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Debug' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Start before boss' }));
+    await screen.findByText(/Recording in the background/);
+    const live = services.live as ReturnType<typeof fakeLive>;
+    live.emit({ type: 'live.attached', instanceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', mode: 'snapshot' });
+    live.emit({ type: 'live.snapshot', instanceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', epoch: 1, seq: 1, participants: [], view: {
+      phase: 'combat', area: 'area:region_1', location: 'loc:region_1.seed_vault_heart', combat: { tick: 0, groupId: 'loc:region_1.seed_vault_heart/2', actors: [] },
+      heroes: [{ actorId: ACTOR, level: 3, hp: 20, maxHp: 20, present: true, consumables: [], skills: [] }],
+      groups: [{ id: 'loc:region_1.seed_vault_heart/2', enemies: ['enemy.hollow_matriarch'], boss: true, defeated: false }],
+    } } as unknown as LiveServerFrame);
+    const event = (groupId: string, outcome: string): LiveServerFrame => ({ type: 'live.event', instanceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', epoch: 1, seq: 1,
+      source: 'game', event: { type: 'combatEnded', groupId, outcome } });
+    live.emit(event('loc:region_1.seed_vault_heart/0', 'victory'));
+    expect(screen.getByText(/Recording in the background/)).toBeDefined();
+    live.emit({ type: 'live.event', instanceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', epoch: 1, seq: 2, source: 'game',
+      event: { type: 'combatStarted', groupId: 'loc:region_1.seed_vault_heart/2', boss: true } });
+    live.emit({ type: 'live.event', instanceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', epoch: 1, seq: 3, source: 'game',
+      event: { type: 'combat', event: { type: 'DamageDealt', sourceId: 'matriarch-instance', targetId: ACTOR, amount: 5, hpAfter: 15 } } });
+    live.emit(event('loc:region_1.seed_vault_heart/0', 'defeat'));
+    expect(screen.getByText(/Recording in the background/)).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: /^Close$/ }));
+    live.emit(event('loc:region_1.seed_vault_heart/2', 'victory'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Debug' }));
+    await screen.findByText(/Capture complete/);
+    const createUrl = vi.spyOn(URL, 'createObjectURL');
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Download JSON' }));
+      const blob = createUrl.mock.calls[0]?.[0];
+      if (!(blob instanceof Blob)) throw new Error('Expected a capture download');
+      const exported = await blob.text();
+      expect(JSON.parse(exported)).toMatchObject({ result: { outcome: 'victory' }, events: expect.arrayContaining([
+        expect.objectContaining({ event: { type: 'combat', event: expect.objectContaining({ type: 'DamageDealt', amount: 5, hpAfter: 15 }) } }),
+      ]) });
+      expect(exported).not.toContain(ACTOR);
+      expect(exported).not.toContain('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    } finally {
+      createUrl.mockRestore();
+      click.mockRestore();
+    }
   });
 
   it('shows the translated server error code, and the raw code when unknown', async () => {

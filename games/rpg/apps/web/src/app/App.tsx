@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { probeDebugClock } from '../debug/api.ts';
 import type { DebugClockDto } from '../debug/api.ts';
 import { DebugPanel } from '../debug/DebugPanel.tsx';
+import { usePlaytestCapture } from '../debug/usePlaytestCapture.ts';
 import { codeText, t, useLocale } from '../i18n/index.ts';
 import { CharacterScreen } from '../screens/CharacterScreen.tsx';
 import { ExpeditionScreen } from '../screens/ExpeditionScreen.tsx';
@@ -64,6 +65,7 @@ export function App({ services }: { services: AppServices }) {
   }, [live]);
 
   const character = state.phase === 'ready' ? state.character : null;
+  const capture = usePlaytestCapture(debugClock !== null, character, services.api, live);
   const canCommand = liveState.status === 'open';
 
   return (
@@ -93,7 +95,8 @@ export function App({ services }: { services: AppServices }) {
         <button type="button" className="debug-bar__button" aria-haspopup="dialog" onClick={() => setDebugOpen(true)}>{t('ui.debug.open')}</button>
       </div>}
       {debugClock && debugOpen && <DebugPanel character={character} api={services.api} clock={debugClock}
-        onClose={() => setDebugOpen(false)} onChanged={debugChanged} />}
+        onClose={() => setDebugOpen(false)} onChanged={debugChanged} capture={capture.state} onCaptureStart={() => { void capture.start(); }}
+        onCaptureFinish={capture.finish} onCaptureClear={capture.clear} />}
       <TabBar active={tab} onSelect={selectTab} />
     </div>
   );
