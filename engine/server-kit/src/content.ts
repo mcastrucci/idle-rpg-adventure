@@ -39,11 +39,15 @@ export async function loadContentBundle(path: string, expectedGame: string): Pro
 function validSceneMap(value: Record<string, unknown>): boolean {
   return Object.values(value).every(validSceneGeometry);
 }
+/** A content-root-relative image path, or an `asset:<key>` naming art the game ships outside the content root. */
+function validBackground(value: string): boolean {
+  if (value.startsWith('asset:')) return /^asset:[a-zA-Z0-9_.:-]+$/.test(value);
+  return !value.startsWith('/') && !value.includes('\\') && !value.includes(':') && !value.split('/').some((part) => !part || part === '.' || part === '..');
+}
 function validSceneGeometry(value: unknown): boolean {
   if (!object(value) || !Number.isSafeInteger(value['width']) || (value['width'] as number) <= 0 ||
       !Number.isSafeInteger(value['height']) || (value['height'] as number) <= 0 || typeof value['background'] !== 'string' ||
-      value['background'].startsWith('/') || value['background'].includes('\\') || value['background'].includes(':') ||
-      value['background'].split('/').some((part) => !part || part === '.' || part === '..') ||
+      !validBackground(value['background']) ||
       Object.keys(value).some((key) => !['width', 'height', 'background', 'exits', 'hotspots', 'enemyAnchors', 'resources'].includes(key))) return false;
   const width = value['width'] as number;
   const height = value['height'] as number;

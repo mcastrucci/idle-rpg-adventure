@@ -245,7 +245,7 @@ export function compileContent(files: readonly ContentFile[], plugin: ContentGam
       errors.push({ code: 'scene.assetRootMissing', file: sceneFile, path: [], message: 'scene import requires a content root to validate local image paths' });
       continue;
     }
-    const result = importTiledMap(sceneFile, mapFiles.get(sceneFile) ?? '', options.contentRoot);
+    const result = importTiledMap(sceneFile, mapFiles.get(sceneFile) ?? '', options.contentRoot, plugin.resolveSceneImage?.bind(plugin));
     if (result.error) errors.push(result.error);
     else if (result.geometry) {
       const checked = SceneGeometrySchema.safeParse(result.geometry);

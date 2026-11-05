@@ -12,8 +12,10 @@ The `.tmj` file only supplies geometry; it does not create world ownership or gr
 
 No TypeScript is involved. For a new location `loc:<area>.<name>` in an existing area:
 
-1. Put the background image next to the map, e.g. `scenes/<area>/<name>.png`. Inside the `.tmj`, the image layer path is
-   relative to the `.tmj` file (`<name>.png`); the compiled record stores it relative to the content root.
+1. Make sure the background art is in the web asset manifest
+   (`games/rpg/apps/web/public/assets/<region>/manifest.json`, `backgrounds[]` with `id` = the location ID and
+   `nativeSize`). Do not copy the image into `content/`. In the `.tmj`, set the image layer path to
+   `asset:<background id>`, e.g. `asset:loc:region_1.old_well`, and size the map to the manifest `nativeSize`.
 2. Save the map as `scenes/<area>/<name>.tmj` with the layers and settings below. Omit object layers you do not need
    (for example `resources` and `enemyAnchors` when the JSON declares none).
 3. Add `world/locations/<area>/<name>.json` with `"scene": "scenes/<area>/<name>.tmj"` and an `exits[]`/`hotspots[]`/
@@ -32,11 +34,19 @@ steps on a copy of the real content, including the three failures above.
 
 - Save as Tiled JSON (`.tmj`) under `content/scenes/`.
 - Use a finite, orthogonal map with positive integer width, height, tile width and tile height.
-- Add exactly one image layer for the background. Its local image path must resolve to a regular file inside the
-  content root, must not use `..`, an absolute path, a URL, or a backslash. When `imagewidth` or `imageheight` is
-  present, it must match the corresponding map pixel dimension (`map width × tile width` or `map height × tile height`).
-  Tiled added these image-layer fields in 1.11.1, so earlier exports can omit them. The importer does not inspect image
-  pixels; put the image alongside the map or in a child directory.
+- Add exactly one image layer for the background. Its `image` is one of:
+  - `asset:<key>`: a logical key the game plugin resolves to a pixel size (`resolveSceneImage` hook of the compiler
+    plugin). For the RPG, the key is a `backgrounds[].id` of a web asset manifest and the size is its `nativeSize`. The
+    image is not read: the art ships from the web app, so nothing is copied into `content/`. Compilation fails with
+    `scene.assetMissing` if the manifest has no such background and with `scene.backgroundSize` if the map pixel size
+    differs from `nativeSize`. The compiled scene stores `background: "asset:<key>"`.
+  - a local file path relative to the `.tmj`, which must resolve to a regular file inside the content root and must not
+    use `..`, an absolute path, a URL, or a backslash (`scene.imagePathRejected` otherwise, including symlinks that
+    escape the root). The compiled record stores it relative to the content root. The importer does not inspect pixels.
+
+  When `imagewidth` or `imageheight` is present, it must match the corresponding map pixel dimension
+  (`map width × tile width` or `map height × tile height`). Tiled added these image-layer fields in 1.11.1, so earlier
+  exports can omit them.
 - Keep the image layer and object layers visible, fully opaque, at the map origin, with no parallax, scale, repeat,
   offset, tint, transparent-color, or non-normal blend mode. Objects must also remain visible and fully opaque.
   Custom properties, tile layers, tilesets, templates, polygons, ellipses, text and rotated objects are unsupported
@@ -85,8 +95,8 @@ enemy anchors are not sent.
 The web client scales this space onto the background art (per axis: art size divided by map size), so a map authored at
 the art's native size (for example 1086 x 1448) maps one to one. If the map is smaller or larger than the art, author it
 with the same aspect ratio. The renderer keeps at least a 44 px tap target. Region 1 has DRAFT scene geometry (#168) under
-`content/scenes/region_1/`, awaiting owner verification; each `.tmj` references a copy of its background WebP next to it,
-because the importer only accepts images inside the content root. `seed_vault_heart` has no exits or hotspots, so no scene.
+`content/scenes/region_1/`, awaiting owner verification; each `.tmj` references its runtime background from the web asset
+manifest as `asset:loc:region_1.<name>` (no image copies in `content/`). `seed_vault_heart` has no exits or hotspots, so no scene.
 
 ## Validation boundary
 

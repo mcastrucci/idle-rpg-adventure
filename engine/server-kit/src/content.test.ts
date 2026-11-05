@@ -51,4 +51,19 @@ describe('compiled content boot boundary', () => {
     await expect(loadContentBundle(await file({ ...content, scenes: { ...body.scenes, unknown: {} } }), 'test')).rejects.toThrow('envelope');
     await expect(loadContentBundle(await file({ ...content, scenes: { 'loc:scene.test': { ...body.scenes['loc:scene.test'], extra: true } } }), 'test')).rejects.toThrow('envelope');
   });
+  it('accepts an asset: key background but still rejects other colons and malformed keys', async () => {
+    const seed = bundle();
+    const make = (background: string) => {
+      const body = {
+        format: 2, game: seed.game,
+        world: { ...seed.world, locations: [{ id: 'loc:scene.test', tags: [], exits: [], scene: 'scenes/test.tmj' }] },
+        collections: seed.collections,
+        scenes: { 'loc:scene.test': { width: 32, height: 32, background, exits: {}, hotspots: {}, enemyAnchors: {}, resources: {} } },
+      };
+      return { ...body, contentHash: contentHashOf(body) };
+    };
+    await expect(loadContentBundle(await file(make('asset:loc:scene.test')), 'test')).resolves.toBeDefined();
+    await expect(loadContentBundle(await file(make('https://x/y.png')), 'test')).rejects.toThrow('envelope');
+    await expect(loadContentBundle(await file(make('asset:../x')), 'test')).rejects.toThrow('envelope');
+  });
 });

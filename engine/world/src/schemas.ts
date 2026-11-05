@@ -127,10 +127,10 @@ export const SceneRectSchema = z.strictObject({ x: z.number().finite().min(0), y
 export const SceneGeometrySchema = z.strictObject({
   width: z.int().positive(),
   height: z.int().positive(),
-  /** Canonical content-root-relative image path. */
-  background: z.string().regex(/^[a-zA-Z0-9_./-]+$/).refine((value) =>
-    !value.startsWith('/') && !value.includes('\\') && value.split('/').every((part) => part !== '.' && part !== '..' && part !== ''),
-  'must be a safe content-root-relative image path'),
+  /** Canonical content-root-relative image path, or `asset:<key>` naming art the game ships outside the content root. */
+  background: z.string().regex(/^(asset:[a-zA-Z0-9_.:-]+|[a-zA-Z0-9_./-]+)$/).refine((value) => value.startsWith('asset:') ||
+    (!value.startsWith('/') && !value.includes('\\') && value.split('/').every((part) => part !== '.' && part !== '..' && part !== '')),
+  'must be a safe content-root-relative image path or an asset: key'),
   exits: z.record(z.string().min(1), SceneRectSchema),
   hotspots: z.record(z.string().min(1), SceneRectSchema),
   enemyAnchors: z.record(z.string().min(1), ScenePointSchema),
