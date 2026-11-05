@@ -1,10 +1,13 @@
 /**
- * Placeholder scene art. No scene illustrations exist in content yet, so every location gets a deterministic
- * canvas-generated backdrop seeded by its ID: same location, same picture, on every device and every visit. There are
- * no binary assets and no text is drawn (text stays in the DOM). Replace `sceneForLocation` with the real scene
- * manifest when art lands; nothing else in the viewport depends on how the images are made.
+ * Scene art for a location. Locations with art (see regionArt.ts) use their WebP background. Every other location gets
+ * a deterministic canvas-generated placeholder seeded by its ID: same location, same picture, on every device and
+ * every visit. No text is drawn (text stays in the DOM). Nothing else in the viewport depends on how the images are
+ * made.
  */
-import type { SceneImage, SceneSpec } from '@engine/client-kit';
+import type { SceneImage, SceneImageData, SceneSpec } from '@engine/client-kit';
+
+import { ART_INDEX, artImage } from './regionArt.ts';
+import type { ArtIndex } from './regionArt.ts';
 
 export const SCENE_WIDTH = 768;
 export const SCENE_HEIGHT = 512;
@@ -131,8 +134,7 @@ function image(key: string, width: number, height: number, paint: () => HTMLCanv
   return { key, width, height, load: () => Promise.resolve(paint()) };
 }
 
-/** The scene shown for a location. The scene ID is the location ID, so a location change is a scene change. */
-export function sceneForLocation(locationId: string): SceneSpec {
+function placeholderScene(locationId: string): SceneSpec {
   const plan = planScene(locationId);
   return {
     id: locationId,
@@ -144,4 +146,15 @@ export function sceneForLocation(locationId: string): SceneSpec {
     // GAP: exit/hotspot geometry lives in the compiled Tiled `scenes` bundle, which no client endpoint serves yet.
     regions: [],
   };
+}
+
+/**
+ * The scene shown for a location. The scene ID is the location ID, so a location change is a scene change.
+ * A location with art in a region manifest uses its WebP as the background (decoded in `load()`); any other
+ * location gets the deterministic placeholder.
+ */
+export function sceneForLocation(locationId: string, art: ArtIndex = ART_INDEX, decode?: (url: string) => Promise<SceneImageData>): SceneSpec {
+  const found = art.get(locationId);
+  if (!found) return placeholderScene(locationId);
+  return { id: locationId, background: artImage(found, decode), framing: found.framing, layers: [], regions: [] };
 }

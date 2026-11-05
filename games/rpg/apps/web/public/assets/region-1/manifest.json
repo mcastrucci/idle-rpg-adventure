@@ -1,5 +1,23 @@
 {
   "version": 1,
+  "roots": {
+    "runtime": "games/rpg/apps/web/public/assets/region-1",
+    "source": "games/rpg/art/region-1",
+    "repo": "."
+  },
+  "notes": "Runtime files (webp, sprite png+json, previews, mockup html) are served from `runtime` and copied into the web build. Native source PNGs live outside public/ under `source`. Each path is relative to the root of its field: `webp`, `image`, `atlas`, `preview` and `mockup.html` to `runtime`; `source` to `source`; `mockup.raster` to `repo`.",
+  "layout": {
+    "artAspect": [
+      3,
+      4
+    ],
+    "quietZones": {
+      "top": 0.12,
+      "bottom": 0.18
+    },
+    "defaultFocalY": 0.5,
+    "focalYNote": "Optional per-background `focalY` (0..1): the fraction of the art height kept at the vertical centre of the scene viewport. Omitted means 0.5."
+  },
   "backgroundExport": {
     "native": true,
     "resize": false,
@@ -186,7 +204,8 @@
       ],
       "sha256": "886fb70574abdbfb6f4f6f9b6c897720feadfdc1da18dc3f58268a834baf090a",
       "kind": "presentation-hero-appearance",
-      "serverActorId": null
+      "serverActorId": null,
+      "source": "sprites/source/hero_max-native.png"
     },
     {
       "id": "enemy:glowcap_mite",
@@ -207,7 +226,8 @@
         255
       ],
       "sha256": "65d682f65ddbb3f98937675e65b56e566b5b1cbb66a67e0420a71fdcc28ad5e8",
-      "kind": "enemy-content-asset"
+      "kind": "enemy-content-asset",
+      "source": "sprites/source/glowcap_mite-native.png"
     },
     {
       "id": "enemy:thornback_boar",
@@ -228,7 +248,8 @@
         255
       ],
       "sha256": "27fa13e5f1ec910afec652fdb3daea22c495b947768a41ec900f5c6de419fec5",
-      "kind": "enemy-content-asset"
+      "kind": "enemy-content-asset",
+      "source": "sprites/source/thornback_boar-native.png"
     },
     {
       "id": "enemy:hollow_creeper",
@@ -249,7 +270,8 @@
         255
       ],
       "sha256": "14dccc2dcef331996d88679a0c57d81902f7afec9d959cce07351e90924ee853",
-      "kind": "enemy-content-asset"
+      "kind": "enemy-content-asset",
+      "source": "sprites/source/hollow_creeper-native.png"
     },
     {
       "id": "enemy:sentinel_lantern",
@@ -270,7 +292,8 @@
         255
       ],
       "sha256": "766b31ceeec2d0a6947190275f643bd45bb98dc05728ceaa6bbc35261c5300b9",
-      "kind": "enemy-content-asset"
+      "kind": "enemy-content-asset",
+      "source": "sprites/source/sentinel_lantern-native.png"
     },
     {
       "id": "enemy:rusted_tiller",
@@ -291,7 +314,8 @@
         255
       ],
       "sha256": "04105bc732a8006843350c03ef3b4862b4f6f80c7237f923c2b886f33ef1cbe0",
-      "kind": "enemy-content-asset"
+      "kind": "enemy-content-asset",
+      "source": "sprites/source/rusted_tiller-native.png"
     },
     {
       "id": "enemy:hollow_matriarch",
@@ -312,17 +336,19 @@
         255
       ],
       "sha256": "660ed8406cf20c6d577f02fd1ef77cf5ee61c757ddacceac37cd4fb77c156a2f",
-      "kind": "enemy-content-asset"
+      "kind": "enemy-content-asset",
+      "source": "sprites/source/hollow_matriarch-native.png"
     }
   ],
   "mockup": {
     "html": "mockup/index.html",
-    "raster": "mockup/fixed-combat-reference.png",
+    "raster": "docs/design/references/fixed-combat-reference.png",
     "baselineCss": [
       360,
       780
     ],
-    "browserGeometryVerified": false
+    "browserGeometryVerified": false,
+    "rasterRoot": "repo"
   },
   "verification": {
     "dimensionAndBudgetChecks": true,
